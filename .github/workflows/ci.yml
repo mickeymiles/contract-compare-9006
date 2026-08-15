@@ -63,6 +63,7 @@ jobs:
             --exclude='*.db' --exclude='__pycache__' \
             --exclude='.venv' --exclude='venv' \
             --exclude='*.log' --exclude='.pytest_cache' --exclude='uploads' \
+            --exclude='datasource' \
             -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
             ./ ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/home/ubuntu/contract-compare/
 
