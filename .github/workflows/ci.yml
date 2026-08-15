@@ -1,0 +1,72 @@
+# ═════════════════════════════════════════════
+# CI/CD：静态检查 → 单测 → SSH 自动部署（闭环）
+# 触发：push 到 main / PR / 手动
+# 说明：deploy job 仅在 main push 且 lint+test 全绿时自动部署到生产服务器 9006
+# 部署方式：SSH rsync 同步 + 远端 remote_deploy.sh（无需容器镜像）
+# 部署路径硬编码 /home/ubuntu/contract-compare，与 neuops-agent-demo(9007) 隔离
+# ═════════════════════════════════════════════
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: Lint & Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install ruff pytest
+          pip install -r backend/requirements.txt
+
+      - name: Ruff lint
+        # E501 行长忽略；E402/E701/E702/E731/E741/F811 为项目有意兼容写法
+        run: ruff check backend/ --select E,F --ignore E501,E402,E701,E702,E731,E741,F811
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
+
+  deploy:
+    name: Deploy to Production (122.51.98.98:9006)
+    runs-on: ubuntu-latest
+    needs: lint
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Sync code to server (rsync)
+        # 部署路径硬编码，避免误覆盖 neuops-agent-demo(9007)
+        run: |
+          rsync -az --delete \
+            --exclude='.git' --exclude='.github' \
+            --exclude='*.db' --exclude='__pycache__' \
+            --exclude='.venv' --exclude='venv' \
+            --exclude='*.log' --exclude='.pytest_cache' --exclude='uploads' \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
+            ./ ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/home/ubuntu/contract-compare/
+
+      - name: Install deps, restart & health check
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
+            "cd /home/ubuntu/contract-compare && bash scripts/remote_deploy.sh"

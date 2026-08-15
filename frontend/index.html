@@ -4,6 +4,8 @@
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>经营业务工作台测试追改</title>
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<link rel="stylesheet" href="/common.css">
+<!-- 原内联样式已统一迁移至 /common.css（9007 monitor 风格）
 <style>
 :root{--bg:#080d1a;--bg2:#0a1229;--bg3:#111b33;--cyan:#00e5ff;--cyan2:#00b8d4;--green:#00e676;--red:#ff5252;--orange:#ff9100;--purple:#b388ff;--text:#e0e0e0;--text2:#8893aa;--border:#1a2540;--card:#0d1530}
 *{margin:0;padding:0;box-sizing:border-box}
@@ -234,6 +236,7 @@ tr:hover td{background:rgba(0,229,255,.03)}
 .modal-box h4{font-size:14px;color:var(--text)}
 
 </style>
+-->
 </head>
 <body>
 
@@ -270,21 +273,21 @@ tr:hover td{background:rgba(0,229,255,.03)}
       <div class="pc-icon">💰</div>
       <div class="pc-title">回款周期分析</div>
       <div class="pc-desc">合同回款全链路周期追踪，逾期预警与催收管理</div>
-      <div class="pc-tag" style="background:rgba(0,230,118,.15);color:var(--green)">已上线</div>
+      <div class="pc-tag" style="background:rgba(52,211,153,.15);color:var(--green)">已上线</div>
     </div>
     <div class="portal-card" onclick="openFundOccupancy()">
       <div class="pc-num">02</div>
       <div class="pc-icon">📊</div>
       <div class="pc-title">资金占用 · 周转率</div>
       <div class="pc-desc">资金占用分析、周转效率评估、现金流健康度监控</div>
-      <div class="pc-tag" style="background:rgba(0,230,118,.15);color:var(--green)">已上线</div>
+      <div class="pc-tag" style="background:rgba(52,211,153,.15);color:var(--green)">已上线</div>
     </div>
     <div class="portal-card" onclick="location.href='/gross'">
       <div class="pc-num">03</div>
       <div class="pc-icon">📈</div>
       <div class="pc-title">签单毛利率统计</div>
       <div class="pc-desc">按项目/客户/时间段多维度毛利率分析与趋势对比</div>
-      <div class="pc-tag" style="background:rgba(0,230,118,.15);color:var(--green)">已上线</div>
+      <div class="pc-tag" style="background:rgba(52,211,153,.15);color:var(--green)">已上线</div>
     </div>
     <div class="portal-card" onclick="alert('项目决算报告 — 即将上线')">
       <div class="pc-num">04</div>
@@ -298,7 +301,7 @@ tr:hover td{background:rgba(0,229,255,.03)}
       <div class="pc-icon">🔍</div>
       <div class="pc-title">采购合同比对</div>
       <div class="pc-desc">合同基准与供应商报价智能比对，差异识别、整改追踪闭环</div>
-      <div class="pc-tag" style="background:rgba(0,230,118,.15);color:var(--green)">已上线</div>
+      <div class="pc-tag" style="background:rgba(52,211,153,.15);color:var(--green)">已上线</div>
     </div>
     <div class="portal-card add">
       <div class="pc-plus">＋</div>
@@ -731,7 +734,7 @@ async function loadContracts(){
   document.getElementById('contractList').innerHTML=r.contracts.map(c=>{
     const sb={'已闭环(100%)':'badge-s','待供应商整改':'badge-w','比对进行中':'badge-c','未上传基准':'badge-e'}[c.status]||'';
     const pq=c.progress||0;
-    const pc=pq>=70?'#40c080':pq>=30?'#4a90d9':'#f0a040';
+    const pc=pq>=70?'#34d399':pq>=30?'#4f8cff':'#fbbf24';
     return `<div class="ct-list" style="--p:${pq}%;--pc:${pc}" onclick="enterContract(${c.id},'${(c.contract_name||'').replace(/'/g,'\\\'')}')">
       <div style="display:flex;align-items:center;gap:12px">
         <div style="flex:1">
@@ -764,7 +767,7 @@ async function loadWsStats(){
   document.getElementById('wsStatCards').innerHTML=`
     <div class="card"><div class="lbl">${"📄"} 合同条目</div><div class="val c">${s.contract_total||0}</div></div>
     <div class="card"><div class="lbl">${"✅"} 匹配成功</div><div class="val g">${s.matched_count||0}</div></div>
-    <div class="card"><div class="lbl">${"🟠"} 判断符合</div><div class="val o" style="color:#e67e00">${s.judged_count||0}</div></div>
+    <div class="card"><div class="lbl">${"🟠"} 判断符合</div><div class="val o" style="color:#fbbf24">${s.judged_count||0}</div></div>
     <div class="card"><div class="lbl">${"⚠️"} 匹配异常</div><div class="val o">${s.anomaly_count||0}</div></div>
     <div class="card"><div class="lbl">${"🔴"} 待采购</div><div class="val r">${s.pending_count||0}</div></div>
     <div class="card"><div class="lbl">${"🟣"} 供应商增项</div><div class="val p">${s.extra_count||0}</div></div>
@@ -772,9 +775,9 @@ async function loadWsStats(){
   try{
     const pie=echarts.init(document.getElementById('pieChart'));
     pie.setOption({tooltip:{trigger:'item'},series:[{type:'pie',radius:['40%','65%'],data:[
-      {value:s.matched_count||0,name:'匹配成功',itemStyle:{color:'#00e676'}},{value:s.judged_count||0,name:'判断符合',itemStyle:{color:'#e67e00'}},{value:s.anomaly_count||0,name:'匹配异常',itemStyle:{color:'#ff9100'}},{value:s.pending_count||0,name:'待采购',itemStyle:{color:'#ff5252'}},{value:s.extra_count||0,name:'增项',itemStyle:{color:'#b388ff'}}],label:{color:'#8893aa',fontSize:10}}]});
+      {value:s.matched_count||0,name:'匹配成功',itemStyle:{color:'#34d399'}},{value:s.judged_count||0,name:'判断符合',itemStyle:{color:'#fbbf24'}},{value:s.anomaly_count||0,name:'匹配异常',itemStyle:{color:'#f87171'}},{value:s.pending_count||0,name:'待采购',itemStyle:{color:'#60a5fa'}},{value:s.extra_count||0,name:'增项',itemStyle:{color:'#a78bfa'}}],label:{color:'#7d8db0',fontSize:10}}]});
     const tr=echarts.init(document.getElementById('trendChart'));
-    tr.setOption({tooltip:{trigger:'axis'},xAxis:{type:'category',data:r.versions.map(v=>'v'+v.id),axisLabel:{color:'#8893aa'}},yAxis:{max:100,axisLabel:{color:'#8893aa'}},series:[{type:'line',data:r.versions.map(v=>v.progress),smooth:true,lineStyle:{color:'#00e5ff',width:2},itemStyle:{color:'#00e5ff'},areaStyle:{color:{type:'linear',x:0,y:0,x2:0,y2:1,colorStops:[{offset:0,color:'rgba(0,229,255,.3)'},{offset:1,color:'rgba(0,229,255,0)'}]}}}]});
+    tr.setOption({tooltip:{trigger:'axis'},xAxis:{type:'category',data:r.versions.map(v=>'v'+v.id),axisLabel:{color:'#7d8db0'}},yAxis:{max:100,axisLabel:{color:'#7d8db0'}},series:[{type:'line',data:r.versions.map(v=>v.progress),smooth:true,lineStyle:{color:'#22d3ee',width:2},itemStyle:{color:'#22d3ee'},areaStyle:{color:{type:'linear',x:0,y:0,x2:0,y2:1,colorStops:[{offset:0,color:'rgba(34,211,238,.3)'},{offset:1,color:'rgba(34,211,238,0)'}]}}}]});
   }catch(e){}
 }
 
@@ -883,7 +886,7 @@ async function loadResults(){
         err=results.filter(x=>x.match_status==='匹配异常').length,
         miss=results.filter(x=>x.match_status==='待采购').length,
         extra=results.filter(x=>x.match_status==='供应商增项').length;
-  document.getElementById('resSummary').innerHTML=`共 ${total} 条 | <span style="color:var(--green)">✓完全匹配 ${ok}</span> <span style="color:#e67e00">🟠判断符合 ${rc}</span> <span style="color:var(--red)">✗异常 ${err}</span> <span style="color:var(--red)">待采购 ${miss}</span> <span style="color:var(--purple)">增项 ${extra}</span>`;
+  document.getElementById('resSummary').innerHTML=`共 ${total} 条 | <span style="color:var(--green)">✓完全匹配 ${ok}</span> <span style="color:var(--orange)">🟠判断符合 ${rc}</span> <span style="color:var(--red)">✗异常 ${err}</span> <span style="color:var(--red)">待采购 ${miss}</span> <span style="color:var(--purple)">增项 ${extra}</span>`;
   // 动态表头
   const labelCt=ctHdr.length?ctHdr:['设备名称','型号','数量','参数'];
   const labelSp=spHdr.length?spHdr:['设备名称','型号','数量','参数'];
@@ -906,7 +909,7 @@ async function loadResults(){
       thRows[1].querySelectorAll('th').forEach(th=>{th.style.top=firstH+'px';});
     }
   },0);
-  const rowCls={'匹配成功':'','判断符合':'style="background:rgba(255,145,0,.04)"','匹配异常':'style="background:rgba(255,82,82,.08)"','待采购':'style="background:rgba(255,82,82,.1)"','供应商增项':'style="background:rgba(179,136,255,.06)"'};
+  const rowCls={'匹配成功':'','判断符合':'style="background:rgba(251,191,36,.04)"','匹配异常':'style="background:rgba(248,113,113,.08)"','待采购':'style="background:rgba(248,113,113,.1)"','供应商增项':'style="background:rgba(167,139,250,.06)"'};
   const sb={'匹配成功':'badge-s','判断符合':'badge-o','匹配异常':'badge-w','待采购':'badge-e','供应商增项':'badge-p'};
   document.getElementById('resTable').innerHTML=results.map(d=>{
     const anom=d.anomaly_detail||'';
@@ -914,21 +917,21 @@ async function loadResults(){
     const badgeCls = sb[d.match_status]||'';
     const stLabel = d.match_status+(d.confirmed?' ✓':'');
     const rowStyle = rowCls[d.match_status]||'';
-    const btn=d.match_status==='判断符合'&&!d.confirmed?`<button class="btn btn-s" style="background:#40c080;font-size:10px;padding:2px 6px;white-space:nowrap" onclick="confirmAnomaly(${d.id},1)">✓ 确认</button>`:
-             d.match_status==='匹配异常'&&!d.confirmed?`<button class="btn btn-s" style="background:#40c080;font-size:10px;padding:2px 6px;white-space:nowrap" onclick="confirmAnomaly(${d.id},1)">✓ 确认</button>`:
+    const btn=d.match_status==='判断符合'&&!d.confirmed?`<button class="btn btn-s" style="background:#34d399;font-size:10px;padding:2px 6px;white-space:nowrap" onclick="confirmAnomaly(${d.id},1)">✓ 确认</button>`:
+             d.match_status==='匹配异常'&&!d.confirmed?`<button class="btn btn-s" style="background:#34d399;font-size:10px;padding:2px 6px;white-space:nowrap" onclick="confirmAnomaly(${d.id},1)">✓ 确认</button>`:
              d.confirmed?`<button class="btn btn-o btn-s" style="font-size:10px;padding:2px 6px;white-space:nowrap" onclick="confirmAnomaly(${d.id},0)">↩ 撤销</button>`:'';
     // 匹配说明列 —— 逐条按匹配情况着色
     var matchNoteHtml='';
     function _colorize(mn){
       if(!mn) return '';
       return mn.split(String.fromCharCode(10)).map(function(line){
-        var c='#86909C';
+        var c='#7d8db0';
         var t=line;
-        if(t.indexOf('不一致')>=0) c='#F53F3F';
-        else if(t.indexOf('模糊匹配')>=0) c='#e67e00';
-        else if(t.indexOf('精确匹配')>=0 || t.indexOf('一致')>=0) c='#00B42A';
-        else if(t.indexOf('未填写')>=0) c='#86909C';
-        else c='#e67e00';
+        if(t.indexOf('不一致')>=0) c='#f87171';
+        else if(t.indexOf('模糊匹配')>=0) c='#fbbf24';
+        else if(t.indexOf('精确匹配')>=0 || t.indexOf('一致')>=0) c='#34d399';
+        else if(t.indexOf('未填写')>=0) c='#7d8db0';
+        else c='#fbbf24';
         return '<span style="color:'+c+'">'+_html(t)+'</span>';
       }).join('<br>');
     }
@@ -939,7 +942,7 @@ async function loadResults(){
     }else if(d.match_status==='匹配成功'&&mn){
       matchNoteHtml='<span style="font-size:10px">'+_colorize(mn)+'</span>';
     }else if(d.match_status==='匹配成功'&&anom&&anom.startsWith('[模糊匹配]')){
-      matchNoteHtml='<span style="color:#b388ff;font-size:10px">🔮 '+anom.replace(/</g,'&lt;')+'</span>';
+      matchNoteHtml='<span style="color:#a78bfa;font-size:10px">🔮 '+anom.replace(/</g,'&lt;')+'</span>';
     }else if(d.match_status==='匹配异常'){
       matchNoteHtml='<span style="font-size:10px">'+_colorize(mn||anom)+'</span>';
     }else if(d.match_status==='待采购'||d.match_status==='供应商增项'){
@@ -1043,7 +1046,7 @@ async function showDetail(id){
     </div>
     ${anomaly?`<div class="row" style="flex-direction:column;align-items:stretch"><div class="l" style="margin-bottom:4px;color:var(--orange)">⚠️ 异常详情</div><div style="font-size:12px;line-height:1.8;padding:4px 0">${anomaly}</div></div>`:''}
     <div style="display:flex;gap:8px;margin-top:12px">
-      ${d.match_status==='匹配异常'&&!d.confirmed?`<button class="btn btn-s" style="background:#40c080" onclick="confirmAnomaly(${d.id},1)">✓ 确认无误</button>`:''}
+      ${d.match_status==='匹配异常'&&!d.confirmed?`<button class="btn btn-s" style="background:#34d399" onclick="confirmAnomaly(${d.id},1)">✓ 确认无误</button>`:''}
       ${d.confirmed?`<button class="btn btn-o" onclick="confirmAnomaly(${d.id},0)">↩ 撤销确认</button>`:''}
       <button class="btn btn-o" onclick="closeModal()">关闭</button>
     </div>`;
@@ -1293,7 +1296,7 @@ function renderFundResult(data){
     html+='<div class="twrap" id="fundTableWrap"><table class="ana-table" id="fundTable"><thead><tr>';
     const cols=data.columns||Object.keys(data.rows[0]);
     cols.forEach(c=>{html+=`<th>${c}</th>`;});
-    html+='<th>操作</th></tr></thead><tbody>';
+    html+='<th style="min-width:90px;white-space:nowrap">操作</th></tr></thead><tbody>';
     const textCols=new Set(['合同编号','客户名称','项目名称','周期起始日','年化成本率']);
     const numCols=new Set(['合同额','累计付款','累计收款','净现金流','当前资金占用','元天合计','周期总天数','平均资金占用','预估资金成本','片段数','已结清片段','占用中片段']);
     const payCols=new Set(['累计付款','当前资金占用','平均资金占用','预估资金成本','周期总天数']);
@@ -1313,7 +1316,7 @@ function renderFundResult(data){
         html+=`<td class="${cls.trim()}">${v!=null?v:'-'}</td>`;
       });
       const cno=row['合同编号']||row['contract_id']||'';
-      html+=`<td><button class="btn btn-o btn-sm" onclick="showFundDetail('${cno}')">查看详情</button></td>`;
+      html+=`<td style="white-space:nowrap"><button class="btn btn-o btn-sm" style="white-space:nowrap" onclick="showFundDetail('${cno}')">查看详情</button></td>`;
       html+='</tr>';
     });
     html+='</tbody></table></div></div>';
@@ -1461,7 +1464,7 @@ function renderFundCashflow(){
     h+='<th>月份</th><th>付款</th><th>回款</th><th>净现金流</th><th>月末累计余额</th></tr></thead><tbody>';
     reversed.forEach((m,idx)=>{
       const isFirst=idx===0;
-      const rowStyle=isFirst?' style="background:rgba(0,229,255,0.10)"':'';
+      const rowStyle=isFirst?' style="background:rgba(79,140,255,0.10)"':'';
       h+='<tr'+rowStyle+'>';
       h+='<td>'+(isFirst?'<b>'+m.month+' 🔴当前</b>':m.month)+'</td>';
       h+='<td class="pay-green">¥'+Math.abs(m.pay_amount||0).toLocaleString()+'</td>';
@@ -1498,14 +1501,14 @@ function drawCashflowChart(cm){
   chart.setOption({
     tooltip:{trigger:'axis',formatter:function(p){const v=p[0];return '<b>'+v.axisValue+'</b><br/>累计现金流：¥'+(v.value||0).toLocaleString();}},
     grid:{left:70,right:20,top:30,bottom:50},
-    xAxis:{type:'category',data:months,axisLabel:{color:'#86909C',fontSize:10,rotate:35}},
-    yAxis:{type:'value',axisLabel:{color:'#86909C',formatter:function(v){return (v/10000).toFixed(0)+'万';}}},
+    xAxis:{type:'category',data:months,axisLabel:{color:'#7d8db0',fontSize:10,rotate:35}},
+    yAxis:{type:'value',axisLabel:{color:'#7d8db0',formatter:function(v){return (v/10000).toFixed(0)+'万';}}},
     series:[{
       name:'累计现金流',type:'line',data:balances,smooth:true,
       symbol:'circle',symbolSize:6,
-      lineStyle:{width:2,color:'#165DFF'},
-      itemStyle:{color:'#165DFF'},
-      areaStyle:{color:'rgba(22,93,255,0.12)'},
+      lineStyle:{width:2,color:'#4f8cff'},
+      itemStyle:{color:'#4f8cff'},
+      areaStyle:{color:'rgba(79,140,255,0.14)'},
     }]
   });
 }
@@ -1623,9 +1626,9 @@ function renderChinaMap(regions, provinceStats){
   if(hasRegions) h+='<button class="pc-map-tab active" data-pc-tab="'+uid+'_area">🗺️ 六大区</button>';
   if(hasProvs) h+='<button class="pc-map-tab'+(hasRegions?'':' active')+'" data-pc-tab="'+uid+'_prov">🧭 省份</button>';
   h+='</div>';
-  h+='<div id="'+uid+'_area" style="width:100%;height:460px'+(hasRegions?'':';display:none')+'"></div>';
-  h+='<div id="'+uid+'_prov" style="width:100%;height:460px'+(hasRegions?';display:none':'')+'"></div>';
-  h+='<div style="display:flex;gap:12px;margin-top:4px;font-size:10px;color:var(--text2);flex-wrap:wrap"><span style="color:#00e5ff">● 回款快</span><span style="color:#7c3aed">● 回款慢</span></div>';
+  h+='<div id="'+uid+'_area" class="map-chart" style="width:100%;height:500px'+(hasRegions?'':';display:none')+'"></div>';
+  h+='<div id="'+uid+'_prov" class="map-chart" style="width:100%;height:500px'+(hasRegions?';display:none':'')+'"></div>';
+  h+='<div style="display:flex;gap:12px;margin-top:4px;font-size:10px;color:var(--text2);flex-wrap:wrap"><span style="color:#22d3ee">● 回款快</span><span style="color:#a78bfa">● 回款慢</span></div>';
   setTimeout(function(){
     var tabs=document.querySelectorAll('.pc-map-tab[data-pc-tab^="'+uid+'"]');
     tabs.forEach(function(t){t.onclick=function(){tabs.forEach(function(x){x.classList.remove('active');});t.classList.add('active');var k=t.getAttribute('data-pc-tab');document.getElementById(uid+'_area').style.display=(k===uid+'_area')?'block':'none';document.getElementById(uid+'_prov').style.display=(k===uid+'_prov')?'block':'none';var c1=echarts.getInstanceByDom(document.getElementById(uid+'_area'));if(c1)c1.resize();var c2=echarts.getInstanceByDom(document.getElementById(uid+'_prov'));if(c2)c2.resize();};});
@@ -1672,7 +1675,7 @@ function renderChinaMap(regions, provinceStats){
         var chartA=echarts.init(elA);
         var activeArea=null;
         var applyLabel=function(){
-          chartA.setOption({series:[{id:'pc-area-label',data:labelData.map(function(d){var on=activeArea===d.name;return{name:d.name,value:d.center,label:{show:true,fontSize:on?26:15,fontWeight:'bold',color:on?'#ff9100':'#e0e0e0',lineHeight:on?32:22,formatter:d.cycle==null?d.name:d.name+'\n'+d.cycle+'天',textBorderColor:'#080d1a',textBorderWidth:3,},};})}]});
+          chartA.setOption({series:[{id:'pc-area-label',data:labelData.map(function(d){var on=activeArea===d.name;return{name:d.name,value:d.center,label:{show:true,fontSize:on?18:12,fontWeight:'bold',color:on?'#fbbf24':'#dbe4f5',lineHeight:on?22:16,formatter:on?(d.cycle==null?d.name:d.name+'\n'+d.cycle+'天'):d.name,textBorderColor:'#0b1220',textBorderWidth:2,},};})}]});
         };
         var selectArea=function(area){activeArea=area;applyLabel();chartA.dispatchAction({type:'downplay',seriesIndex:0});if(area)chartA.dispatchAction({type:'highlight',seriesIndex:0,name:area});};
         chartA.setOption({
@@ -1682,8 +1685,8 @@ function renderChinaMap(regions, provinceStats){
             if(!s)return p.name;
             return pcEsc(p.name)+'<br>平均 '+pcFmtNum(s.avg_days,1)+' 天<br>合同 '+s.count+' 份（有回款 '+s.with_payment+' / 无回款 '+s.no_payment+'）<br>金额 '+pcFmtNum((s.amount||0)/10000,0)+' 万元';
           }},
-          visualMap:{min:vmin,max:vmax,left:12,bottom:12,calculable:true,text:['回款慢','回款快'],textStyle:{color:'#8893aa',fontSize:11},inRange:{color:['#00e5ff','#60a5fa','#4f46e5','#7c3aed']},formatter:function(v){return Math.round(v)+' 天';}},
-          geo:{map:'pc_regions',roam:false,zoom:1.12,center:[104.5,36.5],itemStyle:{areaColor:'#0d1530',borderColor:'#1a3050',borderWidth:1},emphasis:{itemStyle:{areaColor:'#f59e0b',borderColor:'#b45309',borderWidth:1.6}},label:{show:false}},
+          visualMap:{min:vmin,max:vmax,left:'center',bottom:10,orient:'horizontal',itemWidth:14,itemHeight:100,calculable:true,text:['回款慢','回款快'],textStyle:{color:'#7d8db0',fontSize:11},inRange:{color:['#22d3ee','#60a5fa','#4f8cff','#a78bfa']},formatter:function(v){return Math.round(v)+' 天';}},
+          geo:{map:'pc_regions',roam:false,zoom:1.08,center:[104.5,36.5],itemStyle:{areaColor:'#131c2e',borderColor:'#24324d',borderWidth:1},emphasis:{itemStyle:{areaColor:'#fbbf24',borderColor:'#b45309',borderWidth:1.6}},label:{show:false}},
           series:[
             {type:'map',map:'pc_regions',geoIndex:0,data:areaData,label:{show:false},emphasis:{label:{show:false},itemStyle:{areaColor:'#f59e0b',borderColor:'#b45309',borderWidth:1.6}},itemStyle:{borderWidth:0}},
             {type:'scatter',id:'pc-area-label',coordinateSystem:'geo',silent:true,z:10,symbol:'circle',symbolSize:1,itemStyle:{color:'transparent'},tooltip:{show:false},data:[]},
@@ -1710,9 +1713,9 @@ function renderChinaMap(regions, provinceStats){
             if(!s||!s.avg_days)return pcEsc(p.name)+'<br>暂无回款数据';
             return pcEsc(p.name)+'<br>平均 '+pcFmtNum(s.avg_days,1)+' 天（约 '+pcFmtNum(s.avg_days/365,2)+' 年）<br>合同 '+s.count+' 份 · 有回款 '+s.with_payment+' / 无回款 '+s.no_payment+'<br>金额 '+pcFmtNum((s.amount||0)/10000,0)+' 万元';
           }},
-          visualMap:{min:pmin,max:pmax,left:12,bottom:12,calculable:true,text:['回款慢','回款快'],textStyle:{color:'#8893aa',fontSize:11},inRange:{color:['#00e5ff','#60a5fa','#4f46e5','#7c3aed']},formatter:function(v){return Math.round(v)+' 天';}},
-          geo:{map:'pc_provs',roam:false,zoom:1.12,center:[104.5,36.5],itemStyle:{areaColor:'#0d1530',borderColor:'#1a3050',borderWidth:0.8},emphasis:{label:{show:true,color:'#e0e0e0',fontWeight:'bold'}}},
-          series:[{type:'map',map:'pc_provs',geoIndex:0,data:data,label:{show:false},emphasis:{label:{show:true,color:'#e0e0e0',fontWeight:'bold'}}}],
+          visualMap:{min:pmin,max:pmax,left:'center',bottom:10,orient:'horizontal',itemWidth:14,itemHeight:100,calculable:true,text:['回款慢','回款快'],textStyle:{color:'#7d8db0',fontSize:11},inRange:{color:['#22d3ee','#60a5fa','#4f8cff','#a78bfa']},formatter:function(v){return Math.round(v)+' 天';}},
+          geo:{map:'pc_provs',roam:false,zoom:1.08,center:[104.5,36.5],itemStyle:{areaColor:'#131c2e',borderColor:'#24324d',borderWidth:0.8},emphasis:{label:{show:true,color:'#dbe4f5',fontWeight:'bold'}}},
+          series:[{type:'map',map:'pc_provs',geoIndex:0,data:data,label:{show:false},emphasis:{label:{show:true,color:'#dbe4f5',fontWeight:'bold'}}}],
         });
       }
     });
@@ -1810,97 +1813,46 @@ function renderPaymentAnalysis(d){
   });
   html+='</tbody></table></div></div>';
 
-  // 底部注释
-  html+='<div class="ana-footer"><div class="ana-foot-title">合同回款周期</div><div class="ana-foot-desc">Average（每笔合同最后一笔回款日期-合同生效日期）</div></div>';
-
   // ========== 可视化图表区（2列布局） ==========
   var lastKey=months[months.length-1].key;
+
+  html+='<div class="ana-block"><div class="block-title">📈 可视化分析</div><div style="font-size:11px;color:var(--text2);margin-top:-6px;margin-bottom:12px">Average（每笔合同最后一笔回款日期-合同生效日期）</div></div>';
+
+  html+='<div class="ana-grid">';
   
-  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">';
-  
-  // --- 左列: 项目个数同比 ---
-  html+='<div class="ana-block" style="margin:0"><div class="block-title">📊 项目个数 同比对比</div>';
-  html+='<div style="display:flex;gap:12px;flex-wrap:wrap">';
-  for(var mi=0;mi<months.length;mi++){
-    var mk=months[mi].key;
-    var cv=icid.project_count[mk].current;
-    var pv=icid.project_count[mk].previous;
-    var maxV=Math.max(cv,pv,1);
-    html+='<div style="text-align:center;min-width:100px">';
-    html+='<div style="font-size:10px;color:var(--text2);margin-bottom:4px">'+months[mi].current+'</div>';
-    html+='<div style="display:flex;align-items:flex-end;justify-content:center;gap:6px;height:100px">';
-    html+='<div style="width:30px"><div style="height:'+Math.round(cv/maxV*100)+'px;background:var(--cyan);border-radius:4px 4px 0 0"></div><div style="font-size:10px;color:var(--cyan);margin-top:4px;font-weight:bold">'+cv+'</div></div>';
-    html+='<div style="width:30px"><div style="height:'+Math.round(pv/maxV*100)+'px;background:var(--text2);border-radius:4px 4px 0 0"></div><div style="font-size:10px;color:var(--text2);margin-top:4px">'+pv+'</div></div>';
-    html+='</div></div>';
-  }
-  html+='</div>';
-  html+='<div style="font-size:10px;color:var(--text2);margin-top:4px"><span style="color:var(--cyan)">█ 2026</span> <span style="color:var(--text2);margin-left:8px">█ 2025</span></div></div>';
-  
-  // --- 右列: 平均回款周期同比 ---
-  html+='<div class="ana-block" style="margin:0"><div class="block-title">📊 平均回款周期 同比（天）</div>';
-  html+='<div style="display:flex;gap:12px;flex-wrap:wrap">';
-  for(var mi2=0;mi2<months.length;mi2++){
-    var mk2=months[mi2].key;
-    var cv2=icid.avg_days[mk2].current;
-    var pv2=icid.avg_days[mk2].previous;
-    var maxV2=Math.max(cv2,pv2,1);
-    html+='<div style="text-align:center;min-width:100px">';
-    html+='<div style="font-size:10px;color:var(--text2);margin-bottom:4px">'+months[mi2].current+'</div>';
-    html+='<div style="display:flex;align-items:flex-end;justify-content:center;gap:6px;height:100px">';
-    html+='<div style="width:30px"><div style="height:'+Math.round(cv2/maxV2*100)+'px;background:var(--cyan);border-radius:4px 4px 0 0"></div><div style="font-size:10px;color:var(--cyan);margin-top:4px;font-weight:bold">'+cv2+'</div></div>';
-    html+='<div style="width:30px"><div style="height:'+Math.round(pv2/maxV2*100)+'px;background:var(--text2);border-radius:4px 4px 0 0"></div><div style="font-size:10px;color:var(--text2);margin-top:4px">'+pv2+'</div></div>';
-    html+='</div></div>';
-  }
-  html+='</div>';
-  html+='<div style="font-size:10px;color:var(--text2);margin-top:4px"><span style="color:var(--cyan)">█ 2026</span> <span style="color:var(--text2);margin-left:8px">█ 2025</span></div></div>';
+  // --- 左列: 项目个数同比（ECharts 柱状图） ---
+  var uidCount='chart_count_'+Date.now();
+  html+='<div class="ana-block"><div class="block-title">📊 项目个数 同比对比</div><div id="'+uidCount+'" class="chart-box" style="height:260px"></div></div>';
+
+  // --- 右列: 平均回款周期同比（ECharts 柱状图） ---
+  var uidDays='chart_days_'+Date.now();
+  html+='<div class="ana-block"><div class="block-title">📊 平均回款周期 同比（天）</div><div id="'+uidDays+'" class="chart-box" style="height:260px"></div></div>';
   
   // --- 左列: 回款周期分区分布 ---
   var zoneNames=['0.5以内','0.5-1年','1年以上','2年以上','3年以上'];
-  var zoneCols=['#00B42A','#165DFF','#FF7D00','#F53F3F','#8B0000'];
+  var zoneCols=['#34d399','#4f8cff','#fbbf24','#f87171','#e5484d'];
   var zoneMax=0;
   for(var zi=0;zi<5;zi++){zoneMax=Math.max(zoneMax,zones[zi].data[lastKey].current);}
-  html+='<div class="ana-block" style="margin:0"><div class="block-title">📊 回款周期分区分布（'+months[months.length-1].current+'）</div>';
+  html+='<div class="ana-block"><div class="block-title">📊 回款周期分区分布（'+months[months.length-1].current+'）</div><div class="chart-box" style="min-height:180px;display:flex;flex-direction:column;justify-content:center">';
   for(var zj=0;zj<5;zj++){
     var zv=zones[zj].data[lastKey].current;
-    var zp=Math.round(zv/zoneMax*100);
-    html+='<div style="display:flex;align-items:center;margin:5px 0;font-size:11px">';
-    html+='<span style="width:65px;text-align:right;padding-right:8px;color:var(--text)">'+zoneNames[zj]+'</span>';
-    html+='<div style="flex:1;background:#1a1a2e;border-radius:4px;overflow:hidden;height:20px">';
-    html+='<div style="width:'+zp+'%;background:'+zoneCols[zj]+';height:100%;border-radius:4px;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;font-size:10px;color:#fff;font-weight:bold">'+zv+'个</div>';
+    var zp=Math.round(zv/Math.max(zoneMax,1)*100);
+    var showIn=zp>=16;
+    html+='<div style="display:flex;align-items:center;margin:6px 0;font-size:12px">';
+    html+='<span style="width:78px;text-align:right;padding-right:10px;color:var(--text2);font-size:11px;white-space:nowrap">'+zoneNames[zj]+'</span>';
+    html+='<div style="flex:1;background:var(--bg3);border-radius:6px;overflow:hidden;height:24px;border:1px solid var(--border);display:flex;align-items:center">';
+    html+='<div style="width:'+zp+'%;background:'+zoneCols[zj]+';height:100%;border-radius:6px;display:flex;align-items:center;justify-content:flex-end;padding-right:'+(showIn?8:0)+'px;font-size:11px;color:#0b1220;font-weight:bold;box-shadow:inset 0 0 10px rgba(0,0,0,.1);white-space:nowrap">'+(showIn?zv+'个':'')+'</div>';
+    if(!showIn) html+='<span style="margin-left:8px;color:var(--text);font-size:11px;font-weight:bold">'+zv+'个</span>';
     html+='</div></div>';
   }
-  html+='</div>';
+  html+='</div></div>';
 
   // --- 右列: 回款周期 × 合同金额 气泡图 ---
   var enriched=d.enriched_rows||[];
+  var uid2='';
   if(enriched.length>0){
-    var uid2='scatter_'+Date.now();
-    html+='<div class="ana-block" style="margin:0"><div class="block-title">🔵 回款周期 × 合同金额（共'+enriched.length+'个合同）</div>';
-    html+='<div id="'+uid2+'" style="width:100%;height:380px"></div>';
-    html+='<div style="display:flex;gap:12px;margin-top:4px;font-size:10px;color:var(--text2)">';
-    html+='<span style="color:#00B42A">● 0.5年内</span><span style="color:#165DFF">● 0.5-1年</span><span style="color:#FF7D00">● 1-2年</span><span style="color:#F53F3F">● 2-3年</span><span style="color:#8B0000">● 3年以上</span>';
-    html+='</div></div>';
-    setTimeout(function(){
-      var el=document.getElementById(uid2);if(!el)return;
-      var chart=echarts.init(el);
-      var zoneColors={'0.5以内':'#00B42A','0.5-1年':'#165DFF','1年以上':'#FF7D00','2年以上':'#F53F3F','3年以上':'#8B0000'};
-      var scatterData=enriched.map(function(r){
-        var amt=(r.amount||0)/10000; // 元→万元
-        var color=zoneColors[r.zone]||'#8893aa';
-        return {value:[r.cycle_days||0, amt, amt], name:r.contract_no||'', signDate:r.sign_date||'', dept:r.dept||'', zone:r.zone||'', itemStyle:{color:color,opacity:0.7}};
-      });
-      var maxAmt=0; scatterData.forEach(function(d){maxAmt=Math.max(maxAmt,d.value[2]);});
-      chart.setOption({
-        tooltip:{trigger:'item',formatter:function(p){return '<b>'+p.data.name+'</b><br/>回款周期：'+p.data.value[0]+'天（'+p.data.zone+'）<br/>合同金额：'+(p.data.value[1]).toFixed(0)+'万元<br/>签约：'+p.data.signDate+'<br/>部门：'+p.data.dept;}},
-        grid:{left:65,right:20,top:20,bottom:50},
-        xAxis:{type:'value',name:'回款周期（天）',nameLocation:'center',nameGap:32,nameTextStyle:{color:'#8893aa',fontSize:10},axisLabel:{color:'#8893aa',fontSize:10},splitLine:{lineStyle:{color:'rgba(255,255,255,0.06)'}},min:0,max:function(v){return Math.ceil(v.max/300)*300;}},
-        yAxis:{type:'value',name:'合同金额（万元）',nameTextStyle:{color:'#8893aa',fontSize:10},axisLabel:{color:'#8893aa',fontSize:10},splitLine:{lineStyle:{color:'rgba(255,255,255,0.06)'}}},
-        series:[{type:'scatter',data:scatterData,
-          symbolSize:function(val){var s=Math.max(8,Math.sqrt(val[2]/Math.max(maxAmt,1))*45);return s;},
-          emphasis:{scale:1.5}
-        }]
-      });
-    },250);
+    uid2='scatter_'+Date.now();
+    html+='<div class="ana-block"><div class="block-title">🔵 回款周期 × 合同金额（共'+enriched.length+'个合同）</div><div id="'+uid2+'" class="chart-box" style="height:380px"></div></div>';
   }
 
   html+='</div>'; // close 2-col grid
@@ -1922,13 +1874,83 @@ function renderPaymentAnalysis(d){
     html+='<th>合同编号</th><th>签约日期</th><th>部门</th><th>区域</th><th>省份</th><th>最后一笔回款日期</th><th>回款周期(天)</th><th>年</th><th>分区</th>';
     html+='</tr></thead><tbody>';
     enriched.forEach(r=>{
-      const daysStyle=r.cycle_days>500?' style="color:#F53F3F;font-weight:bold"':'';
+      const daysStyle=r.cycle_days>500?' style="color:#f87171;font-weight:bold"':'';
       html+='<tr><td>'+r.contract_no+'</td><td>'+r.sign_date+'</td><td>'+r.dept+'</td><td>'+r.region+'</td><td>'+r.province+'</td><td>'+r.last_payback_date+'</td><td'+daysStyle+'>'+r.cycle_days+'</td><td>'+r.years+'</td><td>'+r.zone+'</td></tr>';
     });
     html+='</tbody></table></div></div>';
   }
 
   document.getElementById('anaContent').innerHTML=html;
+
+  // 为被截断的指标名称添加 title，便于 hover 查看完整文本
+  document.querySelectorAll('#anaContent .metric-name').forEach(function(td){
+    if(td.scrollWidth>td.clientWidth) td.setAttribute('title', td.textContent);
+  });
+
+  // 统一初始化可视化图表，并在容器尺寸稳定后触发 resize
+  setTimeout(function(){
+    var xData=months.map(function(m){return m.current;});
+    // 项目个数同比
+    var elCount=document.getElementById(uidCount); if(elCount){
+      var chartCount=echarts.init(elCount);
+      chartCount.setOption({
+        tooltip:{trigger:'axis',axisPointer:{type:'shadow'}},
+        legend:{data:['2026','2025'],bottom:2,textStyle:{color:'#7d8db0',fontSize:10},itemWidth:12,itemHeight:8},
+        grid:{left:42,right:12,top:12,bottom:40},
+        xAxis:{type:'category',data:xData,axisLabel:{color:'#7d8db0',fontSize:10,interval:0},axisLine:{lineStyle:{color:'#24324d'}},axisTick:{show:false}},
+        yAxis:{type:'value',axisLabel:{color:'#7d8db0',fontSize:10},splitLine:{lineStyle:{color:'rgba(255,255,255,0.06)'}}},
+        series:[
+          {name:'2026',type:'bar',data:months.map(function(m){return icid.project_count[m.key].current;}),itemStyle:{color:'#22d3ee',borderRadius:[4,4,0,0]},barWidth:14,barGap:'20%'},
+          {name:'2025',type:'bar',data:months.map(function(m){return icid.project_count[m.key].previous;}),itemStyle:{color:'#7d8db0',borderRadius:[4,4,0,0]},barWidth:14}
+        ]
+      });
+    }
+    // 平均回款周期同比
+    var elDays=document.getElementById(uidDays); if(elDays){
+      var chartDays=echarts.init(elDays);
+      chartDays.setOption({
+        tooltip:{trigger:'axis',axisPointer:{type:'shadow'}},
+        legend:{data:['2026','2025'],bottom:2,textStyle:{color:'#7d8db0',fontSize:10},itemWidth:12,itemHeight:8},
+        grid:{left:42,right:12,top:12,bottom:40},
+        xAxis:{type:'category',data:xData,axisLabel:{color:'#7d8db0',fontSize:10,interval:0},axisLine:{lineStyle:{color:'#24324d'}},axisTick:{show:false}},
+        yAxis:{type:'value',axisLabel:{color:'#7d8db0',fontSize:10},splitLine:{lineStyle:{color:'rgba(255,255,255,0.06)'}}},
+        series:[
+          {name:'2026',type:'bar',data:months.map(function(m){return icid.avg_days[m.key].current;}),itemStyle:{color:'#22d3ee',borderRadius:[4,4,0,0]},barWidth:14,barGap:'20%'},
+          {name:'2025',type:'bar',data:months.map(function(m){return icid.avg_days[m.key].previous;}),itemStyle:{color:'#7d8db0',borderRadius:[4,4,0,0]},barWidth:14}
+        ]
+      });
+    }
+    // 散点图
+    if(uid2){
+      var elScatter=document.getElementById(uid2); if(elScatter){
+        var chartScatter=echarts.init(elScatter);
+        var zoneColors={'0.5以内':'#34d399','0.5-1年':'#4f8cff','1年以上':'#fbbf24','2年以上':'#f87171','3年以上':'#e5484d'};
+        var scatterData=enriched.map(function(r){
+          var amt=(r.amount||0)/10000;
+          var color=zoneColors[r.zone]||'#7d8db0';
+          return {value:[r.cycle_days||0, amt, amt], name:r.contract_no||'', signDate:r.sign_date||'', dept:r.dept||'', zone:r.zone||'', itemStyle:{color:color,opacity:0.75}};
+        });
+        var maxAmt=0; scatterData.forEach(function(d){maxAmt=Math.max(maxAmt,d.value[2]);});
+        chartScatter.setOption({
+          tooltip:{trigger:'item',formatter:function(p){return '<b>'+p.data.name+'</b><br/>回款周期：'+p.data.value[0]+'天（'+p.data.zone+'）<br/>合同金额：'+(p.data.value[1]).toFixed(0)+'万元<br/>签约：'+p.data.signDate+'<br/>部门：'+p.data.dept;}},
+          legend:{data:Object.keys(zoneColors),bottom:2,textStyle:{color:'#7d8db0',fontSize:10},itemWidth:10,itemHeight:10},
+          grid:{left:78,right:24,top:22,bottom:58},
+          xAxis:{type:'value',name:'回款周期（天）',nameLocation:'center',nameGap:38,nameTextStyle:{color:'#7d8db0',fontSize:10},axisLabel:{color:'#7d8db0',fontSize:10},splitLine:{lineStyle:{color:'rgba(255,255,255,0.06)'}},min:0,max:function(v){return Math.ceil(v.max/300)*300;}},
+          yAxis:{type:'value',name:'合同金额（万元）',nameLocation:'middle',nameGap:55,nameTextStyle:{color:'#7d8db0',fontSize:10},axisLabel:{color:'#7d8db0',fontSize:10},splitLine:{lineStyle:{color:'rgba(255,255,255,0.06)'}}},
+          series:[{type:'scatter',data:scatterData,
+            symbolSize:function(val){var s=Math.max(6,Math.sqrt(val[2]/Math.max(maxAmt,1))*26);return Math.min(s,34);},
+            emphasis:{scale:1.4}
+          }]
+        });
+      }
+    }
+    // 统一 resize，避免网格初始压缩
+    setTimeout(function(){
+      document.querySelectorAll('#anaContent .chart-box').forEach(function(el){
+        var c=echarts.getInstanceByDom(el); if(c) c.resize();
+      });
+    },200);
+  },300);
 }
 
 goPortal();

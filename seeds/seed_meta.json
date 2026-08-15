@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-08-16 01:29:30",
+  "source_db": "contract_compare.db",
+  "desensitization": {
+    "customer_name": "服务器端已脱敏（拼音缩写，映射见 name_abbr_mapping.json）",
+    "person_name": "服务器端已脱敏（姓+叉叉）",
+    "project_name": "本脚本补充脱敏（映射表子串替换 + 补充词典）",
+    "numbers": "金额/日期/周期等数值原样保留"
+  },
+  "project_name_replaced": 16,
+  "row_counts": {
+    "fund_metrics": 469,
+    "indicator_metrics": 153,
+    "analysis_snapshots": 1,
+    "etl_jobs": 4
+  },
+  "tables": [
+    "fund_metrics",
+    "indicator_metrics",
+    "analysis_snapshots",
+    "etl_jobs"
+  ]
+}
