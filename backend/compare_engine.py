@@ -10,7 +10,6 @@
 """
 import re
 import json
-import os
 from models import get_db
 
 

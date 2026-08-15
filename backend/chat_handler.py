@@ -6,7 +6,9 @@
 2. 回复存储到 DB → SSE 推送到网页
 """
 
-import json, time, threading, subprocess, os
+import threading
+import subprocess
+import os
 from models import get_db
 
 HERMES_BIN = "/home/ubuntu/.hermes/hermes-agent/venv/bin/hermes"

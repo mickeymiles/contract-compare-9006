@@ -5,9 +5,13 @@
 
 from fastapi import FastAPI, UploadFile, File, Query, Form, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
-import os, json, shutil, re, io, urllib.parse
+import os
+import json
+import shutil
+import urllib.parse
+from openpyxl.utils import get_column_letter
 
-from models import init_db, get_db, clear_contract, create_contract, delete_contract, update_contract_status
+from models import init_db, get_db, create_contract, delete_contract, update_contract_status
 from compare_engine import run_comparison
 from excel_handler import import_contract_excel, import_supplier_excel, export_report, reapply_column_mapping
 from chat_handler import handle_user_message, get_messages, register_sse_listener, unregister_sse_listener
@@ -506,6 +510,7 @@ def export_payment_cycle():
                 h_col_dept = h
                 break
     h_col_amount = find_col(h_headers, ['合同金额', '金额', '合同额', '合同总金额'])
+    h_col_region = find_col(h_headers, ['区域', '大区', '片区'])
 
     rtdata = meta.get('项目里程碑表', {})
     rvers = rtdata.get('versions', [])
@@ -859,7 +864,6 @@ async def create_new_contract(name: str = Query(...), no: str = Query(''), sign_
 @app.put("/api/contracts/{contract_id}")
 async def update_contract(contract_id: int):
     """更新合同元信息（通过form data）"""
-    from fastapi import Form
     # Simple update via query params for now
     return JSONResponse({'success': True})
 
@@ -1257,7 +1261,8 @@ def download_report(contract_id: int, version_id: int = Query(...)):
 
 from fastapi.responses import StreamingResponse
 from fastapi import Form
-import asyncio, json
+import asyncio
+import json
 
 @app.post("/api/chat/send")
 async def chat_send(message: str = Form(...), contract_id: int = Form(0)):
@@ -1890,7 +1895,7 @@ def fund_segments(contract_id: str):
 def fund_analyze_export():
     """导出资金占用分析结果"""
     import openpyxl
-    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.styles import Font, PatternFill, Alignment
     from datetime import datetime
 
     # 先执行分析
