@@ -230,6 +230,14 @@ def analysis_payment_cycle():
                 break
     h_col_amount = find_col(h_headers, ['合同金额', '金额', '合同额', '合同总金额'])
     h_col_region = find_col(h_headers, ['区域', '大区', '片区'])
+    # 省份列：优先精确匹配“省”（避免被“省分”抢占）
+    h_col_province = None
+    for h in h_headers:
+        if str(h).strip() in ('省', '省份'):
+            h_col_province = h
+            break
+    if h_col_province is None:
+        h_col_province = find_col(h_headers, ['省份'])
     
     # 读取 R 表（项目里程碑表），按合同编号建索引
     rtdata = meta.get('项目里程碑表', {})
@@ -261,6 +269,7 @@ def analysis_payment_cycle():
             sdate = parse_date(row.get(h_col_date))
             dept = safe_str(row.get(h_col_dept, ''))
             region = safe_str(row.get(h_col_region, '')) if h_col_region else ''
+            province = safe_str(row.get(h_col_province, '')) if h_col_province else ''
             amount = safe_float(row.get(h_col_amount)) if h_col_amount else 0
             
             if not sdate or sdate.year != target_year:
@@ -290,6 +299,7 @@ def analysis_payment_cycle():
                 'sign_date': sdate.strftime('%Y-%m-%d') if sdate else '',
                 'dept': dept,
                 'region': region,
+                'province': province,
                 'amount': amount,
                 'last_payback_date': last_payback.strftime('%Y-%m-%d') if last_payback else '',
                 'cycle_days': cycle_days,
@@ -301,16 +311,45 @@ def analysis_payment_cycle():
     enriched_2026 = enrich_for_year(h_data, 2026)
     enriched_2025 = enrich_for_year(h_data, 2025)
     
-    # 区域聚合（2026全年）— 含平均周期
+    # 区域聚合（2026全年）— 含平均周期 / 有回款 / 无回款 / 金额
     region_stats = {}
     for r in enriched_2026:
         reg = r.get('region', '') or '未知'
         if reg not in region_stats:
-            region_stats[reg] = {'count': 0, 'total_days': 0}
+            region_stats[reg] = {'count': 0, 'total_days': 0, 'with_payment': 0, 'no_payment': 0, 'total_amount': 0.0}
+        cd = r.get('cycle_days', 0) or 0
+        amt = r.get('amount', 0) or 0
         region_stats[reg]['count'] += 1
-        region_stats[reg]['total_days'] += r.get('cycle_days', 0) or 0
-    region_agg = [{'region': k, 'count': v['count'], 'avg_days': round(v['total_days']/v['count']) if v['count']>0 else 0} 
+        region_stats[reg]['total_days'] += cd
+        region_stats[reg]['total_amount'] += amt
+        if cd > 0:
+            region_stats[reg]['with_payment'] += 1
+        else:
+            region_stats[reg]['no_payment'] += 1
+    region_agg = [{'region': k, 'count': v['count'], 'avg_days': round(v['total_days']/v['count']) if v['count']>0 else 0,
+                   'with_payment': v['with_payment'], 'no_payment': v['no_payment'],
+                   'amount': round(v['total_amount'])} 
                   for k, v in sorted(region_stats.items(), key=lambda x: -x[1]['count'])]
+
+    # 省份聚合（2026全年）— 供省份着色地图
+    prov_stats = {}
+    for r in enriched_2026:
+        pv = r.get('province', '') or '未知'
+        if pv not in prov_stats:
+            prov_stats[pv] = {'count': 0, 'total_days': 0, 'with_payment': 0, 'no_payment': 0, 'total_amount': 0.0}
+        cd = r.get('cycle_days', 0) or 0
+        amt = r.get('amount', 0) or 0
+        prov_stats[pv]['count'] += 1
+        prov_stats[pv]['total_days'] += cd
+        prov_stats[pv]['total_amount'] += amt
+        if cd > 0:
+            prov_stats[pv]['with_payment'] += 1
+        else:
+            prov_stats[pv]['no_payment'] += 1
+    province_agg = [{'province': k, 'count': v['count'], 'avg_days': round(v['total_days']/v['count']) if v['count']>0 else 0,
+                     'with_payment': v['with_payment'], 'no_payment': v['no_payment'],
+                     'amount': round(v['total_amount'])} 
+                    for k, v in sorted(prov_stats.items(), key=lambda x: -x[1]['count'])]
     
     # 按月累计计算（6-8月）
     target_months = [(2026, 6), (2026, 7), (2026, 8)]
@@ -394,6 +433,7 @@ def analysis_payment_cycle():
             'enriched_rows': enriched_2026[:500],
             'enriched_total': len(enriched_2026),
             'regions': region_agg,
+            'province_stats': province_agg,
         }
     }
 

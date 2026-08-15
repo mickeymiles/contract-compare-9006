@@ -1597,26 +1597,124 @@ function exportPaymentAnalysis(){
   window.open(API+'/api/analysis/payment-cycle/export');
 }
 
-function renderChinaMap(regions){
-  if(!regions||!regions.length) return '<div style="color:var(--text2);font-size:11px;padding:12px">暂无区域数据</div>';
+// ========== 中国地图：六大区合并地图 + 省份着色地图（Tab 切换） ==========
+var PC_AREA_PROVINCES={
+  '华北':['北京市','天津市','河北省','山西省','内蒙古自治区'],
+  '华东':['上海市','江苏省','浙江省','安徽省','福建省','江西省','山东省'],
+  '东北':['辽宁省','吉林省','黑龙江省'],
+  '华中':['河南省','湖北省','湖南省'],
+  '华南':['广东省','广西壮族自治区','海南省'],
+  '西部':['重庆市','四川省','贵州省','云南省','西藏自治区','陕西省','甘肃省','青海省','宁夏回族自治区','新疆维吾尔自治区'],
+};
+var PC_PROV_FULL={'北京':'北京市','天津':'天津市','河北':'河北省','山西':'山西省','内蒙古':'内蒙古自治区','辽宁':'辽宁省','吉林':'吉林省','黑龙江':'黑龙江省','上海':'上海市','江苏':'江苏省','浙江':'浙江省','安徽':'安徽省','福建':'福建省','江西':'江西省','山东':'山东省','河南':'河南省','湖北':'湖北省','湖南':'湖南省','广东':'广东省','广西':'广西壮族自治区','海南':'海南省','重庆':'重庆市','四川':'四川省','贵州':'贵州省','云南':'云南省','西藏':'西藏自治区','陕西':'陕西省','甘肃':'甘肃省','青海':'青海省','宁夏':'宁夏回族自治区','新疆':'新疆维吾尔自治区','台湾':'台湾省','香港':'香港特别行政区','澳门':'澳门特别行政区'};
+var PC_POLYCLIP_URL='https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.3/dist/polygon-clipping.umd.min.js';
+function pcLoadScript(src){return new Promise(function(resolve){var s=document.createElement('script');s.src=src;s.onload=function(){resolve(window.polygonClipping||null);};s.onerror=function(){resolve(null);};document.head.appendChild(s);});}
+function pcFlatten(coords,out){coords.forEach(function(c){if(typeof c[0]==='number')out.push(c);else pcFlatten(c,out);});return out;}
+function pcBBoxCenter(coords){var pts=[];pcFlatten(coords,pts);if(!pts.length)return null;var xs=pts.map(function(p){return p[0];}),ys=pts.map(function(p){return p[1];});return[(Math.min.apply(null,xs)+Math.max.apply(null,xs))/2,(Math.min.apply(null,ys)+Math.max.apply(null,ys))/2];}
+function pcFmtNum(n,d){d=d===undefined?0:d;if(n==null)return '-';return Number(n).toLocaleString('zh-CN',{minimumFractionDigits:d,maximumFractionDigits:d});}
+function pcEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+function renderChinaMap(regions, provinceStats){
+  var hasRegions=regions&&regions.length>0;
+  var hasProvs=provinceStats&&provinceStats.length>0;
+  if(!hasRegions&&!hasProvs) return '<div style="color:var(--text2);font-size:11px;padding:12px">暂无区域/省份数据</div>';
   var uid='chinaMap_'+Date.now();
-  // 大区→省会坐标映射（用于 scatter 标注在地图上）
-  var regionPos={'华北':[116.4,39.9],'东北':[125.3,43.9],'华东':[121.5,31.2],'华中':[113.7,34.8],'华南':[113.3,23.1],'西部':[104.1,30.7],'西北':[108.9,34.3],'西南':[104.1,30.7]};
-  var maxAvg=0,minAvg=99999;regions.forEach(function(r){maxAvg=Math.max(maxAvg,r.avg_days||0);minAvg=Math.min(minAvg,r.avg_days||0);});
-  var h='<div id="'+uid+'" style="width:100%;height:280px"></div>';
-  h+='<div style="display:flex;gap:12px;margin-top:4px;font-size:10px;color:var(--text2);flex-wrap:wrap">';
-  h+='<span style="color:#00B42A">● &lt;150天</span><span style="color:#165DFF">● 150-300天</span><span style="color:#FF7D00">● 300-500天</span><span style="color:#F53F3F">● &gt;500天</span>';
+  var h='<div style="display:flex;gap:10px;margin-bottom:8px;flex-wrap:wrap">';
+  if(hasRegions) h+='<button class="pc-map-tab active" data-pc-tab="'+uid+'_area">🗺️ 六大区</button>';
+  if(hasProvs) h+='<button class="pc-map-tab'+(hasRegions?'':' active')+'" data-pc-tab="'+uid+'_prov">🧭 省份</button>';
   h+='</div>';
+  h+='<div id="'+uid+'_area" style="width:100%;height:460px'+(hasRegions?'':';display:none')+'"></div>';
+  h+='<div id="'+uid+'_prov" style="width:100%;height:460px'+(hasRegions?';display:none':'')+'"></div>';
+  h+='<div style="display:flex;gap:12px;margin-top:4px;font-size:10px;color:var(--text2);flex-wrap:wrap"><span style="color:#00e5ff">● 回款快</span><span style="color:#7c3aed">● 回款慢</span></div>';
   setTimeout(function(){
-    var el=document.getElementById(uid);if(!el)return;
-    if(!chinaGeoJson){el.innerHTML='<div style="color:var(--text2);padding:20px;text-align:center">地图数据加载中...</div>';return;}
-    var chart=echarts.init(el);
-    // scatter 数据
-    var scatterData=regions.map(function(r){var p=regionPos[r.region]||[105,35];var color=r.avg_days>500?'#F53F3F':r.avg_days>300?'#FF7D00':r.avg_days>150?'#165DFF':'#00B42A';var size=Math.max(12,Math.min(50,r.avg_days/10));return{value:[p[0],p[1],r.avg_days],name:r.region,count:r.count,avgDays:r.avg_days,itemStyle:{color:color},symbolSize:size};});
-    chart.setOption({
-      tooltip:{trigger:'item',formatter:function(p){if(p.seriesType==='scatter')return '<b>'+p.data.name+'</b><br/>平均回款周期：'+p.data.avgDays+'天';return p.name;}},
-      geo:{map:'china',roam:false,zoom:1.2,center:[105,36],itemStyle:{areaColor:'#0d1530',borderColor:'#1a3050',borderWidth:1},emphasis:{itemStyle:{areaColor:'#1a3050'}},label:{show:false}},
-      series:[{type:'scatter',coordinateSystem:'geo',data:scatterData,encode:{value:2},label:{show:true,formatter:function(p){return p.data.name;},position:'top',color:'#e0e0e0',fontSize:9,offset:[0,-5]},emphasis:{scale:2}}]
+    var tabs=document.querySelectorAll('.pc-map-tab[data-pc-tab^="'+uid+'"]');
+    tabs.forEach(function(t){t.onclick=function(){tabs.forEach(function(x){x.classList.remove('active');});t.classList.add('active');var k=t.getAttribute('data-pc-tab');document.getElementById(uid+'_area').style.display=(k===uid+'_area')?'block':'none';document.getElementById(uid+'_prov').style.display=(k===uid+'_prov')?'block':'none';var c1=echarts.getInstanceByDom(document.getElementById(uid+'_area'));if(c1)c1.resize();var c2=echarts.getInstanceByDom(document.getElementById(uid+'_prov'));if(c2)c2.resize();};});
+    if(!chinaGeoJson){document.getElementById(uid+'_area').innerHTML='<div style="color:var(--text2);padding:20px;text-align:center">地图数据加载中...</div>';return;}
+    var srcGeo=chinaGeoJson;
+    Promise.all([pcLoadScript(PC_POLYCLIP_URL)]).then(function(res){
+      var pc=res[0];
+      // ---- 六大区合并地图 ----
+      if(hasRegions){
+        var elA=document.getElementById(uid+'_area');if(!elA)return;
+        var byArea={};regions.forEach(function(r){if(r.region)byArea[r.region]=r;});
+        var regionFeatures=[];
+        Object.keys(PC_AREA_PROVINCES).forEach(function(area){
+          var provs=srcGeo.features.filter(function(f){return PC_AREA_PROVINCES[area].indexOf(f.properties.name)>=0;});
+          if(!provs.length)return;
+          var feat;
+          if(pc){
+            var geoms=provs.map(function(f){return f.geometry.type==='Polygon'?[f.geometry.coordinates]:f.geometry.coordinates;});
+            var merged=[];
+            try{merged=pc.union.apply(pc,geoms);}catch(e){merged=[];}
+            feat={type:'Feature',properties:{},geometry:{type:'MultiPolygon',coordinates:merged}};
+          }else{
+            var coords=[];
+            provs.forEach(function(f){var c=f.geometry.type==='MultiPolygon'?f.geometry.coordinates:[f.geometry.coordinates];c.forEach(function(poly){coords.push(poly);});});
+            feat={type:'Feature',properties:{},geometry:{type:'MultiPolygon',coordinates:coords}};
+          }
+          if(!feat||!feat.geometry)return;
+          feat.properties={name:area};
+          var ctrs=provs.map(function(p){return pcBBoxCenter(p.geometry.coordinates);}).filter(function(c){return !!c;});
+          var center=ctrs.length?[ctrs.reduce(function(s,c){return s+c[0];},0)/ctrs.length,ctrs.reduce(function(s,c){return s+c[1];},0)/ctrs.length]:null;
+          regionFeatures.push({name:area,feature:feat,center:center});
+        });
+        ['台湾省','南海诸岛'].forEach(function(nm){
+          var f=srcGeo.features.find(function(x){return x.properties.name===nm;});
+          if(f)regionFeatures.push({name:nm,feature:f,center:pcBBoxCenter(f.geometry.coordinates)});
+        });
+        if(regionFeatures.length<2){elA.innerHTML='<div style="color:var(--text2);padding:20px;text-align:center">区域数据不足</div>';return;}
+        echarts.registerMap('pc_regions',{type:'FeatureCollection',features:regionFeatures.map(function(r){return r.feature;})});
+        var values=regions.map(function(r){return r.avg_days||0;}).filter(function(v){return v>0;});
+        var vmin=values.length?Math.min.apply(null,values):0;
+        var vmax=values.length?Math.max.apply(null,values):1;
+        var areaData=Object.keys(PC_AREA_PROVINCES).map(function(area){var s=byArea[area];return{name:area,value:s&&s.avg_days>0?s.avg_days:null};});
+        var labelData=regionFeatures.filter(function(r){return PC_AREA_PROVINCES[r.name]&&r.center;}).map(function(r){var s=byArea[r.name];return{name:r.name,center:r.center,cycle:s&&s.avg_days>0?Math.round(s.avg_days):null};});
+        var chartA=echarts.init(elA);
+        var activeArea=null;
+        var applyLabel=function(){
+          chartA.setOption({series:[{id:'pc-area-label',data:labelData.map(function(d){var on=activeArea===d.name;return{name:d.name,value:d.center,label:{show:true,fontSize:on?26:15,fontWeight:'bold',color:on?'#ff9100':'#e0e0e0',lineHeight:on?32:22,formatter:d.cycle==null?d.name:d.name+'\n'+d.cycle+'天',textBorderColor:'#080d1a',textBorderWidth:3,},};})}]});
+        };
+        var selectArea=function(area){activeArea=area;applyLabel();chartA.dispatchAction({type:'downplay',seriesIndex:0});if(area)chartA.dispatchAction({type:'highlight',seriesIndex:0,name:area});};
+        chartA.setOption({
+          tooltip:{trigger:'item',formatter:function(p){
+            if(p.componentType!=='series'||p.seriesType!=='map'||!p.name)return '';
+            var s=byArea[p.name];
+            if(!s)return p.name;
+            return pcEsc(p.name)+'<br>平均 '+pcFmtNum(s.avg_days,1)+' 天<br>合同 '+s.count+' 份（有回款 '+s.with_payment+' / 无回款 '+s.no_payment+'）<br>金额 '+pcFmtNum((s.amount||0)/10000,0)+' 万元';
+          }},
+          visualMap:{min:vmin,max:vmax,left:12,bottom:12,calculable:true,text:['回款慢','回款快'],textStyle:{color:'#8893aa',fontSize:11},inRange:{color:['#00e5ff','#60a5fa','#4f46e5','#7c3aed']},formatter:function(v){return Math.round(v)+' 天';}},
+          geo:{map:'pc_regions',roam:false,zoom:1.12,center:[104.5,36.5],itemStyle:{areaColor:'#0d1530',borderColor:'#1a3050',borderWidth:1},emphasis:{itemStyle:{areaColor:'#f59e0b',borderColor:'#b45309',borderWidth:1.6}},label:{show:false}},
+          series:[
+            {type:'map',map:'pc_regions',geoIndex:0,data:areaData,label:{show:false},emphasis:{label:{show:false},itemStyle:{areaColor:'#f59e0b',borderColor:'#b45309',borderWidth:1.6}},itemStyle:{borderWidth:0}},
+            {type:'scatter',id:'pc-area-label',coordinateSystem:'geo',silent:true,z:10,symbol:'circle',symbolSize:1,itemStyle:{color:'transparent'},tooltip:{show:false},data:[]},
+          ],
+        });
+        applyLabel();
+        chartA.on('click',function(p){if(p.componentType==='series'&&p.seriesType==='map'){selectArea(PC_AREA_PROVINCES[p.name]?p.name:null);}});
+      }
+      // ---- 省份着色地图 ----
+      if(hasProvs){
+        var elP=document.getElementById(uid+'_prov');if(!elP)return;
+        var byProv={};
+        provinceStats.forEach(function(s){var full=PC_PROV_FULL[s.province]||s.province;if(full)byProv[full]=s;});
+        echarts.registerMap('pc_provs',{type:'FeatureCollection',features:srcGeo.features});
+        var data=Object.keys(byProv).map(function(nm){var s=byProv[nm];return{name:nm,value:s&&s.avg_days>0?s.avg_days:null};});
+        var pvals=data.map(function(d){return d.value;}).filter(function(v){return v!=null;});
+        var pmin=pvals.length?Math.min.apply(null,pvals):0;
+        var pmax=pvals.length?Math.max.apply(null,pvals):1;
+        var chartP=echarts.init(elP);
+        chartP.setOption({
+          tooltip:{trigger:'item',formatter:function(p){
+            if(p.componentType!=='series'||p.seriesType!=='map'||!p.name)return '';
+            var s=byProv[p.name];
+            if(!s||!s.avg_days)return pcEsc(p.name)+'<br>暂无回款数据';
+            return pcEsc(p.name)+'<br>平均 '+pcFmtNum(s.avg_days,1)+' 天（约 '+pcFmtNum(s.avg_days/365,2)+' 年）<br>合同 '+s.count+' 份 · 有回款 '+s.with_payment+' / 无回款 '+s.no_payment+'<br>金额 '+pcFmtNum((s.amount||0)/10000,0)+' 万元';
+          }},
+          visualMap:{min:pmin,max:pmax,left:12,bottom:12,calculable:true,text:['回款慢','回款快'],textStyle:{color:'#8893aa',fontSize:11},inRange:{color:['#00e5ff','#60a5fa','#4f46e5','#7c3aed']},formatter:function(v){return Math.round(v)+' 天';}},
+          geo:{map:'pc_provs',roam:false,zoom:1.12,center:[104.5,36.5],itemStyle:{areaColor:'#0d1530',borderColor:'#1a3050',borderWidth:0.8},emphasis:{label:{show:true,color:'#e0e0e0',fontWeight:'bold'}}},
+          series:[{type:'map',map:'pc_provs',geoIndex:0,data:data,label:{show:false},emphasis:{label:{show:true,color:'#e0e0e0',fontWeight:'bold'}}}],
+        });
+      }
     });
   },200);
   return h;
@@ -1651,6 +1749,31 @@ function renderPaymentAnalysis(d){
   const icid=d.icid||{}, dept=d.department||{}, zones=d.zones||[];
 
   let html='';
+
+  // ========== KPI 总览卡片区 ==========
+  var kpiRows=d.enriched_rows||[];
+  var kpiTotal=kpiRows.length;
+  var kpiWith=0,kpiNo=0,kpiAmount=0,kpiSumDays=0;
+  kpiRows.forEach(function(r){var cd=r.cycle_days||0;var amt=(r.amount||0)/10000;
+    if(cd>0){kpiWith++;kpiSumDays+=cd;}else{kpiNo++;}
+    kpiAmount+=amt;
+  });
+  var kpiAvg=kpiWith>0?Math.round(kpiSumDays/kpiWith):0;
+  var kpiSorted=kpiRows.map(function(r){return r.cycle_days||0;}).filter(function(v){return v>0;}).sort(function(a,b){return a-b;});
+  var kpiMed=kpiSorted.length>0?(kpiSorted.length%2===1?kpiSorted[(kpiSorted.length-1)/2]:(kpiSorted[kpiSorted.length/2-1]+kpiSorted[kpiSorted.length/2])/2):0;
+  var kpiMapped=[
+    {l:'签约合同（份）',v:kpiTotal,c:'c',icon:'📄'},
+    {l:'已有回款（份）',v:kpiWith,c:'g',icon:'✅'},
+    {l:'无回款（份）',v:kpiNo,c:kpiNo>0?'r':'',icon:'⚠️'},
+    {l:'平均回款周期（天）',v:kpiAvg,c:'o',icon:'⏱️'},
+    {l:'中位回款周期（天）',v:Math.round(kpiMed),c:'p',icon:'📐'},
+    {l:'合同总额（万元）',v:Math.round(kpiAmount),c:'c',icon:'💰'},
+  ];
+  html+='<div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">';
+  kpiMapped.forEach(function(k){
+    html+='<div class="card"><div class="lbl">'+k.icon+' '+k.l+'</div><div class="val '+k.c+'">'+k.v.toLocaleString()+'</div></div>';
+  });
+  html+='</div>';
 
   // 区块1: ICID 整体汇总
   html+='<div class="ana-block"><div class="block-title">📊 ICID 整体汇总</div>';
@@ -1782,10 +1905,11 @@ function renderPaymentAnalysis(d){
 
   html+='</div>'; // close 2-col grid
 
-  // --- 中国地图：独占一整行 ---
+  // --- 中国地图：独占一整行（六大区合并 + 省份着色，Tab 切换） ---
   var regions=d.regions||[];
-  html+='<div class="ana-block" style="margin-top:20px"><div class="block-title">🗺️ 区域回款周期分布（'+months[months.length-1].current+'）</div>';
-  html+=renderChinaMap(regions);
+  var provStats=d.province_stats||[];
+  html+='<div class="ana-block" style="margin-top:20px"><div class="block-title">🗺️ 中国地图 · 平均回款周期（'+months[months.length-1].current+'）</div>';
+  html+=renderChinaMap(regions, provStats);
   html+='</div>';
 
   // 补充后的数据表（按回款周期从大到小排列）
@@ -1795,11 +1919,11 @@ function renderPaymentAnalysis(d){
   if(enriched.length>0){
     html+='<div class="ana-block" style="margin-top:24px"><div class="block-title" style="cursor:pointer" onclick="document.getElementById(\'enrichedTableWrap\').classList.toggle(\'open\');this.querySelector(\'.toggle-arrow\').textContent=document.getElementById(\'enrichedTableWrap\').classList.contains(\'open\')?\'▾\':\'▸\'">📋 补充后数据表 <span class="toggle-arrow" style="font-size:12px;color:var(--text2)">▸</span> <span style="font-size:11px;color:var(--text2);font-weight:normal">（共 '+enrichedTotal+' 条，显示前 '+enriched.length+' 条）</span></div>';
     html+='<div id="enrichedTableWrap" style="display:none;max-height:400px;overflow:auto"><table class="ana-table" style="font-size:10px"><thead><tr>';
-    html+='<th>合同编号</th><th>签约日期</th><th>部门</th><th>最后一笔回款日期</th><th>回款周期(天)</th><th>年</th><th>分区</th>';
+    html+='<th>合同编号</th><th>签约日期</th><th>部门</th><th>区域</th><th>省份</th><th>最后一笔回款日期</th><th>回款周期(天)</th><th>年</th><th>分区</th>';
     html+='</tr></thead><tbody>';
     enriched.forEach(r=>{
       const daysStyle=r.cycle_days>500?' style="color:#F53F3F;font-weight:bold"':'';
-      html+='<tr><td>'+r.contract_no+'</td><td>'+r.sign_date+'</td><td>'+r.dept+'</td><td>'+r.last_payback_date+'</td><td'+daysStyle+'>'+r.cycle_days+'</td><td>'+r.years+'</td><td>'+r.zone+'</td></tr>';
+      html+='<tr><td>'+r.contract_no+'</td><td>'+r.sign_date+'</td><td>'+r.dept+'</td><td>'+r.region+'</td><td>'+r.province+'</td><td>'+r.last_payback_date+'</td><td'+daysStyle+'>'+r.cycle_days+'</td><td>'+r.years+'</td><td>'+r.zone+'</td></tr>';
     });
     html+='</tbody></table></div></div>';
   }

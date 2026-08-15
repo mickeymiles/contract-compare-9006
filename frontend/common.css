@@ -177,6 +177,10 @@ tr:hover td{background:rgba(0,229,255,.03)}
 .ana-empty{text-align:center;padding:60px;color:var(--text2)}
 .ana-empty .icon{font-size:48px;margin-bottom:12px}
 #enrichedTableWrap.open{display:block!important}
+/* 地图页签 */
+.pc-map-tab{padding:7px 16px;border:1px solid var(--border);border-radius:20px;background:var(--bg3);color:var(--text2);font-size:12px;cursor:pointer;transition:all .2s}
+.pc-map-tab:hover{color:var(--text);border-color:var(--cyan)}
+.pc-map-tab.active{background:var(--cyan);color:#000;font-weight:bold;border-color:var(--cyan)}
 /* 帮助弹窗 */
 .help-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.75);z-index:300;overflow-y:auto}
 .help-overlay.show{display:block}
