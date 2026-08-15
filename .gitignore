@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.db
+*.sqlite3
+*.xlsx
+*.bak.*
+.DS_Store
+uploads/
+
+# 本地运行产物
+.venv/
+venv/
+.pytest_cache/
+*.log
+nohup.out

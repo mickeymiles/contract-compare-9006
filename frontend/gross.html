@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>签单毛利率统计</title>
+<link rel="stylesheet" href="/common.css">
+</head>
+<body>
+<div class="header">
+  <nav class="crumb">
+    <span class="crumb-root" onclick="location.href='/'">运营管理</span>
+    <span class="crumb-sep">›</span>
+    <span class="crumb-cur">📈 签单毛利率统计</span>
+  </nav>
+  <span style="flex:1"></span>
+</div>
+
+<div style="padding:24px">
+  <!-- 分析按钮（读宽表） -->
+  <div class="ana-actions" style="margin-bottom:24px">
+    <button class="btn btn-o" onclick="loadMetrics()" id="btnGrossRun">🔄 刷新宽表</button>
+    <span style="font-size:11px;color:var(--text2)" id="grossStatus">数据来源：指标宽表（定时任务「签单毛利指标计算」预计算）</span>
+  </div>
+
+  <!-- 结果区 -->
+  <div id="grossContent">
+    <div class="ana-empty"><div class="icon">📈</div><div>正在读取指标宽表...</div></div>
+  </div>
+</div>
+
+<script>
+const API='';
+async function loadMetrics(){
+  document.getElementById('grossStatus').textContent='读取指标宽表...';
+  try{
+    const r=await fetch('/api/gross/metrics');
+    const d=await r.json();
+    if(d.success){
+      document.getElementById('grossStatus').textContent='数据来源：指标宽表（定时任务「签单毛利指标计算」预计算）';
+      renderGrossResult(d);
+    }else{
+      document.getElementById('grossStatus').textContent=d.error||'宽表为空';
+      document.getElementById('grossContent').innerHTML='<div class="ana-empty"><div class="icon">📈</div><div>'+(d.error||'指标宽表为空，请先在 9007 长期任务执行「签单毛利指标计算」')+'</div></div>';
+    }
+  }catch(e){
+    document.getElementById('grossStatus').textContent='读取宽表失败: '+e.message;
+  }
+}
+function pct(v){return (v!=null)?(v*100).toFixed(2)+'%':'-';}
+function renderGrossResult(data){
+  let html='';
+  if(data.summary){
+    const s=data.summary;
+    const sizeFor=v=>{const l=String(v).length;return l<=6?'24px':l<=12?'20px':'17px';};
+    html+='<div class="cards" style="grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px">';
+    Object.entries(s).forEach(([k,v])=>{
+      html+=`<div class="card"><div class="lbl">${k}</div><div class="val c" style="font-size:${sizeFor(v)}">${v}</div></div>`;
+    });
+    html+='</div>';
+  }
+  if(data.year_rows&&data.year_rows.length){
+    html+='<div class="panel"><h3>📅 年度签单毛利率</h3>';
+    html+='<div class="twrap"><table class="ana-table"><thead><tr><th>年份</th><th>合同额(万)</th><th>签单毛利(万)</th><th>签单毛利率</th></tr></thead><tbody>';
+    data.year_rows.forEach(r=>{
+      html+=`<tr><td>${r['年份']}</td><td class="num">${r['合同额(万)']}</td><td class="num">${r['签单毛利(万)']}</td><td class="num">${pct(r['签单毛利率'])}</td></tr>`;
+    });
+    html+='</tbody></table></div></div>';
+  }
+  if(data.region_rows&&data.region_rows.length){
+    html+='<div class="panel"><h3>🗺️ 区域维度签单毛利率同比（2026 vs 2025）</h3>';
+    html+='<div class="twrap"><table class="ana-table"><thead><tr><th>区域</th><th>2026合同额(万)</th><th>2026签单毛利率</th><th>2025合同额(万)</th><th>2025签单毛利率</th><th>同比(百分点)</th></tr></thead><tbody>';
+    data.region_rows.forEach(r=>{
+      const diff=r['同比(百分点)'];
+      const diffCls=(diff>0)?'pos':(diff<0?'neg':'');
+      const diffTxt=(diff==null)?'-':((diff>0?'+':'')+diff);
+      html+=`<tr><td class="wrap">${r['区域']}</td><td class="num">${r['2026合同额(万)']}</td><td class="num">${pct(r['2026签单毛利率'])}</td><td class="num">${r['2025合同额(万)']}</td><td class="num">${pct(r['2025签单毛利率'])}</td><td class="num ${diffCls}">${diffTxt}</td></tr>`;
+    });
+    html+='</tbody></table></div></div>';
+  }
+  if(data.dept_rows&&data.dept_rows.length){
+    html+='<div class="panel"><h3>🏢 部门维度签单毛利率（2026 vs 2025）</h3>';
+    html+='<div class="twrap"><table class="ana-table"><thead><tr><th>部门</th><th>2026合同额(万)</th><th>2026签单毛利率</th><th>2025合同额(万)</th><th>2025签单毛利率</th></tr></thead><tbody>';
+    data.dept_rows.forEach(r=>{
+      html+=`<tr><td class="wrap">${r['部门']}</td><td class="num">${r['2026合同额(万)']}</td><td class="num">${pct(r['2026签单毛利率'])}</td><td class="num">${r['2025合同额(万)']}</td><td class="num">${pct(r['2025签单毛利率'])}</td></tr>`;
+    });
+    html+='</tbody></table></div></div>';
+  }
+  if(!data.year_rows||!data.year_rows.length){
+    html+='<div class="ana-empty"><div class="icon">📈</div><div>宽表暂无数据</div></div>';
+  }
+  document.getElementById('grossContent').innerHTML=html;
+}
+loadMetrics();
+</script>
+</body>
+</html>
