@@ -1,4 +1,5 @@
 """合同比对引擎核心算法单元测试（断言基于当前真实行为）"""
+# 规格编号: CC-003 比对引擎（单位归一化/范围比对/参数相似度）
 from compare_engine import (
     normalize_unit, normalize_spec_value, extract_specs,
     _preprocess, _parse_range_op, _range_aware_match,

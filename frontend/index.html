@@ -1297,7 +1297,7 @@ function renderFundResult(data){
     const cols=data.columns||Object.keys(data.rows[0]);
     cols.forEach(c=>{html+=`<th>${c}</th>`;});
     html+='<th style="min-width:90px;white-space:nowrap">操作</th></tr></thead><tbody>';
-    const textCols=new Set(['合同编号','客户名称','项目名称','周期起始日','年化成本率']);
+    const textCols=new Set(['合同编号','周期起始日','年化成本率']);
     const numCols=new Set(['合同额','累计付款','累计收款','净现金流','当前资金占用','元天合计','周期总天数','平均资金占用','预估资金成本','片段数','已结清片段','占用中片段']);
     const payCols=new Set(['累计付款','当前资金占用','平均资金占用','预估资金成本','周期总天数']);
     const recvCols=new Set(['累计收款']);

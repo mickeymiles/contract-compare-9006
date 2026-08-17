@@ -1,4 +1,5 @@
 """Excel 处理工具单元测试"""
+# 规格编号: CC-002 数据源导入（表头清洗/列模糊映射）
 from excel_handler import safe_str, safe_float, find_column, _clean_header
 
 

@@ -7,6 +7,7 @@ from fastapi import FastAPI, UploadFile, File, Query, Form, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 import os
 import json
+import re
 import shutil
 import urllib.parse
 from openpyxl.utils import get_column_letter
@@ -26,6 +27,61 @@ FRONTEND_DIR = os.path.join(BASE_DIR, '..', 'frontend')
 DATASOURCE_DIR = os.path.join(BASE_DIR, '..', 'datasource')
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(DATASOURCE_DIR, exist_ok=True)
+
+# ─────────────────────────────────────────────────────────────
+# 客户/项目敏感信息：一律丢弃，不导入数据库、不展示（只保留合同编号）
+# 匹配列名：甲方名称/客户名称/客户简称/客户分类/客户标识/最终用户/项目名称/项目描述等
+# ─────────────────────────────────────────────────────────────
+PRIVACY_HEADER_PATTERN = re.compile(
+    r"(甲方|客户|业主|招标人|采购人|建设单位|使用单位|最终用户)"
+    r"(名称|简称|全称|分类|标识|编号)?$|"
+    r"^(项目名称|项目描述|项目简介|合同名称|合同名|合同标题)$|"
+    r"主合同客户名称|关键客户"
+)
+
+
+def is_privacy_header(h):
+    """判断列名是否为客户/项目敏感信息"""
+    return bool(h) and bool(PRIVACY_HEADER_PATTERN.search(str(h)))
+
+
+def filter_privacy_headers(headers):
+    """过滤掉敏感列，返回保留的列索引（数据列下标）"""
+    keep = []
+    for i, h in enumerate(headers):
+        if not is_privacy_header(h):
+            keep.append(i)
+    return keep
+
+
+def sanitize_excel_file(path):
+    """就地删除 Excel 文件中所有 sheet 的敏感列（客户名/客户简称/项目名等）。
+
+    返回 (changed, dropped_cols)。仅支持 .xlsx；.xls 无法就地改写时返回 changed=False。
+    """
+    dropped_cols = set()
+    if not str(path).lower().endswith('.xlsx'):
+        return False, []
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(path)
+    except Exception:
+        return False, []
+    modified = False
+    for ws in wb.worksheets:
+        headers = [str(c.value) if c.value is not None else '' for c in ws[1]]
+        drop_idx = [i for i, h in enumerate(headers) if is_privacy_header(h)]
+        if not drop_idx:
+            continue
+        dropped_cols.update(headers[i] for i in drop_idx)
+        # 从后往前删除列，避免索引错位
+        for i in sorted(drop_idx, reverse=True):
+            ws.delete_cols(i + 1, 1)
+        modified = True
+    if modified:
+        wb.save(path)
+    wb.close()
+    return modified, sorted(dropped_cols)
 
 # 数据源版本元数据文件
 DS_META_FILE = os.path.join(DATASOURCE_DIR, 'versions.json')
@@ -62,7 +118,7 @@ def datasource_tables():
             'latest_id': latest['id'] if latest else None,
             'latest_time': latest['upload_time'] if latest else None,
             'latest_rows': latest['row_count'] if latest else 0,
-            'latest_columns': latest['columns'] if latest else [],
+            'latest_columns': [c for c in (latest['columns'] or []) if not is_privacy_header(c)],
         })
     return {'tables': tables}
 
@@ -80,6 +136,8 @@ async def datasource_upload(file: UploadFile = File(...), table_name: str = Quer
     content = await file.read()
     with open(fpath, 'wb') as f:
         f.write(content)
+    # 客户名/客户简称/项目名等敏感列一律删除，不进入系统
+    sanitize_excel_file(fpath)
     import openpyxl
     wb = openpyxl.load_workbook(fpath, read_only=True)
     ws = wb.active
@@ -128,11 +186,13 @@ def datasource_latest(table_name: str = Query(...)):
     ws = wb.active
     rows_iter = ws.iter_rows(values_only=True)
     headers = [str(h) for h in next(rows_iter, [])]
+    keep_idx = filter_privacy_headers(headers)
+    headers = [headers[i] for i in keep_idx]
     preview_rows = []
     for i, row in enumerate(rows_iter):
         if i >= 20:
             break
-        preview_rows.append([str(v) if v is not None else '' for v in row])
+        preview_rows.append([str(v) if v is not None else '' for v in [row[i] for i in keep_idx if i < len(row)]])
     wb.close()
     return {'version': latest, 'headers': headers, 'rows': preview_rows, 'row_count': latest['row_count']}
 
@@ -1341,6 +1401,8 @@ async def fund_upload(file: UploadFile = File(...), type: str = Form(...)):
     content = await file.read()
     with open(fpath, 'wb') as f:
         f.write(content)
+    # 客户名/客户简称/项目名等敏感列一律删除，不进入系统
+    sanitize_excel_file(fpath)
     return {'success': True, 'filename': fname}
 
 
@@ -1457,24 +1519,19 @@ def fund_analyze():
     col_pay_date = find_col(pay_headers, ['实际支付时间', '支付时间', '付款日期'])
     col_pay_amount = find_col(pay_headers, ['实际支付金额', '支付金额'])
     col_contract_amt = find_col(pay_headers, ['合同额', '合同金额'])
-    col_customer = find_col(pay_headers, ['主合同客户名称', '客户名称', '客户'])
-    col_project = find_col(pay_headers, ['项目名称', '项目描述'])
 
     coll_headers, coll_data = read_excel(coll_path)
     col_coll_no = find_col(coll_headers, ['合同号', '合同编号', '编号'])
     col_coll_date = find_col(coll_headers, ['回款日期', '收款日期', '回款时间'])
     col_coll_amount = find_col(coll_headers, ['到款金额', '回款金额', '收款金额'])
-    col_coll_customer = find_col(coll_headers, ['客户名称', '客户'])
 
-    # 合同基础信息
+    # 合同基础信息（客户名/客户简称/项目名一律不采集，只保留合同编号等分析字段）
     contract_info = {}
     for row in pay_data:
         cno = safe_str(row.get(col_pay_no, ''))
         if not cno or cno in contract_info: continue
         contract_info[cno] = {
             '合同额': safe_float(row.get(col_contract_amt)) if col_contract_amt else 0,
-            '客户名称': safe_str(row.get(col_customer, '')),
-            '项目名称': safe_str(row.get(col_project, '')),
         }
 
     # ── 透视聚合 ──
@@ -1492,8 +1549,6 @@ def fund_analyze():
         if cno not in contract_info:
             contract_info[cno] = {
                 '合同额': safe_float(row.get(col_contract_amt)) if col_contract_amt else 0,
-                '客户名称': safe_str(row.get(col_customer, '')),
-                '项目名称': safe_str(row.get(col_project, '')),
             }
 
     coll_pivot = defaultdict(lambda: defaultdict(float))
@@ -1509,8 +1564,6 @@ def fund_analyze():
         if cno not in contract_info:
             contract_info[cno] = {
                 '合同额': 0,
-                '客户名称': safe_str(row.get(col_coll_customer, '')),
-                '项目名称': '',
             }
 
     all_contracts = set(list(pay_pivot.keys()) + list(coll_pivot.keys()))
@@ -1607,8 +1660,6 @@ def fund_analyze():
             fund_segments_cache[cno] = []
             summary_rows.append({
                 '合同编号': cno,
-                '客户名称': info.get('客户名称', ''),
-                '项目名称': info.get('项目名称', ''),
                 '合同额': round(info.get('合同额', 0)),
                 '累计付款': 0,
                 '累计收款': total_receive,
@@ -1726,8 +1777,6 @@ def fund_analyze():
 
         summary_rows.append({
             '合同编号': cno,
-            '客户名称': info.get('客户名称', ''),
-            '项目名称': info.get('项目名称', ''),
             '合同额': round(info.get('合同额', 0)),
             '累计付款': total_pay,
             '累计收款': total_receive,
@@ -1778,7 +1827,7 @@ def fund_analyze():
         '报表截止日': REPORT_CUTOFF.strftime('%Y-%m-%d'),
     }
 
-    columns = ['合同编号', '客户名称', '项目名称', '累计付款', '累计收款', '净现金流',
+    columns = ['合同编号', '累计付款', '累计收款', '净现金流',
                '当前资金占用', '平均资金占用', '预估资金成本', '周期总天数', '片段数']
 
     result = {
@@ -1807,7 +1856,7 @@ def fund_analyze():
                  current_occupy, amount_day, cycle_start, cycle_days, avg_occupy, est_cost,
                  annual_rate, segment_count, settled_segments, occupying_segments)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (row.get('合同编号', ''), row.get('客户名称', ''), row.get('项目名称', ''),
+                (row.get('合同编号', ''), '', '',
                  _num(row, '合同额'), _num(row, '累计付款'), _num(row, '累计收款'),
                  _num(row, '当前资金占用'), _num(row, '元天合计'), str(row.get('周期起始日', '')),
                  int(_num(row, '周期总天数')), _num(row, '平均资金占用'), _num(row, '预估资金成本'),
@@ -1851,11 +1900,9 @@ def fund_metrics():
         '年化成本率': annual_rate,
     }
 
-    # 每合同明细（列名对齐前端 renderFundResult）
+    # 每合同明细（列名对齐前端 renderFundResult；客户名/项目名一律不展示）
     detail_rows = [{
         '合同编号': r['contract_no'],
-        '客户名称': r['customer_name'],
-        '项目名称': r['project_name'],
         '累计付款': r['total_pay'],
         '累计收款': r['total_recv'],
         '净现金流': r['total_recv'] - r['total_pay'],
@@ -1866,7 +1913,7 @@ def fund_metrics():
         '片段数': r['segment_count'],
     } for r in rows]
 
-    columns = ['合同编号', '客户名称', '项目名称', '累计付款', '累计收款', '净现金流',
+    columns = ['合同编号', '累计付款', '累计收款', '净现金流',
                '当前资金占用', '平均资金占用', '预估资金成本', '周期总天数', '片段数']
 
     return {'success': True, 'data': {'summary': summary, 'columns': columns, 'rows': detail_rows}}
@@ -2455,10 +2502,12 @@ def mcp_ontology_schema(table_name: str):
     rows = list(ws.iter_rows(values_only=True))
     wb.close()
     headers = [str(h) if h is not None else '' for h in rows[0]]
+    keep_idx = filter_privacy_headers(headers)
     s1 = rows[1] if len(rows) > 1 else None
     s2 = rows[2] if len(rows) > 2 else None
     columns = []
-    for i, h in enumerate(headers):
+    for i in keep_idx:
+        h = headers[i]
         ex = []
         if s1 is not None and i < len(s1) and s1[i] is not None:
             ex.append(str(s1[i])[:24])
@@ -2482,9 +2531,10 @@ def mcp_ontology_query(table_name: str, keyword: str = '', time_column: str = ''
     rows = list(ws.iter_rows(values_only=True))
     wb.close()
     headers = [str(h) if h is not None else '' for h in rows[0]]
+    keep_idx = filter_privacy_headers(headers)
     col_idx = {h: i for i, h in enumerate(headers)}
 
-    selected = [c.strip() for c in columns.split(',') if c.strip()] if columns else []
+    selected = [c.strip() for c in columns.split(',') if c.strip() and not is_privacy_header(c.strip())] if columns else []
 
     def parse_date(v):
         if v is None or v == '': return None
@@ -2523,8 +2573,8 @@ def mcp_ontology_query(table_name: str, keyword: str = '', time_column: str = ''
         out_headers = [headers[i] for i in sel_idx]
         out_rows = [[row[i] if i < len(row) else '' for i in sel_idx] for row in data_rows]
     else:
-        out_headers = headers
-        out_rows = data_rows
+        out_headers = [headers[i] for i in keep_idx]
+        out_rows = [[row[i] if i < len(row) else '' for i in keep_idx] for row in data_rows]
 
     return {'table_name': table_name, 'headers': out_headers, 'rows': out_rows, 'count': len(out_rows)}
 
