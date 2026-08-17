@@ -15,8 +15,6 @@ from openpyxl.utils import get_column_letter
 from models import init_db, get_db, create_contract, delete_contract, update_contract_status
 from compare_engine import run_comparison
 from excel_handler import import_contract_excel, import_supplier_excel, export_report, reapply_column_mapping
-from chat_handler import handle_user_message, get_messages, register_sse_listener, unregister_sse_listener
-
 app = FastAPI(title="合同比对系统（多合同版）", version="2.0")
 from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -1315,59 +1313,6 @@ def download_report(contract_id: int, version_id: int = Query(...)):
             filename=os.path.basename(filepath))
     except Exception as e:
         return JSONResponse({'success': False, 'error': str(e)}, status_code=400)
-
-
-# ===================== 聊天 API =====================
-
-from fastapi.responses import StreamingResponse
-from fastapi import Form
-import asyncio
-import json
-
-@app.post("/api/chat/send")
-async def chat_send(message: str = Form(...), contract_id: int = Form(0)):
-    """接收网页聊天消息 → 存储 + 飞书转发"""
-    try:
-        msg = handle_user_message(contract_id, message)
-        return JSONResponse({'success': True, 'message': msg})
-    except Exception as e:
-        return JSONResponse({'success': False, 'error': str(e)}, status_code=400)
-
-
-@app.get("/api/chat/messages")
-def chat_messages(contract_id: int = Query(0), since_id: int = Query(0)):
-    """获取聊天历史"""
-    msgs = get_messages(contract_id, since_id)
-    return JSONResponse({'messages': msgs})
-
-
-@app.get("/api/chat/stream")
-async def chat_stream(contract_id: int = Query(0)):
-    """SSE 实时消息流"""
-    q = []
-    register_sse_listener(q)
-
-    async def event_generator():
-        try:
-            while True:
-                if q:
-                    msg = q.pop(0)
-                    yield f"data: {json.dumps(msg, default=str)}\n\n"
-                await asyncio.sleep(0.5)
-        except asyncio.CancelledError:
-            pass
-        finally:
-            unregister_sse_listener(q)
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        }
-    )
 
 
 # ===================== 资金占用分析 API =====================

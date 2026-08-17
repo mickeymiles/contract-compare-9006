@@ -47,28 +47,6 @@ tr:hover td{background:rgba(0,229,255,.03)}
 .badge-w{background:rgba(255,145,0,.2);color:var(--orange)}.badge-p{background:rgba(179,136,255,.2);color:var(--purple)}
 .badge-o{background:rgba(255,145,0,.18);color:#e67e00;font-weight:600}
 .badge-c{background:rgba(0,229,255,.15);color:var(--cyan)}
-/* 聊天浮窗 */
-.chat-btn{position:fixed;bottom:24px;right:24px;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,var(--cyan2),var(--cyan));border:none;cursor:pointer;box-shadow:0 4px 20px rgba(0,229,255,.3);z-index:200;font-size:22px;transition:transform .2s;display:flex;align-items:center;justify-content:center}
-.chat-btn:hover{transform:scale(1.1)}.chat-btn .dot{position:absolute;top:6px;right:6px;width:10px;height:10px;background:var(--green);border-radius:50%;border:2px solid #000;animation:pulse 2s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-.chat-panel{position:fixed;bottom:88px;right:24px;width:380px;height:520px;background:var(--bg2);border:1px solid var(--border);border-radius:16px;box-shadow:0 8px 40px rgba(0,0,0,.5);z-index:199;display:none;flex-direction:column;overflow:hidden}
-.chat-panel.open{display:flex}
-.chat-panel .cp-hdr{background:linear-gradient(135deg,#0d2040,#142850);padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
-.chat-panel .cp-hdr .avatar{width:32px;height:32px;border-radius:50%;background:var(--cyan);display:flex;align-items:center;justify-content:center;font-size:16px}
-.chat-panel .cp-hdr .title{font-size:13px;font-weight:bold;color:var(--cyan)}.chat-panel .cp-hdr .sub{font-size:10px;color:var(--text2)}
-.chat-panel .cp-hdr .close{background:none;border:none;color:var(--text2);cursor:pointer;font-size:18px;margin-left:auto;padding:4px}
-.chat-panel .cp-msgs{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px}
-.chat-panel .cp-msgs .msg{max-width:85%;padding:8px 12px;border-radius:12px;font-size:12px;line-height:1.5;word-break:break-word}
-.chat-panel .cp-msgs .msg.user{align-self:flex-end;background:var(--cyan);color:#000;border-bottom-right-radius:4px}
-.chat-panel .cp-msgs .msg.assistant{align-self:flex-start;background:var(--bg3);color:var(--text);border-bottom-left-radius:4px;border:1px solid var(--border)}
-.chat-panel .cp-msgs .msg .time{font-size:9px;opacity:.6;margin-top:4px}
-.chat-panel .cp-input{border-top:1px solid var(--border);padding:10px;display:flex;gap:8px}
-.chat-panel .cp-input input{flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:20px;font-size:12px;outline:none}
-.chat-panel .cp-input input:focus{border-color:var(--cyan)}
-.chat-panel .cp-input button{background:var(--cyan);border:none;border-radius:50%;width:36px;height:36px;cursor:pointer;font-size:16px;flex-shrink:0;transition:all .2s}
-.chat-panel .cp-input button:hover{background:var(--cyan2)}
-.chat-panel .cp-typing{font-size:10px;color:var(--text2);padding:4px 16px;display:none}
-.chat-panel .cp-typing.show{display:block}
 .fbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
 .fbar select,.fbar input{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:4px;font-size:11px}
 .fbar input:focus{outline:none;border-color:var(--cyan)}
@@ -677,24 +655,6 @@ tr:hover td{background:rgba(0,229,255,.03)}
 </div>
 </div>
 
-<!-- 聊天浮窗 -->
-<button class="chat-btn" onclick="toggleChat()" id="chatBtn" title="和小欢欢对话">💬<span class="dot" id="chatDot"></span></button>
-<div class="chat-panel" id="chatPanel">
-  <div class="cp-hdr">
-    <div class="avatar">🤖</div>
-    <div><div class="title">小欢欢</div><div class="sub">在线 · 飞书桥接</div></div>
-    <button class="close" onclick="toggleChat()">✕</button>
-  </div>
-  <div class="cp-msgs" id="chatMsgs">
-    <div class="msg assistant"><div>👋 你好！我是小欢欢。在这里可以给我发消息，我会通过飞书收到并回复你。</div><div class="time">现在</div></div>
-  </div>
-  <div class="cp-typing" id="chatTyping">小欢欢正在输入...</div>
-  <div class="cp-input">
-    <input type="text" id="chatInput" placeholder="输入消息..." onkeydown="if(event.key==='Enter')sendChat()">
-    <button onclick="sendChat()">▶</button>
-  </div>
-</div>
-
 <script>
 const API='';let currentCid=null,currentVer=null;
 // 预加载中国地图 GeoJSON（本地文件）
@@ -1077,58 +1037,6 @@ async function showVerDetail(vid){
 
 // ===== 导出 =====
 function exportReport(){if(!currentCid||!currentVer){toast('请先上传供应商文件','err');return};window.open(API+'/api/contract/'+currentCid+'/export/report?version_id='+currentVer);toast('导出中...')}
-
-// ===== 聊天功能 =====
-let chatOpen=false,chatLoading=false,lastMsgId=0,chatEventSource=null;
-
-function toggleChat(){
-  chatOpen=!chatOpen;
-  document.getElementById('chatPanel').classList.toggle('open',chatOpen);
-  if(chatOpen){document.getElementById('chatInput').focus();loadChatHistory();connectSSE()}
-  else{if(chatEventSource)chatEventSource.close()}
-}
-
-async function loadChatHistory(){
-  try{
-    const r=await fetch(API+'/api/chat/messages?since_id='+lastMsgId).then(r=>r.json());
-    r.messages.forEach(addChatMsg);
-    if(r.messages.length)lastMsgId=r.messages[r.messages.length-1].id;
-  }catch(e){}
-}
-
-function addChatMsg(m){
-  const container=document.getElementById('chatMsgs');
-  const cls=m.role==='user'?'user':'assistant';
-  const time=m.created_at?m.created_at.substring(11,16):'';
-  const div=document.createElement('div');
-  div.className='msg '+cls;
-  div.innerHTML='<div>'+m.content.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')+'</div><div class="time">'+time+'</div>';
-  container.appendChild(div);
-  container.scrollTop=container.scrollHeight;
-  if(m.id>lastMsgId)lastMsgId=m.id;
-}
-
-function connectSSE(){
-  if(chatEventSource)chatEventSource.close();
-  chatEventSource=new EventSource(API+'/api/chat/stream');
-  chatEventSource.onmessage=function(e){
-    try{const m=JSON.parse(e.data);addChatMsg(m);document.getElementById('chatTyping').classList.remove('show')}
-    catch(err){}
-  };
-  chatEventSource.onerror=function(){setTimeout(connectSSE,5000)};
-}
-
-async function sendChat(){
-  const inp=document.getElementById('chatInput'),text=inp.value.trim();
-  if(!text||chatLoading)return;
-  chatLoading=true;inp.value='';inp.disabled=true;
-  document.getElementById('chatTyping').classList.add('show');
-  const fd=new FormData();fd.append('message',text);
-  try{
-    await fetch(API+'/api/chat/send',{method:'POST',body:fd});
-  }catch(e){}
-  chatLoading=false;inp.disabled=false;inp.focus();
-}
 
 // ===== 数据源管理 =====
 async function loadDsStatus(){

@@ -13,7 +13,7 @@
 | CC-004 | 报告导出 | `backend/excel_handler.py`（export_report）、`backend/main.py`（`/api/contract/*/export/report`） | `tests/test_export.py`（test_export_two_sheets / test_export_overview_data / test_export_anomaly_detail） |
 | CC-005 | 回款周期分析 | `backend/main.py`（`/api/analysis/payment-cycle*`、`/api/payment-cycle/metrics`） | `tests/test_payment_cycle.py`（test_payment_cycle_basic_structure / test_payment_cycle_enriched_rows / test_payment_cycle_zone_edges / test_payment_cycle_missing_h_table / test_payment_cycle_missing_r_table） |
 | CC-006 | 资金占用分析 | `backend/main.py`（`/api/fund/*`） | `tests/test_api_smoke.py::TestApiSmoke::test_fund_status`、`test_fund_metrics` |
-| CC-007 | ETL 调度与聊天 | `backend/main.py`（`/api/etl/*`、`/api/chat/*`、`/api/mcp/ontology/*`） | `tests/test_api_smoke.py::TestApiSmoke::test_etl_jobs`、`test_etl_metrics`、`test_tables`、`test_schema`、`test_query` |
+| CC-007 | ETL 调度 | `backend/main.py`（`/api/etl/*`、`/api/mcp/ontology/*`） | `tests/test_api_smoke.py::TestApiSmoke::test_etl_jobs`、`test_etl_metrics`、`test_tables`、`test_schema`、`test_query` |
 
 ## 覆盖情况统计
 
@@ -28,3 +28,4 @@
 | 2026-08-17 | （规格回填） | 依据存量代码回填 7 个规格并建立本矩阵 |
 | 2026-08-17 | 20260817-cc004-export-tests | 新增 CC-004 报告导出测试（双 Sheet 结构/总览/着色），归档于 archive/2026-08-17-cc004-export-tests/ |
 | 2026-08-17 | 20260817-cc005-payment-cycle-tests | 新增 CC-005 回款周期测试（双口径/按月累计/zone 分档/年份过滤/降级），归档于 archive/2026-08-17-cc005-payment-cycle-tests/ |
+| 2026-08-17 | 20260817-remove-ai-chat | 移除 AI 对话窗口（聊天）功能：删除 /api/chat/* 路由、chat_handler、chat_messages 表定义与前端聊天浮窗，CC-007 改名"ETL 调度" |

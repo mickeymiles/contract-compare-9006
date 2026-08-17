@@ -14,7 +14,7 @@
 | CC-004 | 报告导出 | 生效 | 2026-08-17 | `backend/excel_handler.py`(export_report)、`/api/contract/*/export/report` |
 | CC-005 | 回款周期分析 | 生效 | 2026-08-17 | `/api/analysis/payment-cycle*`、`/api/payment-cycle/metrics` |
 | CC-006 | 资金占用分析 | 生效 | 2026-08-17 | `/api/fund/*` |
-| CC-007 | ETL 调度与聊天 | 生效 | 2026-08-17 | `/api/etl/*`、`/api/chat/*`、`/api/mcp/ontology/*` |
+| CC-007 | ETL 调度 | 生效 | 2026-08-17 | `/api/etl/*`、`/api/mcp/ontology/*` |
 
 ## 状态定义
 

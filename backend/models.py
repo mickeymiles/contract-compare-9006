@@ -157,19 +157,7 @@ def init_db():
     except:
         pass  # 列已存在
 
-    # 5. 聊天消息表（网页 ↔ Hermes 双向对话）
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS chat_messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            contract_id INTEGER NOT NULL DEFAULT 0,
-            role TEXT NOT NULL,
-            content TEXT NOT NULL,
-            feishu_msg_id TEXT DEFAULT '',
-            created_at TEXT DEFAULT (datetime('now','localtime'))
-        )
-    """)
-
-    # 6. 定时 ETL 任务表（轨道A：固定指标计算链路）
+    # 5. 定时 ETL 任务表（轨道A：固定指标计算链路）
     c.execute("""
         CREATE TABLE IF NOT EXISTS etl_jobs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
