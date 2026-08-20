@@ -86,10 +86,63 @@ function renderGrossResult(data){
     });
     html+='</tbody></table></div></div>';
   }
+  // 部门 × 区域 签单毛利率同比变化热力图 #CC-008
+  html += renderHeatmap(data.dept_region_rows);
+
   if(!data.year_rows||!data.year_rows.length){
     html+='<div class="ana-empty"><div class="icon">📈</div><div>宽表暂无数据</div></div>';
   }
   document.getElementById('grossContent').innerHTML=html;
+}
+
+function heatClass(diff){
+  if(diff===null || diff===undefined) return 'heat-empty';
+  if(diff>=20) return 'heat-up-20';
+  if(diff>=5) return 'heat-up-5';
+  if(diff>=2) return 'heat-up-2';
+  if(diff>-2) return 'heat-flat';
+  if(diff>-5) return 'heat-down-2';
+  if(diff>-20) return 'heat-down-5';
+  return 'heat-down-20';
+}
+
+function heatCellHtml(cell, extraClass){
+  const cls = ['heat-cell', heatClass(cell?cell.diff:null), extraClass||''].filter(Boolean).join(' ').trim();
+  if(!cell || !cell.hasData || cell.rate===null || cell.rate===undefined){
+    return `<td class="${cls}"></td>`;
+  }
+  const rateTxt = (cell.rate*100).toFixed(1)+'%';
+  const diffTxt = (cell.diff===null || cell.diff===undefined) ? '-' : ((cell.diff>=0?'+':'')+cell.diff.toFixed(1)+'pct');
+  return `<td class="${cls}"><div class="heat-rate">${rateTxt}</div><div class="heat-diff">${diffTxt}</div></td>`;
+}
+
+function renderHeatmap(dr){
+  if(!dr || !dr.depts || !dr.depts.length) return '';
+  let html='<div class="panel"><h3>🏢×🗺️ 部门 × 区域 签单毛利率同比变化热力图</h3>';
+  html+='<div class="heatmap-note">空白 = 未签约，不纳入比较</div>';
+  html+='<div class="twrap"><table class="heatmap-table"><thead><tr><th class="heat-corner">部门 \\ 区域</th>';
+  dr.regions.forEach(r=> html+=`<th class="heat-col-header">${r}</th>`);
+  html+='<th class="heat-col-header heat-total-col">小计</th></tr></thead><tbody>';
+
+  // 小计行：按区域聚合
+  html+='<tr><td class="row-label row-total">小计</td>';
+  dr.regions.forEach(r=>{
+    html+=heatCellHtml(dr.totals.byRegion[r], 'col-total');
+  });
+  html+='<td class="heat-cell heat-empty heat-corner"></td></tr>';
+
+  // 部门行
+  dr.depts.forEach(d=>{
+    html+=`<tr><td class="row-label">${d}</td>`;
+    dr.regions.forEach(r=>{
+      html+=heatCellHtml(dr.cells[d][r], '');
+    });
+    html+=heatCellHtml(dr.totals.byDept[d], 'row-total');
+    html+='</tr>';
+  });
+
+  html+='</tbody></table></div></div>';
+  return html;
 }
 loadMetrics();
 </script>

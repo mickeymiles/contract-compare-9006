@@ -254,6 +254,38 @@ def init_db():
         )
     """)
 
+    # 12. 资金多维度分析：fund_metrics 增量加维度列+新指标列（兼容旧库）
+    dim_cols = [
+        "region TEXT DEFAULT ''",        # 区域
+        "province TEXT DEFAULT ''",      # 省
+        "dept TEXT DEFAULT ''",          # 部门
+        "biz_line TEXT DEFAULT ''",      # 业务线
+        "industry TEXT DEFAULT ''",      # 行业
+        "customer_key TEXT DEFAULT ''",  # 脱敏客户键
+        "project_status TEXT DEFAULT ''",# 项目状态
+        "contract_status TEXT DEFAULT ''",# 合同状态
+        "sign_year TEXT DEFAULT ''",     # 签约年度
+        "recv_rate REAL DEFAULT 0",      # 回款率
+        "occupy_intensity REAL DEFAULT 0",# 占用强度
+        "risk_level TEXT DEFAULT 'healthy'", # 风险等级
+        "prev_occupy REAL DEFAULT 0",    # 上年同期占用（CC-006 FR-13 表格同比）
+    ]
+    for col_def in dim_cols:
+        try:
+            c.execute(f"ALTER TABLE fund_metrics ADD COLUMN {col_def}")
+        except Exception:
+            pass  # 列已存在
+
+    # 13. 风险预警配置表（阈值可配置，默认值由 main.py seed）
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS risk_config (
+            key TEXT PRIMARY KEY,
+            value REAL NOT NULL,
+            description TEXT DEFAULT '',
+            updated_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+
     conn.commit()
     conn.close()
 

@@ -27,6 +27,10 @@ body{background:var(--bg);color:var(--text);font-family:'Microsoft YaHei','PingF
 .card .lbl{font-size:11px;color:var(--text2);margin-bottom:4px}
 .card .val{font-size:24px;font-weight:bold}
 .card .val.c{color:var(--cyan)}.card .val.g{color:var(--green)}.card .val.r{color:var(--red)}.card .val.o{color:var(--orange)}.card .val.p{color:var(--purple)}
+.card .yoy{font-size:11px;margin-top:6px;font-weight:600;display:flex;align-items:center;gap:3px;white-space:nowrap}
+.card .yoy span{color:var(--text2);font-weight:400;margin-left:2px}
+.yoy-up{color:var(--cyan)}.yoy-down{color:var(--orange)}.yoy-flat{color:var(--text2)}
+.yoy-red{color:var(--red)}.yoy-green{color:var(--green)}
 .prog{height:6px;background:var(--border);border-radius:3px;margin-top:6px;overflow:hidden}
 .prog .f{height:100%;background:linear-gradient(90deg,var(--cyan2),var(--cyan));border-radius:3px;transition:width .5s}
 .panel{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px;margin:0 24px 16px}
@@ -297,9 +301,10 @@ tr:hover td{background:rgba(0,229,255,.03)}
   </div>
 
   <!-- 分析按钮 -->
-  <div class="ana-actions" style="margin-bottom:24px">
+  <div class="ana-actions" style="margin-bottom:16px">
     <button class="btn btn-c" onclick="runFundAnalysis()" id="btnFundRun">▶ 执行分析</button>
-    <button class="btn btn-o" onclick="exportFundAnalysis()" id="btnFundExport" style="display:none">📥 导出结果</button>
+    <button class="btn btn-o" onclick="exportFundAnalysis()" id="btnFundExport" style="display:none">📥 导出分析结果</button>
+    <button class="btn btn-o" onclick="exportFundRisk()" id="btnFundRiskExport" style="display:none">⚠️ 导出预警清单</button>
     <span style="font-size:11px;color:var(--text2)" id="fundStatus">数据来源：数据源管理「付款明细表」「收款明细表」</span>
   </div>
 
@@ -657,6 +662,20 @@ tr:hover td{background:rgba(0,229,255,.03)}
 
 <script>
 const API='';let currentCid=null,currentVer=null;
+// ── 暗色图表主题（解决 ECharts 默认文字 #333 在深色背景上不可见） ──
+if(window.echarts){
+  echarts.registerTheme('cc-dark',{
+    textStyle:{color:'#dbe4f5'},
+    legend:{textStyle:{color:'#a3b3d6',fontSize:11},pageTextStyle:{color:'#a3b3d6'},inactiveColor:'#3a4a6a'},
+    title:{textStyle:{color:'#e0e6f5',fontWeight:600,fontSize:13},subtextStyle:{color:'#8893aa'}},
+    tooltip:{backgroundColor:'rgba(10,18,41,.96)',borderColor:'#2a3a60',textStyle:{color:'#e0e6f5'},axisPointer:{lineStyle:{color:'#4f8cff'},crossStyle:{color:'#4f8cff'},label:{backgroundColor:'#0a1229',color:'#e0e6f5',borderColor:'#2a3a60',borderWidth:1}}},
+    categoryAxis:{axisLine:{lineStyle:{color:'#2a3a60'}},axisTick:{lineStyle:{color:'#2a3a60'}},axisLabel:{color:'#a3b3d6'},splitLine:{show:false,lineStyle:{color:'#16223f'}},splitArea:{show:false}},
+    valueAxis:{axisLine:{show:false,lineStyle:{color:'#2a3a60'}},axisTick:{show:false,lineStyle:{color:'#2a3a60'}},axisLabel:{color:'#a3b3d6'},splitLine:{lineStyle:{color:'#16223f',type:'dashed'}},splitArea:{show:false}},
+    timeAxis:{axisLine:{lineStyle:{color:'#2a3a60'}},axisLabel:{color:'#a3b3d6'},splitLine:{lineStyle:{color:'#16223f'}}},
+    visualMap:{textStyle:{color:'#a3b3d6'}},
+    calendar:{itemStyle:{color:'#0d1530'},yearLabel:{color:'#a3b3d6'},dayLabel:{color:'#8893aa'},monthLabel:{color:'#a3b3d6'},splitLine:{lineStyle:{color:'#2a3a60'}}}
+  });
+}
 // 预加载中国地图 GeoJSON（本地文件）
 let chinaGeoJson=null;
 fetch('/china.json').then(r=>r.json()).then(d=>{
@@ -1141,8 +1160,10 @@ async function autoLoadFundResult(){
       document.getElementById('fundStatus').textContent='数据来源：资金占用宽表（定时任务预计算）';
       document.getElementById('btnFundExport').style.display='inline';
       renderFundResult(d.data);
+    }else{
+      loadFundStatus();
     }
-  }catch(e){}
+  }catch(e){loadFundStatus();}
 }
 
 async function loadFundStatus(){
@@ -1164,6 +1185,7 @@ async function runFundAnalysis(){
   if(d.success){
     document.getElementById('fundStatus').textContent=d.message||'分析完成';
     document.getElementById('btnFundExport').style.display='inline';
+    document.getElementById('btnFundRiskExport').style.display='inline';
     try{renderFundResult(d.data);}
     catch(e){document.getElementById('fundStatus').textContent='渲染错误: '+e.message; console.error(e);}
   }else{
@@ -1193,7 +1215,21 @@ function renderFundResult(data){
       html+='</div>';
     });
   }
-  // Detail table
+  // 多维度分析 Tab（CC-006 FR-8 ~ FR-12）
+  html+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">';
+  html+='<button class="btn btn-c btn-sm" onclick="switchFundDimTab(\'overview\')" id="fundTabBtnOverview">📊 总览</button>';
+  html+='<button class="btn btn-o btn-sm" onclick="switchFundDimTab(\'region\')" id="fundTabBtnRegion">🗺️ 区域</button>';
+  html+='<button class="btn btn-o btn-sm" onclick="switchFundDimTab(\'customer\')" id="fundTabBtnCustomer">👥 客户集合</button>';
+  html+='<button class="btn btn-o btn-sm" onclick="switchFundDimTab(\'time\')" id="fundTabBtnTime">📅 时间</button>';
+  html+='<button class="btn btn-o btn-sm" onclick="switchFundDimTab(\'risk\')" id="fundTabBtnRisk">⚠️ 风险预警</button>';
+  html+='<span style="font-size:11px;color:var(--text2);align-self:center" id="fundDimLoading"></span>';
+  html+='</div>';
+  html+='<div id="fundDimOverview" class="fund-dim-panel"></div>';
+  html+='<div id="fundDimRegion" class="fund-dim-panel" style="display:none"></div>';
+  html+='<div id="fundDimCustomer" class="fund-dim-panel" style="display:none"></div>';
+  html+='<div id="fundDimTime" class="fund-dim-panel" style="display:none"></div>';
+  html+='<div id="fundDimRisk" class="fund-dim-panel" style="display:none"></div>';
+  // 明细表
   if(data.rows&&data.rows.length){
     html+='<div class="panel"><h3>📋 资金占用明细</h3>';
     html+='<div style="margin-bottom:12px;display:flex;align-items:center;gap:8px">';
@@ -1203,13 +1239,22 @@ function renderFundResult(data){
     html+='</div>';
     html+='<div class="twrap" id="fundTableWrap"><table class="ana-table" id="fundTable"><thead><tr>';
     const cols=data.columns||Object.keys(data.rows[0]);
-    cols.forEach(c=>{html+=`<th>${c}</th>`;});
-    html+='<th style="min-width:90px;white-space:nowrap">操作</th></tr></thead><tbody>';
     const textCols=new Set(['合同编号','周期起始日','年化成本率']);
     const numCols=new Set(['合同额','累计付款','累计收款','净现金流','当前资金占用','元天合计','周期总天数','平均资金占用','预估资金成本','片段数','已结清片段','占用中片段']);
     const payCols=new Set(['累计付款','当前资金占用','平均资金占用','预估资金成本','周期总天数']);
     const recvCols=new Set(['累计收款']);
     const cfCols=new Set(['净现金流']);
+    // 表头对齐与内容列一致：文本列左对齐、数字列右对齐（修复表头/内容错位）
+    cols.forEach(c=>{
+      let align='';
+      if(textCols.has(c)) align='text-align:left;padding-left:8px';
+      else if(numCols.has(c)) align='text-align:right;padding-right:8px';
+      html+=`<th style="${align}">${c}</th>`;
+    });
+    // 同比列（CC-006 FR-13）：上年同期占用 + 同比变化率
+    html+='<th style="text-align:right;padding-right:8px">上年同期占用</th>';
+    html+='<th style="text-align:right;padding-right:8px">同比变化率</th>';
+    html+='<th style="min-width:90px;white-space:nowrap">操作</th></tr></thead><tbody>';
     data.rows.forEach(row=>{
       html+='<tr>';
       cols.forEach(c=>{
@@ -1223,6 +1268,8 @@ function renderFundResult(data){
         if(typeof v==='number'&&v>0&&numCols.has(c)&&!payCols.has(c)&&!recvCols.has(c)&&!cfCols.has(c))cls+=' pos';
         html+=`<td class="${cls.trim()}">${v!=null?v:'-'}</td>`;
       });
+      html+=`<td class="num">${fundMoney(row['上年同期占用']||0)}</td>`;
+      html+=fundOccYoyTd(row['当前资金占用'],row['上年同期占用']);
       const cno=row['合同编号']||row['contract_id']||'';
       html+=`<td style="white-space:nowrap"><button class="btn btn-o btn-sm" style="white-space:nowrap" onclick="showFundDetail('${cno}')">查看详情</button></td>`;
       html+='</tr>';
@@ -1231,7 +1278,791 @@ function renderFundResult(data){
   }
   if(!html)html='<div class="ana-empty"><div>暂无分析结果</div></div>';
   document.getElementById('fundContent').innerHTML=html;
-  if(data&&data.rows) document.getElementById('fundFilterCount').textContent='共 '+data.rows.length+' 条';
+  if(data&&data.rows&&data.rows.length) {
+    const cnt=document.getElementById('fundFilterCount');
+    if(cnt) cnt.textContent='共 '+data.rows.length+' 条';
+  }
+  // 加载多维度图表（CC-006 FR-8）
+  loadFundDimOverview(data);
+  loadFundDimCharts();
+}
+
+// ═══════════════════════════════════════════════════
+// 资金多维度图表（CC-006 FR-8 ~ FR-12）
+// ═══════════════════════════════════════════════════
+let fundDimCharts={}, fundRiskData=null;
+
+function switchFundDimTab(tab){
+  ['overview','region','customer','time','risk'].forEach(t=>{
+    const el=document.getElementById('fundDim'+t.charAt(0).toUpperCase()+t.slice(1));
+    if(el)el.style.display=(t===tab)?'':'none';
+    const btn=document.getElementById('fundTabBtn'+t.charAt(0).toUpperCase()+t.slice(1));
+    if(btn)btn.className='btn '+(t===tab?'btn-c':'btn-o')+' btn-sm';
+  });
+  // 修复 display:none 初始化坍缩：切换后对所有图表 resize（两轮确保布局完成）
+  const doResize=()=>{
+    Object.values(fundDimCharts).forEach(c=>{
+      if(c&&typeof c.resize==='function'){try{c.resize();}catch(e){}
+    }});
+  };
+  requestAnimationFrame(()=>{ doResize(); setTimeout(doResize, 120); });
+}
+
+function fundChartDiv(id,height){
+  return '<div id="'+id+'" style="width:100%;height:'+height+'px"></div>';
+}
+
+async function fundFetch(url){
+  try{
+    const r=await fetch(url);
+    return await r.json();
+  }catch(e){
+    return {success:false,error:e.message};
+  }
+}
+
+function fundMoney(v){
+  const n=Number(v||0);
+  if(Math.abs(n)>=100000000)return (n/100000000).toFixed(1)+'亿';
+  if(Math.abs(n)>=10000)return (n/10000).toFixed(0)+'万';
+  return String(n||0);
+}
+
+// 表格同比变化率单元格（CC-006 FR-13）：占用类语义色，升=红 ↥、降=绿 ↧
+function fundOccYoyTd(cur,prev){
+  const c=Number(cur||0), p=Number(prev||0);
+  if(p===0&&c===0)return '<td class="num" style="color:var(--text2)">—</td>';
+  if(p===0)return '<td class="num" style="color:#ff4d4f;font-weight:600">↥ 新增占用</td>';
+  const pct=(c-p)/p*100;
+  let color='var(--text2)', arrow='—', txt='0.0%';
+  if(pct>0){color='#ff4d4f';arrow='↥';txt='+'+(pct.toFixed(1))+'%';}
+  else if(pct<0){color='#52c41a';arrow='↧';txt=pct.toFixed(1)+'%';}
+  return '<td class="num" style="color:'+color+';font-weight:600">'+arrow+' '+txt+'</td>';
+}
+
+function fundBarColors(riskCount){
+  // 按风险等级分布给色：red>orange>yellow>healthy
+  if(riskCount&&riskCount.red>0)return '#ff4d4f';
+  if(riskCount&&riskCount.orange>0)return '#fa8c16';
+  if(riskCount&&riskCount.yellow>0)return '#faad14';
+  return '#52c41a';
+}
+
+// ── Tab1 总览 ──
+// 同比口径（CC-006 FR-13）：本期 2026-01-01~2026-08-12，上期 2025-01-01~2025-08-12
+// prevOcc 由后端按 FIFO 精确计算（data.yoy.occupy_prev）
+function fundYoY(flows,occNow,prevOcc){
+  const P0='2026-01-01',CUT='2026-08-12',P1='2025-01-01',P2='2025-08-12';
+  const agg=(s,e,type)=>{let t=0;for(const f of flows){if(f.type!==type)continue;if(f.date>=s&&f.date<=e)t+=f.amount;}return t;};
+  const curPay=-agg(P0,CUT,'PAY'),prevPay=-agg(P1,P2,'PAY');
+  const curRecv=agg(P0,CUT,'RECEIVE'),prevRecv=agg(P1,P2,'RECEIVE');
+  const curNet=curRecv-curPay,prevNet=prevRecv-prevPay;
+  const pct=(c,p)=>p===0?null:((c-p)/p*100);
+  return {curPay,prevPay,curRecv,prevRecv,curNet,prevNet,occNow,prevOcc,
+    payPct:pct(curPay,prevPay),recvPct:pct(curRecv,prevRecv),
+    netPct:pct(curNet,prevNet),occPct:pct(occNow,prevOcc)};
+}
+function yoyCard(lbl,val,fmt,pct,kind){
+  const up=kind==='semantic'; // semantic：占用类（上升=红/下降=绿），其余中性色
+  let arrow='—',cls='yoy-flat',txt='无同比数据（上年同期为 0）';
+  if(pct!==null){
+    arrow=pct>0?'↥':(pct<0?'↧':'—');
+    cls=up?(pct>0?'yoy-red':(pct<0?'yoy-green':'yoy-flat')):(pct>0?'yoy-up':(pct<0?'yoy-down':'yoy-flat'));
+    txt='较上年同期 '+(pct>0?'+':'')+pct.toFixed(1)+'%'+(up?(pct>0?'（占用增加）':(pct<0?'（占用减少）':'')):'');
+  }
+  return '<div class="card"><div class="lbl">'+lbl+'</div><div class="val" style="font-size:20px">'+fmt(val)+'</div>'
+    +'<div class="yoy '+cls+'" title="'+txt+'">'+arrow+(pct!==null?' '+(pct>0?'+':'')+pct.toFixed(1)+'%':'')+'<span>vs 上年同期</span></div></div>';
+}
+function fundChartMonthCompare(flows){
+  const el=document.getElementById('chartMonthCompare');
+  if(!el||!window.echarts)return;
+  const chart=echarts.init(el,'cc-dark');
+  const by={};
+  (Array.isArray(flows)?flows:[]).forEach(f=>{
+    const d=f.date||'';if(d.length<7)return;
+    const yr=d.slice(0,4),mo=d.slice(5,7);
+    if(yr!=='2025'&&yr!=='2026')return;
+    const k=by[mo]=by[mo]||{p25:0,r25:0,p26:0,r26:0};
+    if(f.type==='PAY'){yr==='2025'?k.p25+=f.amount:k.p26+=f.amount;}
+    else{yr==='2025'?k.r25+=f.amount:k.r26+=f.amount;}
+  });
+  const months=[],p25=[],p26=[],r25=[],r26=[];
+  for(let i=1;i<=8;i++){
+    const k=String(i).padStart(2,'0'),m=by[k]||{};
+    months.push(i+'月');p25.push(-(m.p25||0));p26.push(-(m.p26||0));r25.push(m.r25||0);r26.push(m.r26||0);
+  }
+  const pct=(a,b)=>b===0?null:((a-b)/b*100);
+  chart.setOption({
+    tooltip:{trigger:'axis',axisPointer:{type:'shadow'},
+      formatter:ps=>{
+        const i=ps[0].dataIndex;
+        const pp=pct(p26[i],p25[i]),rp=pct(r26[i],r25[i]);
+        let h='<b>'+months[i]+'</b>';
+        h+='<div>2026付款：'+fundMoney(p26[i])+'</div><div>2025付款：'+fundMoney(p25[i])+'</div>';
+        h+='<div style="color:'+(pp===null?'#8893aa':(pp>0?'#ff6b6b':'#52c41a'))+'">付款同比 '+(pp===null?'—':(pp>0?'+':'')+pp.toFixed(1)+'%')+'</div>';
+        h+='<div style="margin-top:4px">2026回款：'+fundMoney(r26[i])+'</div><div>2025回款：'+fundMoney(r25[i])+'</div>';
+        h+='<div style="color:'+(rp===null?'#8893aa':(rp>0?'#52c41a':'#ff6b6b'))+'">回款同比 '+(rp===null?'—':(rp>0?'+':'')+rp.toFixed(1)+'%')+'</div>';
+        return h;
+      }},
+    legend:{data:['2025付款','2026付款','2025回款','2026回款'],textStyle:{fontSize:10}},
+    grid:{left:60,right:20,top:30,bottom:24},
+    xAxis:{type:'category',data:months,axisLabel:{fontSize:10}},
+    yAxis:{type:'value',axisLabel:{fontSize:10,formatter:fundMoney}},
+    series:[
+      {name:'2025付款',type:'bar',data:p25,itemStyle:{color:'#3a4a6a'},barGap:'20%'},
+      {name:'2026付款',type:'bar',data:p26,itemStyle:{color:'#4f8cff'}},
+      {name:'2025回款',type:'bar',data:r25,itemStyle:{color:'#2f5d4a'}},
+      {name:'2026回款',type:'bar',data:r26,itemStyle:{color:'#22c55e'}}
+    ]
+  });
+  fundDimCharts['chartMonthCompare']=chart;
+}
+function loadFundDimOverview(data){
+  const panel=document.getElementById('fundDimOverview');
+  if(!panel)return;
+  let html='';
+  // 汇总卡：同比 KPI（CC-006 FR-13）
+  if(data.summary){
+    const occNow=(data.rows||[]).reduce((s,r)=>s+(r['当前资金占用']||0),0);
+    const y=fundYoY(data.flows||[],occNow,(data.yoy&&data.yoy.occupy_prev)||0);
+    html+='<div class="cards" style="margin-bottom:12px;grid-template-columns:repeat(4,1fr);gap:14px">';
+    html+=yoyCard('📤 累计付款（今年累计）',y.curPay,fundMoney,y.payPct);
+    html+=yoyCard('📥 累计回款（今年累计）',y.curRecv,fundMoney,y.recvPct);
+    html+=yoyCard('⚖️ 净现金流（今年累计）',y.curNet,fundMoney,y.netPct);
+    html+=yoyCard('💰 当前资金占用',y.occNow,fundMoney,y.occPct,'semantic');
+    html+='</div>';
+  }
+  // 图表区：风险分布环形 + 项目状态环形 + 资金成本构成
+  html+='<div class="cards" style="grid-template-columns:repeat(3,1fr);gap:16px">';
+  html+='<div class="card" style="padding:12px"><div style="font-size:13px;font-weight:600;margin-bottom:4px">风险等级分布</div>'+fundChartDiv('chartRiskPie',260)+'</div>';
+  html+='<div class="card" style="padding:12px"><div style="font-size:13px;font-weight:600;margin-bottom:4px">项目状态资金分布</div>'+fundChartDiv('chartStatusPie',260)+'</div>';
+  html+='<div class="card" style="padding:12px"><div style="font-size:13px;font-weight:600;margin-bottom:4px">资金成本构成 TOP</div>'+fundChartDiv('chartCostPie',260)+'</div>';
+  html+='</div>';
+  html+='<div style="height:20px"></div>';
+  // 月度同比对比（CC-006 FR-13）
+  html+='<div class="card" style="padding:12px"><div style="font-size:13px;font-weight:600;margin-bottom:4px">月度付款 / 回款同比（2026 vs 2025）</div>'+fundChartDiv('chartMonthCompare',340)+'</div>';
+  html+='<div style="height:20px"></div>';
+  html+='<div class="card" style="padding:12px"><div style="font-size:13px;font-weight:600;margin-bottom:4px">月度付款 / 收款 / 占用余额趋势</div>'+fundChartDiv('chartMonthLine',340)+'</div>';
+  panel.innerHTML=html;
+  fundChartMonthCompare(data.flows||[]);
+  // 从明细表构造图表数据
+  if(data.rows&&data.rows.length){
+    const rows=data.rows;
+    // 风险分布
+    const riskCount={healthy:0,yellow:0,orange:0,red:0};
+    const statusAgg={};
+    const costRows=rows.map(r=>({name:r['合同编号'],value:r['预估资金成本']||0})).filter(x=>x.value>0).sort((a,b)=>b.value-a.value).slice(0,8);
+    rows.forEach(r=>{
+      const lv=r['风险等级']||'healthy';
+      riskCount[lv]=(riskCount[lv]||0)+1;
+      const st=r['项目状态']||'未知';
+      statusAgg[st]=(statusAgg[st]||0)+(r['当前资金占用']||0);
+    });
+    fundChartPie('chartRiskPie',[
+      {name:'健康',value:riskCount.healthy,itemStyle:{color:'#52c41a'}},
+      {name:'关注',value:riskCount.yellow,itemStyle:{color:'#faad14'}},
+      {name:'预警',value:riskCount.orange,itemStyle:{color:'#fa8c16'}},
+      {name:'高危',value:riskCount.red,itemStyle:{color:'#ff4d4f'}},
+    ].filter(x=>x.value>0),'个合同');
+    const stArr=Object.entries(statusAgg).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([k,v])=>({name:k,value:v}));
+    fundChartPie('chartStatusPie',stArr,fundMoney);
+    fundChartPie('chartCostPie',costRows,fundMoney);
+    fundChartMonthLine(data.flows||[],rows);
+  }
+}
+
+function fundChartPie(id,series,labelFmt){
+  const el=document.getElementById(id);
+  if(!el||!window.echarts)return;
+  const chart=echarts.init(el,'cc-dark');
+  chart.setOption({
+    tooltip:{trigger:'item',formatter:p=>p.name+'：'+(typeof labelFmt==='function'?labelFmt(p.value):(p.value||0))},
+    legend:{type:'scroll',orient:'vertical',right:0,top:'middle',textStyle:{fontSize:10}},
+    series:[{type:'pie',radius:['35%','68%'],center:['38%','50%'],itemStyle:{borderRadius:4},
+      label:{show:false},data:series||[]}]
+  });
+  fundDimCharts[id]=chart;
+}
+
+function fundChartMonthLine(flows,rows){
+  const el=document.getElementById('chartMonthLine');
+  if(!el||!window.echarts)return;
+  const chart=echarts.init(el,'cc-dark');
+  // 按月聚合（无流水时用周期起始月近似）
+  const monthAgg={};
+  const flowAgg=Array.isArray(flows)?flows.reduce((m,f)=>{
+    const mo=(f.date||'').slice(0,7);if(!mo)return m;
+    m[mo]=m[mo]||{pay:0,recv:0};f.type==='PAY'?m[mo].pay+=(f.amount||0):m[mo].recv+=(f.amount||0);
+    return m;
+  },{}):{};
+  rows.forEach(r=>{
+    const mo=(r['周期起始日']||'').slice(0,7)||'未知';
+    const b=monthAgg[mo]=monthAgg[mo]||{occupy:0};
+    b.occupy+=(r['当前资金占用']||0);
+  });
+  const months=[...new Set([...Object.keys(monthAgg),...Object.keys(flowAgg)])].sort();
+  const pay=months.map(m=>flowAgg[m]?flowAgg[m].pay:null);
+  const recv=months.map(m=>flowAgg[m]?flowAgg[m].recv:null);
+  const occupy=months.map(m=>monthAgg[m]?monthAgg[m].occupy:null);
+  chart.setOption({
+    tooltip:{trigger:'axis'},
+    legend:{data:['付款','回款','占用余额'],textStyle:{fontSize:10}},
+    grid:{left:60,right:20,top:30,bottom:24},
+    xAxis:{type:'category',data:months,axisLabel:{fontSize:10}},
+    yAxis:{type:'value',axisLabel:{fontSize:10,formatter:fundMoney}},
+    series:[
+      {name:'付款',type:'bar',stack:'cash',data:pay,itemStyle:{color:'#4f8cff'}},
+      {name:'回款',type:'bar',stack:'cash',data:recv,itemStyle:{color:'#52c41a'}},
+      {name:'占用余额',type:'line',data:occupy,itemStyle:{color:'#fa8c16'},smooth:true}
+    ]
+  });
+  fundDimCharts['chartMonthLine']=chart;
+}
+
+// ── Tab2 区域 / Tab3 客户集合 / Tab4 时间 ──
+async function loadFundDimCharts(){
+  const loading=document.getElementById('fundDimLoading');
+  if(loading)loading.textContent='维度数据加载中...';
+  await Promise.all([loadFundRegion(),loadFundCustomer(),loadFundTime(),loadFundRisk()]);
+  if(loading)loading.textContent='';
+}
+
+async function loadFundRegion(){
+  const panel=document.getElementById('fundDimRegion');
+  if(!panel)return;
+  panel.innerHTML='<div class="ana-empty"><div>加载中...</div></div>';
+  const [r,rp]=await Promise.all([
+    fundFetch('/api/fund/dim/aggregate?dim=region'),
+    fundFetch('/api/fund/dim/aggregate?dim=province')
+  ]);
+  if(!r.success){panel.innerHTML='<div class="ana-empty"><div>'+r.error+'</div></div>';return;}
+  const rows=r.rows||[];
+  const provRows=(rp&&rp.success)?(rp.rows||[]):[];
+  let html='<div class="cards" style="grid-template-columns:2fr 1fr;gap:16px">';
+  html+='<div class="card" style="padding:12px"><div style="font-size:13px;font-weight:600;margin-bottom:4px">区域资金占用 × 回款率（点击下钻）</div>'+fundChartDiv('chartRegionBar',320)+'</div>';
+  html+='<div class="card" style="padding:12px"><div style="font-size:13px;font-weight:600;margin-bottom:4px">区域风险等级分布</div>'+fundChartDiv('chartRegionRisk',320)+'</div>';
+  html+='</div>';
+  html+='<div style="height:20px"></div>';
+  // 双地图：区域(六大区) + 省份，借鉴回款周期模块
+  html+='<div class="card" style="padding:12px"><div style="font-size:13px;font-weight:600;margin-bottom:4px">资金占用分布地图</div>';
+  html+='<div style="margin-bottom:8px"><button class="btn btn-c btn-sm" id="fundMapBtnArea" onclick="fundMapSwitch(\'area\')">🗺️ 六大区</button> <button class="btn btn-o btn-sm" id="fundMapBtnProv" onclick="fundMapSwitch(\'prov\')">🧭 省份</button></div>';
+  html+=fundChartDiv('chartRegionMapArea',340)+fundChartDiv('chartRegionMapProv',340)+'</div>';
+  html+='<div style="height:12px"></div>';
+  html+='<div class="twrap"><table class="ana-table"><thead><tr><th style="text-align:left;padding-left:8px">区域</th><th style="text-align:right;padding-right:8px">合同数</th><th style="text-align:right;padding-right:8px">当前占用</th><th style="text-align:right;padding-right:8px">回款率</th><th style="text-align:right;padding-right:8px">占用强度</th><th>风险</th><th>操作</th></tr></thead><tbody>';
+  rows.forEach(x=>{
+    const riskName={healthy:'健康',yellow:'关注',orange:'预警',red:'高危'}[x.risk_level]||x.risk_level;
+    html+='<tr><td class="wrap">'+x.name+'</td><td class="num">'+x.contract_count+'</td><td class="num pay-green">¥'+fundMoney(x.current_occupy)+'</td><td class="num">'+(x.recv_rate*100).toFixed(1)+'%</td><td class="num">'+(x.occupy_intensity*100).toFixed(1)+'%</td><td>'+riskName+'</td><td><button class="btn btn-o btn-sm" onclick="fundDrill(\'region\',\''+x.name+'\',\''+x.name+'\')">下钻</button></td></tr>';
+  });
+  html+='</tbody></table></div>';
+  panel.innerHTML=html;
+  if(rows.length){
+    fundChartRegionBar(rows);
+    fundChartRegionRisk(rows);
+    // 双地图：区域聚合(current_occupy) + 省份聚合(current_occupy)
+    fundChartRegionMapArea(rows);
+    fundChartRegionMapProv(provRows.length?provRows:rows);
+    fundMapSwitch('area');
+  }
+}
+// 双地图切换（六大区 / 省份）
+function fundMapSwitch(which){
+  const a=document.getElementById('chartRegionMapArea'),p=document.getElementById('chartRegionMapProv');
+  const ba=document.getElementById('fundMapBtnArea'),bp=document.getElementById('fundMapBtnProv');
+  if(a)a.style.display=(which==='area')?'':'none';
+  if(p)p.style.display=(which==='prov')?'':'none';
+  if(ba)ba.className='btn btn-sm '+(which==='area'?'btn-c':'btn-o');
+  if(bp)bp.className='btn btn-sm '+(which==='prov'?'btn-c':'btn-o');
+  const c=fundDimCharts[(which==='area')?'chartRegionMapArea':'chartRegionMapProv'];
+  if(c&&typeof c.resize==='function'){try{c.resize();}catch(e){}}
+}
+
+function fundChartRegionBar(rows){
+  const el=document.getElementById('chartRegionBar');
+  if(!el||!window.echarts)return;
+  const chart=echarts.init(el,'cc-dark');
+  chart.setOption({
+    tooltip:{trigger:'axis'},
+    legend:{data:['当前占用','回款率'],textStyle:{fontSize:10}},
+    grid:{left:80,right:60,top:30,bottom:28},
+    xAxis:{type:'category',data:rows.map(r=>r.name),axisLabel:{fontSize:10,interval:0,rotate:rows.length>6?35:0}},
+    yAxis:[{type:'value',axisLabel:{fontSize:10,formatter:fundMoney}},{type:'value',min:0,max:1,axisLabel:{fontSize:10,formatter:v=>(v*100)+'%'}}],
+    series:[
+      {name:'当前占用',type:'bar',data:rows.map(r=>r.current_occupy),itemStyle:{color:'#fa8c16'},barWidth:'45%'},
+      {name:'回款率',type:'line',yAxisIndex:1,data:rows.map(r=>r.recv_rate),itemStyle:{color:'#4f8cff'},smooth:true}
+    ]
+  });
+  chart.on('click',p=>{if(p.componentType==='series')fundDrill('region',p.name,p.name);});
+  fundDimCharts['chartRegionBar']=chart;
+}
+
+function fundChartRegionRisk(rows){
+  const el=document.getElementById('chartRegionRisk');
+  if(!el||!window.echarts)return;
+  const chart=echarts.init(el,'cc-dark');
+  const cats=['red','orange','yellow','healthy'];
+  const series=cats.map(lv=>({
+    name:{red:'高危',orange:'预警',yellow:'关注',healthy:'健康'}[lv],
+    type:'bar',stack:'risk',data:rows.map(r=>r.risk_count?r.risk_count[lv]:0),
+    itemStyle:{color:{red:'#ff4d4f',orange:'#fa8c16',yellow:'#faad14',healthy:'#52c41a'}[lv]}
+  }));
+  chart.setOption({
+    tooltip:{trigger:'axis'},
+    legend:{textStyle:{fontSize:10}},
+    grid:{left:60,right:20,top:30,bottom:24},
+    xAxis:{type:'category',data:rows.map(r=>r.name),axisLabel:{fontSize:10,interval:0}},
+    yAxis:{type:'value',axisLabel:{fontSize:10}},
+    series:series
+  });
+  fundDimCharts['chartRegionRisk']=chart;
+}
+
+// 六大区合并地图（借鉴回款周期 renderChinaMap）
+function fundChartRegionMapArea(regionRows){
+  const el=document.getElementById('chartRegionMapArea');
+  if(!el||!window.echarts)return;
+  el.innerHTML='';
+  const byArea={};
+  (regionRows||[]).forEach(r=>{if(r.name&&r.name!=='未知')byArea[r.name]=r;});
+  setTimeout(()=>{
+    if(!chinaGeoJson){
+      el.innerHTML='<div style="color:var(--text2);padding:20px;text-align:center">地图数据加载中...</div>';
+      return;
+    }
+    const srcGeo=chinaGeoJson;
+    const draw=()=>{
+      const areaKeys=Object.keys(byArea).filter(a=>PC_AREA_PROVINCES[a]);
+      if(!areaKeys.length){el.innerHTML='<div style="color:var(--text2);padding:20px;text-align:center">暂无区域数据</div>';return;}
+      // 用已注册的六大区地图（回款周期已注册 pc_regions），未注册则退化条形
+      let mapReady=false;
+      try{mapReady=echarts.getMap?!!echarts.getMap('pc_regions'):false;}catch(e){}
+      const chart=echarts.init(el,'cc-dark');
+      if(mapReady){
+        const values=areaKeys.map(a=>byArea[a].current_occupy||0).filter(v=>v>0);
+        const vmin=values.length?Math.min(...values):0;
+        const vmax=values.length?Math.max(...values):1;
+        const areaData=areaKeys.map(a=>({name:a,value:byArea[a].current_occupy||0}));
+        chart.setOption({
+          tooltip:{trigger:'item',formatter:p=>{
+            if(p.componentType!=='series'||p.seriesType!=='map'||!p.name)return '';
+            const s=byArea[p.name];
+            if(!s)return pcEsc(p.name);
+            return pcEsc(p.name)+'<br>当前占用 ¥'+fundMoney(s.current_occupy)+'<br>合同 '+s.contract_count+' 份 · 回款率 '+(s.recv_rate*100).toFixed(1)+'%<br>占用强度 '+(s.occupy_intensity*100).toFixed(1)+'%';
+          }},
+          visualMap:{min:vmin,max:vmax,left:'center',bottom:10,orient:'horizontal',itemWidth:14,itemHeight:100,calculable:true,text:['占用低','占用高'],textStyle:{color:'#7d8db0',fontSize:11},inRange:{color:['#22d3ee','#60a5fa','#4f8cff','#a78bfa']},formatter:v=>'¥'+fundMoney(v)},
+          geo:{map:'pc_regions',roam:false,zoom:1.08,center:[104.5,36.5],itemStyle:{areaColor:'#131c2e',borderColor:'#24324d',borderWidth:1},emphasis:{itemStyle:{areaColor:'#f59e0b',borderColor:'#b45309',borderWidth:1.6}},label:{show:false}},
+          series:[{type:'map',map:'pc_regions',geoIndex:0,data:areaData,label:{show:false},emphasis:{label:{show:false},itemStyle:{areaColor:'#f59e0b',borderColor:'#b45309',borderWidth:1.6}},itemStyle:{borderWidth:0}}],
+        });
+        chart.on('click',p=>{if(p.componentType==='series'&&p.seriesType==='map'&&p.name&&byArea[p.name])fundDrill('region',p.name,p.name);});
+      }else{
+        // 无区域合并地图时退化为横向条形
+        chart.setOption({
+          tooltip:{trigger:'axis'},
+          grid:{left:80,right:20,top:10,bottom:24},
+          xAxis:{type:'value',axisLabel:{fontSize:10,formatter:fundMoney}},
+          yAxis:{type:'category',data:areaKeys.slice().reverse(),axisLabel:{fontSize:10}},
+          series:[{type:'bar',data:areaKeys.map(a=>byArea[a].current_occupy||0).reverse(),itemStyle:{color:'#4f8cff'},barWidth:'55%'}]
+        });
+        chart.on('click',p=>fundDrill('region',p.name,p.name));
+      }
+      fundDimCharts['chartRegionMapArea']=chart;
+    };
+    if(!echarts.getMap||!echarts.getMap('pc_regions')){
+      Promise.all([pcLoadScript(PC_POLYCLIP_URL)]).then(()=>{
+        // 依赖回款周期已注册的 pc_regions；若尚未注册则本地合并
+        if(echarts.getMap&&echarts.getMap('pc_regions')){draw();return;}
+        const regionFeatures=[];
+        Object.keys(PC_AREA_PROVINCES).forEach(area=>{
+          const provs=srcGeo.features.filter(f=>PC_AREA_PROVINCES[area].indexOf(f.properties.name)>=0);
+          if(!provs.length)return;
+          let feat;
+          if(window.polygonClipping){
+            const geoms=provs.map(f=>f.geometry.type==='Polygon'?[f.geometry.coordinates]:f.geometry.coordinates);
+            let merged=[];
+            try{merged=window.polygonClipping.union.apply(window.polygonClipping,geoms);}catch(e){merged=[];}
+            feat={type:'Feature',properties:{name:area},geometry:{type:'MultiPolygon',coordinates:merged}};
+          }else{
+            const coords=[];
+            provs.forEach(f=>{const c=f.geometry.type==='MultiPolygon'?f.geometry.coordinates:[f.geometry.coordinates];c.forEach(poly=>coords.push(poly));});
+            feat={type:'Feature',properties:{name:area},geometry:{type:'MultiPolygon',coordinates:coords}};
+          }
+          if(feat&&feat.geometry)regionFeatures.push(feat);
+        });
+        ['台湾省','南海诸岛'].forEach(nm=>{
+          const f=srcGeo.features.find(x=>x.properties.name===nm);
+          if(f)regionFeatures.push({type:'Feature',properties:{name:nm},geometry:f.geometry});
+        });
+        if(regionFeatures.length>=2){
+          try{echarts.registerMap('pc_regions',{type:'FeatureCollection',features:regionFeatures});}catch(e){}
+        }
+        draw();
+      });
+    }else{draw();}
+  },200);
+}
+// 省份着色地图（借鉴回款周期 renderChinaMap）
+function fundChartRegionMapProv(provRows){
+  const el=document.getElementById('chartRegionMapProv');
+  if(!el||!window.echarts)return;
+  el.innerHTML='';
+  setTimeout(()=>{
+    if(!chinaGeoJson){
+      el.innerHTML='<div style="color:var(--text2);padding:20px;text-align:center">地图数据加载中...</div>';
+      return;
+    }
+    const srcGeo=chinaGeoJson;
+    const byProv={};
+    (provRows||[]).forEach(r=>{
+      if(r.name&&r.name!=='未知'){const full=PC_PROV_FULL[r.name]||r.name;byProv[full]=r;}
+    });
+    const keys=Object.keys(byProv);
+    if(!keys.length){el.innerHTML='<div style="color:var(--text2);padding:20px;text-align:center">暂无省份数据</div>';return;}
+    let mapReady=false;
+    try{mapReady=echarts.getMap?!!echarts.getMap('pc_provs'):false;}catch(e){}
+    if(!mapReady){
+      try{echarts.registerMap('pc_provs',srcGeo);mapReady=true;}catch(e){mapReady=false;}
+    }
+    const chart=echarts.init(el,'cc-dark');
+    const revProv=Object.keys(PC_PROV_FULL).reduce((m,k)=>{m[PC_PROV_FULL[k]]=k;return m;},{});
+    if(mapReady){
+      const data=keys.map(nm=>({name:nm,value:byProv[nm].current_occupy||0}));
+      const pvals=data.map(d=>d.value).filter(v=>v!=null&&v>0);
+      const pmin=pvals.length?Math.min(...pvals):0;
+      const pmax=pvals.length?Math.max(...pvals):1;
+      chart.setOption({
+        tooltip:{trigger:'item',formatter:p=>{
+          if(p.componentType!=='series'||p.seriesType!=='map'||!p.name)return '';
+          const s=byProv[p.name];
+          if(!s)return pcEsc(p.name)+'<br>暂无资金占用数据';
+          return pcEsc(p.name)+'<br>当前占用 ¥'+fundMoney(s.current_occupy)+'<br>合同 '+s.contract_count+' 份 · 回款率 '+(s.recv_rate*100).toFixed(1)+'%';
+        }},
+        visualMap:{min:pmin,max:pmax,left:'center',bottom:10,orient:'horizontal',itemWidth:14,itemHeight:100,calculable:true,text:['占用低','占用高'],textStyle:{color:'#7d8db0',fontSize:11},inRange:{color:['#22d3ee','#60a5fa','#4f8cff','#a78bfa']},formatter:v=>'¥'+fundMoney(v)},
+        geo:{map:'pc_provs',roam:false,zoom:1.08,center:[104.5,36.5],itemStyle:{areaColor:'#131c2e',borderColor:'#24324d',borderWidth:0.8},emphasis:{label:{show:true,color:'#dbe4f5',fontWeight:'bold'}}},
+        series:[{type:'map',map:'pc_provs',geoIndex:0,data:data,label:{show:false},emphasis:{label:{show:true,color:'#dbe4f5',fontWeight:'bold'}}}],
+      });
+      chart.on('click',p=>{if(p.componentType==='series'&&p.seriesType==='map'&&p.name&&byProv[p.name]){const short=revProv[p.name]||p.name;fundDrill('province',short,p.name);}});
+    }else{
+      // 未注册省份地图时退化横向条形
+      chart.setOption({
+        tooltip:{trigger:'axis'},
+        grid:{left:80,right:20,top:10,bottom:24},
+        xAxis:{type:'value',axisLabel:{fontSize:10,formatter:fundMoney}},
+        yAxis:{type:'category',data:keys.slice().reverse(),axisLabel:{fontSize:10}},
+        series:[{type:'bar',data:keys.map(k=>byProv[k].current_occupy||0).reverse(),itemStyle:{color:'#4f8cff'},barWidth:'55%'}]
+      });
+      chart.on('click',p=>{const short=revProv[p.name]||p.name;fundDrill('province',short,p.name);});
+    }
+    fundDimCharts['chartRegionMapProv']=chart;
+  },200);
+}
+
+async function loadFundCustomer(){
+  const panel=document.getElementById('fundDimCustomer');
+  if(!panel)return;
+  panel.innerHTML='<div class="ana-empty"><div>加载中...</div></div>';
+  const r=await fundFetch('/api/fund/dim/aggregate?dim=customer_key');
+  if(!r.success){panel.innerHTML='<div class="ana-empty"><div>'+r.error+'</div></div>';return;}
+  const rows=(r.rows||[]).filter(x=>x.name&&x.name!=='未知').slice(0,20);
+  if(!rows.length){
+    panel.innerHTML='<div class="ana-empty"><div>📭 暂无客户集合维度数据</div><div style="font-size:12px;color:var(--text2);margin-top:8px">请确认总合同表中存在「客户标识/客户编码/客户编号/责任人」列并重新执行资金占用分析</div></div>';
+    return;
+  }
+  let html='<div class="cards" style="grid-template-columns:1fr 1fr;gap:16px">';
+  html+='<div class="card" style="padding:12px"><div style="font-size:13px;font-weight:600;margin-bottom:4px">客户集合占用 TOP10（点击下钻）</div>'+fundChartDiv('chartCustomerTop',320)+'</div>';
+  html+='<div class="card" style="padding:12px"><div style="font-size:13px;font-weight:600;margin-bottom:4px">客户集合风险等级分布</div>'+fundChartDiv('chartCustomerRisk',320)+'</div>';
+  html+='</div>';
+  html+='<div style="height:20px"></div>';
+  html+='<div class="twrap"><table class="ana-table"><thead><tr><th style="text-align:left;padding-left:8px">客户键</th><th style="text-align:right;padding-right:8px">合同数</th><th style="text-align:right;padding-right:8px">当前占用</th><th style="text-align:right;padding-right:8px">上年同期占用</th><th style="text-align:right;padding-right:8px">同比变化率</th><th style="text-align:right;padding-right:8px">回款率</th><th>风险</th><th>操作</th></tr></thead><tbody>';
+  rows.forEach(x=>{
+    const riskName={healthy:'健康',yellow:'关注',orange:'预警',red:'高危'}[x.risk_level]||x.risk_level;
+    html+='<tr><td class="wrap">'+x.name+'</td><td class="num">'+x.contract_count+'</td><td class="num pay-green">¥'+fundMoney(x.current_occupy)+'</td>';
+    html+='<td class="num">¥'+fundMoney(x.prev_occupy)+'</td>';
+    html+=fundOccYoyTd(x.current_occupy,x.prev_occupy);
+    html+='<td class="num">'+(x.recv_rate*100).toFixed(1)+'%</td><td>'+riskName+'</td><td><button class="btn btn-o btn-sm" onclick="fundDrill(\'customer_key\',\''+x.name+'\',\''+x.name+'\')">下钻</button></td></tr>';
+  });
+  html+='</tbody></table></div>';
+  panel.innerHTML=html;
+  if(rows.length){
+    fundChartCustomerTop(rows);
+    fundChartCustomerRisk(rows);
+  }
+}
+
+function fundChartCustomerTop(rows){
+  const el=document.getElementById('chartCustomerTop');
+  if(!el||!window.echarts)return;
+  const chart=echarts.init(el,'cc-dark');
+  const top=rows.slice(0,10).slice().reverse();
+  chart.setOption({
+    tooltip:{trigger:'axis'},
+    grid:{left:70,right:60,top:10,bottom:24},
+    xAxis:{type:'value',axisLabel:{fontSize:10,formatter:fundMoney}},
+    yAxis:{type:'category',data:top.map(r=>r.name),axisLabel:{fontSize:10}},
+    series:[{name:'当前占用',type:'bar',data:top.map(r=>r.current_occupy),barWidth:'55%',
+      itemStyle:{color:p=>fundBarColors(top[p.dataIndex].risk_count)}}]
+  });
+  chart.on('click',p=>fundDrill('customer_key',top[p.dataIndex].name,top[p.dataIndex].name));
+  fundDimCharts['chartCustomerTop']=chart;
+}
+
+function fundChartCustomerRisk(rows){
+  const el=document.getElementById('chartCustomerRisk');
+  if(!el||!window.echarts)return;
+  const chart=echarts.init(el,'cc-dark');
+  // 横向堆积：Y 轴放客户名（长编码），避免 X 轴标签重叠
+  const cats=['red','orange','yellow','healthy'];
+  const revRows=rows.slice().reverse();
+  const series=cats.map(lv=>({
+    name:{red:'高危',orange:'预警',yellow:'关注',healthy:'健康'}[lv],
+    type:'bar',stack:'risk',data:revRows.map(r=>r.risk_count?r.risk_count[lv]:0),
+    itemStyle:{color:{red:'#ff4d4f',orange:'#fa8c16',yellow:'#faad14',healthy:'#52c41a'}[lv]}
+  }));
+  chart.setOption({
+    tooltip:{trigger:'axis',axisPointer:{type:'shadow'}},
+    legend:{textStyle:{fontSize:10}},
+    grid:{left:140,right:20,top:30,bottom:30},
+    xAxis:{type:'value',axisLabel:{fontSize:10}},
+    yAxis:{type:'category',data:revRows.map(r=>r.name),axisLabel:{fontSize:9,width:120,overflow:'truncate'}},
+    series:series
+  });
+  fundDimCharts['chartCustomerRisk']=chart;
+}
+
+async function loadFundTime(){
+  const panel=document.getElementById('fundDimTime');
+  if(!panel)return;
+  panel.innerHTML='<div class="ana-empty"><div>加载中...</div></div>';
+  const a=await fundFetch('/api/fund/dim/aggregate?dim=sign_year');
+  const rows=a.success?a.rows:[];
+  const yearRows=(rows||[]).filter(x=>x.name&&x.name!=='未知').sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+  if(!yearRows.length){
+    panel.innerHTML='<div class="ana-empty"><div>📭 暂无时间维度数据</div></div>';
+    return;
+  }
+  let html='<div class="cards" style="grid-template-columns:1fr 1fr;gap:16px">';
+  html+='<div class="card" style="padding:12px"><div style="font-size:13px;font-weight:600;margin-bottom:4px">签约年份资金占用分布</div>'+fundChartDiv('chartYearBar',320)+'</div>';
+  html+='<div class="card" style="padding:12px"><div style="font-size:13px;font-weight:600;margin-bottom:4px">占用时长分段（合同数）</div>'+fundChartDiv('chartDaysHist',320)+'</div>';
+  html+='</div>';
+  panel.innerHTML=html;
+  fundChartYearBar(yearRows);
+  fundChartDaysHist();
+}
+
+function fundChartYearBar(rows){
+  const el=document.getElementById('chartYearBar');
+  if(!el||!window.echarts)return;
+  const chart=echarts.init(el,'cc-dark');
+  chart.setOption({
+    tooltip:{trigger:'axis'},
+    legend:{data:['当前占用','回款率'],textStyle:{fontSize:10}},
+    grid:{left:60,right:60,top:30,bottom:24},
+    xAxis:{type:'category',data:rows.map(r=>r.name),axisLabel:{fontSize:10}},
+    yAxis:[{type:'value',axisLabel:{fontSize:10,formatter:fundMoney}},{type:'value',min:0,max:1,axisLabel:{fontSize:10,formatter:v=>(v*100)+'%'}}],
+    series:[
+      {name:'当前占用',type:'bar',data:rows.map(r=>r.current_occupy),itemStyle:{color:'#4f8cff'},barWidth:'45%'},
+      {name:'回款率',type:'line',yAxisIndex:1,data:rows.map(r=>r.recv_rate),itemStyle:{color:'#52c41a'},smooth:true}
+    ]
+  });
+  fundDimCharts['chartYearBar']=chart;
+}
+
+function fundChartDaysHist(){
+  const el=document.getElementById('chartDaysHist');
+  if(!el||!window.echarts)return;
+  const chart=echarts.init(el,'cc-dark');
+  // 从明细表读取占用时长分段（周期总天数近似）
+  const table=document.getElementById('fundTable');
+  const buckets=[0,30,90,180,365,Infinity];
+  const labels=['≤30天','31-90天','91-180天','181-365天','>365天'];
+  const count=labels.map(()=>0);
+  if(table){
+    const rows=Array.from(table.querySelectorAll('tbody tr'));
+    const thead=table.querySelector('thead');
+    const headers=thead?Array.from(thead.querySelectorAll('th')).map(th=>th.textContent.trim()):[];
+    const idx=headers.indexOf('周期总天数');
+    rows.forEach(tr=>{
+      const cells=tr.querySelectorAll('td');
+      if(!cells.length||idx<0||!cells[idx])return;
+      const days=parseFloat(cells[idx].textContent.replace(/[^\d.-]/g,''))||0;
+      for(let i=0;i<labels.length;i++){
+        if(days>buckets[i]&&days<=buckets[i+1]){count[i]++;break;}
+      }
+    });
+  }
+  chart.setOption({
+    tooltip:{trigger:'axis'},
+    grid:{left:60,right:20,top:20,bottom:24},
+    xAxis:{type:'category',data:labels,axisLabel:{fontSize:10}},
+    yAxis:{type:'value',axisLabel:{fontSize:10}},
+    series:[{name:'合同数',type:'bar',data:count,itemStyle:{color:'#722ed1'},barWidth:'50%'}]
+  });
+  fundDimCharts['chartDaysHist']=chart;
+}
+
+// ── Tab5 风险预警 ──
+async function loadFundRisk(){
+  const panel=document.getElementById('fundDimRisk');
+  if(!panel)return;
+  panel.innerHTML='<div class="ana-empty"><div>加载中...</div></div>';
+  const [risk,trend,cfg]=await Promise.all([
+    fundFetch('/api/fund/risk/list'),
+    fundFetch('/api/fund/risk/trend?dim=region'),
+    fundFetch('/api/fund/risk/config')
+  ]);
+  fundRiskData=risk;
+  const rows=risk.success?(risk.rows||[]):[];
+  const warnings=trend.success?(trend.warnings||[]):[];
+  const config=cfg.success?(cfg.config||[]):[];
+  const cfgMap={};config.forEach(c=>cfgMap[c.key]=c.value);
+
+  let html='<div class="cards" style="grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px">';
+  html+='<div class="card"><div class="lbl">🔴 高危</div><div class="val c" style="font-size:22px;color:#ff4d4f">'+(risk.stat?risk.stat.red:0)+'</div></div>';
+  html+='<div class="card"><div class="lbl">🟠 预警</div><div class="val c" style="font-size:22px;color:#fa8c16">'+(risk.stat?risk.stat.orange:0)+'</div></div>';
+  html+='<div class="card"><div class="lbl">🟡 关注</div><div class="val c" style="font-size:22px;color:#faad14">'+(risk.stat?risk.stat.yellow:0)+'</div></div>';
+  html+='<div class="card"><div class="lbl">🟢 健康</div><div class="val c" style="font-size:22px;color:#52c41a">'+(risk.stat?risk.stat.healthy:0)+'</div></div>';
+  html+='</div>';
+
+  // 阈值配置
+  html+='<div class="panel" style="margin-bottom:16px"><h3>⚙️ 预警阈值配置（默认值，可调整）</h3>';
+  html+='<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;font-size:12px">';
+  html+='<label>健康≤<input type="number" id="cfgDaysGreen" value="'+(cfgMap.days_green||30)+'" style="width:60px">天</label>';
+  html+='<label>关注≤<input type="number" id="cfgDaysYellow" value="'+(cfgMap.days_yellow||90)+'" style="width:60px">天</label>';
+  html+='<label>预警> <input type="number" id="cfgDaysOrange" value="'+(cfgMap.days_orange||180)+'" style="width:60px">天</label>';
+  html+='<label>回款率≥<input type="number" id="cfgRecvRate" value="'+(cfgMap.recv_rate||0.5)+'" step="0.05" style="width:60px"></label>';
+  html+='<label>占用强度><input type="number" id="cfgIntensity" value="'+(cfgMap.intensity||0.5)+'" step="0.05" style="width:60px"></label>';
+  html+='<label>高危金额≥<input type="number" id="cfgAmountHigh" value="'+(cfgMap.amount_high||1000000)+'" style="width:90px">元</label>';
+  html+='<label>环比连续<input type="number" id="cfgTrendMonths" value="'+(cfgMap.trend_months||2)+'" style="width:50px">月上升</label>';
+  html+='<button class="btn btn-c btn-sm" onclick="saveRiskConfig()">保存并重算</button>';
+  html+='</div></div>';
+
+  // 趋势预警
+  html+='<div class="panel" style="margin-bottom:16px"><h3>📈 趋势预警（占用金额环比连续上升）</h3>';
+  if(warnings.length){
+    html+='<div class="twrap"><table class="ana-table"><thead><tr><th>维度</th><th>对象</th><th>说明</th></tr></thead><tbody>';
+    warnings.forEach(w=>{html+='<tr><td>'+(w.dim==='region'?'区域':'客户集合')+'</td><td class="wrap">'+w.dim_value+'</td><td style="color:#fa8c16">'+w.message+'</td></tr>';});
+    html+='</tbody></table></div>';
+  }else{
+    html+='<div style="padding:12px;color:var(--text2);font-size:12px">当前无趋势预警</div>';
+  }
+  html+='</div>';
+
+  // 风险四象限散点 + 预警清单
+  html+='<div class="card" style="padding:12px;margin-bottom:16px"><div style="font-size:13px;font-weight:600;margin-bottom:4px">风险矩阵（占用金额 × 占用强度，红=高危）</div>'+fundChartDiv('chartRiskScatter',320)+'</div>';
+  html+='<div class="panel"><h3>⚠️ 预警清单（TOP 50）</h3>';
+  if(rows.length){
+    html+='<div style="margin-bottom:8px;display:flex;gap:8px;align-items:center">';
+    html+='<select id="fundRiskLevelFilter" style="padding:4px 8px;font-size:12px" onchange="filterRiskTable()">';
+    html+='<option value="">全部等级</option><option value="red">高危</option><option value="orange">预警</option><option value="yellow">关注</option><option value="healthy">健康</option></select>';
+    html+='<button class="btn btn-o btn-sm" onclick="exportFundRisk()">📥 导出预警清单</button>';
+    html+='<span style="font-size:11px;color:var(--text2)" id="riskFilterCount"></span>';
+    html+='</div>';
+    html+='<div class="twrap"><table class="ana-table" id="fundRiskTable"><thead><tr><th style="text-align:left;padding-left:8px">合同编号</th><th style="text-align:left;padding-left:8px">客户键</th><th style="text-align:left;padding-left:8px">区域</th><th style="text-align:left;padding-left:8px">部门</th><th style="text-align:left;padding-left:8px">项目状态</th><th style="text-align:right;padding-right:8px">当前占用</th><th style="text-align:right;padding-right:8px">回款率</th><th style="text-align:right;padding-right:8px">占用强度</th><th>风险</th><th style="text-align:left;padding-left:8px">干预建议</th></tr></thead><tbody>';
+    rows.slice(0,50).forEach(x=>{
+      const color={red:'#ff4d4f',orange:'#fa8c16',yellow:'#faad14',healthy:'#52c41a'}[x.risk_level]||'var(--text)';
+      html+='<tr data-level="'+x.risk_level+'"><td class="wrap">'+x.contract_no+'</td><td>'+x.customer_key+'</td><td>'+x.region+'</td><td>'+x.dept+'</td><td>'+x.project_status+'</td><td class="num pay-green">¥'+fundMoney(x.current_occupy)+'</td><td class="num">'+(x.recv_rate*100).toFixed(1)+'%</td><td class="num">'+(x.occupy_intensity*100).toFixed(1)+'%</td><td style="color:'+color+';font-weight:600">'+x.risk_name+'</td><td style="font-size:11px">'+x.suggestion+'</td></tr>';
+    });
+    html+='</tbody></table></div>';
+    html+='<div style="margin-top:8px;font-size:11px;color:var(--text2)">共 '+rows.length+' 条预警记录</div>';
+  }else{
+    html+='<div style="padding:12px;color:var(--text2);font-size:12px">暂无预警记录</div>';
+  }
+  html+='</div>';
+  panel.innerHTML=html;
+  if(rows.length)fundChartRiskScatter(rows);
+  if(document.getElementById('riskFilterCount'))document.getElementById('riskFilterCount').textContent='共 '+rows.length+' 条';
+}
+
+function fundChartRiskScatter(rows){
+  const el=document.getElementById('chartRiskScatter');
+  if(!el||!window.echarts)return;
+  const chart=echarts.init(el,'cc-dark');
+  const data=rows.slice(0,100).map(r=>({
+    value:[r.current_occupy||0,r.occupy_intensity||0,r.contract_no],
+    itemStyle:{color:{red:'#ff4d4f',orange:'#fa8c16',yellow:'#faad14',healthy:'#52c41a'}[r.risk_level]||'#52c41a'}
+  }));
+  chart.setOption({
+    tooltip:{formatter:p=>p.value[2]+'<br/>占用：¥'+fundMoney(p.value[0])+'<br/>强度：'+(p.value[1]*100).toFixed(1)+'%'},
+    grid:{left:70,right:20,top:20,bottom:30},
+    xAxis:{type:'value',name:'占用金额',nameTextStyle:{fontSize:10},axisLabel:{fontSize:10,formatter:fundMoney}},
+    yAxis:{type:'value',name:'占用强度',min:0,max:1,nameTextStyle:{fontSize:10},axisLabel:{fontSize:10,formatter:v=>(v*100)+'%'}},
+    series:[{type:'scatter',data:data,symbolSize:12}]
+  });
+  fundDimCharts['chartRiskScatter']=chart;
+}
+
+function filterRiskTable(){
+  const lv=document.getElementById('fundRiskLevelFilter').value;
+  const rows=document.querySelectorAll('#fundRiskTable tbody tr');
+  let cnt=0;
+  rows.forEach(tr=>{
+    const ok=!lv||tr.dataset.level===lv;
+    tr.style.display=ok?'':'none';
+    if(ok)cnt++;
+  });
+  document.getElementById('riskFilterCount').textContent=cnt+' / '+rows.length+' 条';
+}
+
+async function saveRiskConfig(){
+  const payload={
+    days_green:parseFloat(document.getElementById('cfgDaysGreen').value||30),
+    days_yellow:parseFloat(document.getElementById('cfgDaysYellow').value||90),
+    days_orange:parseFloat(document.getElementById('cfgDaysOrange').value||180),
+    recv_rate:parseFloat(document.getElementById('cfgRecvRate').value||0.5),
+    intensity:parseFloat(document.getElementById('cfgIntensity').value||0.5),
+    amount_high:parseFloat(document.getElementById('cfgAmountHigh').value||1000000),
+    trend_months:parseInt(document.getElementById('cfgTrendMonths').value||2,10)
+  };
+  const loading=document.getElementById('fundDimLoading');
+  if(loading)loading.textContent='保存并重算中...';
+  try{
+    const r=await fetch('/api/fund/risk/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const j=await r.json();
+    if(loading)loading.textContent=j.message||'已保存';
+    // 重算后刷新整个资金页
+    await runFundAnalysis();
+  }catch(e){
+    if(loading)loading.textContent='保存失败: '+e.message;
+  }
+}
+
+// 穿透下钻：维度 → 合同清单（弹窗）
+async function fundDrill(dim,value,label){
+  let modal=document.getElementById('fundDrillModal');
+  if(!modal){
+    modal=document.createElement('div');
+    modal.id='fundDrillModal';
+    modal.className='modal-overlay';
+    modal.style.display='flex';
+    modal.style.position='fixed';
+    modal.style.inset='0';
+    modal.style.background='rgba(0,0,0,0.5)';
+    modal.style.zIndex='9999';
+    modal.style.alignItems='center';
+    modal.style.justifyContent='center';
+    modal.onclick=function(e){if(e.target===this)this.style.display='none';};
+    document.body.appendChild(modal);
+  }
+  modal.style.display='flex';
+  modal.innerHTML='<div style="background:var(--bg);border-radius:10px;max-width:1000px;width:92%;max-height:88vh;overflow-y:auto;padding:20px;border:1px solid var(--border)">'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><h3 style="margin:0">🔍 '+label+' — 合同清单</h3>'+
+    '<button class="btn btn-o" onclick="document.getElementById(\'fundDrillModal\').style.display=\'none\'" style="padding:4px 12px">✕ 关闭</button></div>'+
+    '<div id="fundDrillContent" style="min-height:100px">加载中...</div></div>';
+  const r=await fundFetch('/api/fund/dim/drill?dim='+encodeURIComponent(dim)+'&value='+encodeURIComponent(value));
+  const box=document.getElementById('fundDrillContent');
+  if(!r.success){box.innerHTML='<div style="color:var(--text2)">'+r.error+'</div>';return;}
+  if(!r.rows.length){box.innerHTML='<div style="color:var(--text2)">该维度下暂无合同</div>';return;}
+  let h='<div style="margin-bottom:12px;font-size:13px">当前占用合计：<b style="color:#fa8c16">¥'+fundMoney(r.total_occupy)+'</b></div>';
+  h+='<div class="twrap"><table class="ana-table"><thead><tr><th>合同编号</th><th>客户键</th><th>部门</th><th>业务线</th><th>项目状态</th><th>合同额</th><th>当前占用</th><th>回款率</th><th>风险</th><th>操作</th></tr></thead><tbody>';
+  r.rows.forEach(x=>{
+    const color={red:'#ff4d4f',orange:'#fa8c16',yellow:'#faad14',healthy:'#52c41a'}[x.风险等级]||'var(--text)';
+    const riskName={healthy:'健康',yellow:'关注',orange:'预警',red:'高危'}[x.风险等级]||x.风险等级;
+    h+='<tr><td class="wrap">'+x.合同编号+'</td><td>'+x.客户键+'</td><td>'+x.部门+'</td><td>'+x.业务线+'</td><td>'+x.项目状态+'</td><td class="num">¥'+fundMoney(x.合同额)+'</td><td class="num pay-green">¥'+fundMoney(x.当前资金占用)+'</td><td class="num">'+(x.回款率*100).toFixed(1)+'%</td><td style="color:'+color+';font-weight:600">'+riskName+'</td><td><button class="btn btn-o btn-sm" onclick="document.getElementById(\'fundDrillModal\').style.display=\'none\';showFundDetail(\''+x.合同编号+'\')">片段明细</button></td></tr>';
+  });
+  h+='</tbody></table></div>';
+  box.innerHTML=h;
+}
+
+function exportFundRisk(){
+  window.open('/api/fund/risk/export','_blank');
 }
 
 function filterFundTable(){
@@ -1403,7 +2234,7 @@ function renderFundCashflow(){
 function drawCashflowChart(cm){
   const el=document.getElementById('cashflowChart');
   if(!el || !window.echarts) return;
-  const chart=echarts.init(el);
+  const chart=echarts.init(el,'cc-dark');
   const months=cm.map(m=>m.month);
   const balances=cm.map(m=>m.balance);
   chart.setOption({

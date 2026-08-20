@@ -19,9 +19,10 @@ import json
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # 与 backend/main.py 保持一致：客户名/客户简称/项目名等敏感列一律丢弃
+# 例外：客户标识（脱敏键，如 QDHEKJ）保留，用于多维度聚合，不视为敏感列
 PRIVACY_HEADER_PATTERN = re.compile(
     r"(甲方|客户|业主|招标人|采购人|建设单位|使用单位|最终用户)"
-    r"(名称|简称|全称|分类|标识|编号)?$|"
+    r"(名称|简称|全称|分类|编号)?$|"
     r"^(项目名称|项目描述|项目简介|合同名称|合同名|合同标题)$|"
     r"主合同客户名称|关键客户"
 )

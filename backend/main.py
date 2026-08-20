@@ -4,7 +4,8 @@
 """
 
 from fastapi import FastAPI, UploadFile, File, Query, Form, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse, Response
+import io
 import os
 import json
 import re
@@ -28,11 +29,12 @@ os.makedirs(DATASOURCE_DIR, exist_ok=True)
 
 # ─────────────────────────────────────────────────────────────
 # 客户/项目敏感信息：一律丢弃，不导入数据库、不展示（只保留合同编号）
-# 匹配列名：甲方名称/客户名称/客户简称/客户分类/客户标识/最终用户/项目名称/项目描述等
+# 匹配列名：甲方名称/客户名称/客户简称/客户分类/最终用户/项目名称/项目描述等
+# 例外：客户标识（脱敏键，如 QDHEKJ）保留，用于多维度聚合，不视为敏感列
 # ─────────────────────────────────────────────────────────────
 PRIVACY_HEADER_PATTERN = re.compile(
     r"(甲方|客户|业主|招标人|采购人|建设单位|使用单位|最终用户)"
-    r"(名称|简称|全称|分类|标识|编号)?$|"
+    r"(名称|简称|全称|分类|编号)?$|"
     r"^(项目名称|项目描述|项目简介|合同名称|合同名|合同标题)$|"
     r"主合同客户名称|关键客户"
 )
@@ -1323,13 +1325,24 @@ os.makedirs(FUND_DATA_DIR, exist_ok=True)
 
 @app.get("/api/fund/status")
 def fund_status():
-    """查询付款/收款明细在数据源中的上传状态"""
+    """查询付款/收款明细的上传状态：优先数据源管理，回退到 fund_data 目录"""
     result = {}
     meta = _load_ds_meta()
-    for key, tname in [('payment', '付款明细表'), ('collection', '收款明细表')]:
+    name_map = {'payment': ('付款明细表', 'payment_details.xlsx'),
+                'collection': ('收款明细表', 'collection_details.xlsx')}
+    for key, (tname, fname) in name_map.items():
         vers = meta.get(tname, {}).get('versions', [])
         if vers:
             result[key] = f'{tname} v{vers[0]["id"]}'
+            continue
+        fpath = os.path.join(FUND_DATA_DIR, fname)
+        if os.path.exists(fpath):
+            try:
+                mtime = datetime.fromtimestamp(os.path.getmtime(fpath)).strftime('%Y-%m-%d %H:%M')
+                size = os.path.getsize(fpath) // 1024
+                result[key] = f'{tname}（{size}KB · {mtime}）'
+            except Exception:
+                result[key] = f'{tname}（已上传）'
     return result
 
 
@@ -1382,6 +1395,269 @@ def _load_snapshot(job_key):
     if row:
         return _json.loads(row['result_json'])
     return None
+
+# ═══════════════════════════════════════════
+# 资金多维度分析与预警（CC-006 FR-8 ~ FR-12）
+# ═══════════════════════════════════════════
+
+def _encode_customer_key(name):
+    """对客户名称做确定性脱敏编码：已是编码（2-20 位字母数字）原样返回，否则 md5 前 8 位大写。
+
+    只持久化编码，不持久化真实名称。
+    """
+    if not name:
+        return ''
+    s = str(name).strip()
+    if re.fullmatch(r'[A-Za-z0-9]{2,20}', s):
+        return s
+    import hashlib
+    return hashlib.md5(s.encode('utf-8')).hexdigest()[:8].upper()
+
+
+def _seed_risk_config():
+    """写入风险预警阈值默认值（幂等，仅缺省时插入）"""
+    defaults = [
+        ('days_green', 30, '占用≤N天为健康'),
+        ('days_yellow', 90, '占用N天以内为关注'),
+        ('days_orange', 180, '占用>N天进入预警/高危判定'),
+        ('recv_rate', 0.5, '回款率阈值（<N 且占用90-180天→预警）'),
+        ('intensity', 0.5, '占用强度阈值（>N 且占用>180天→高危）'),
+        ('amount_high', 1000000, '回款率=0 且占用金额≥N→高危'),
+        ('trend_months', 2, '占用金额环比连续上升N个月→趋势预警'),
+    ]
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        for k, v, desc in defaults:
+            c.execute("INSERT OR IGNORE INTO risk_config (key, value, description) VALUES (?,?,?)", (k, v, desc))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[risk_config] seed 失败: {e}", flush=True)
+
+
+def _get_risk_config():
+    """读取风险阈值配置（dict），缺表/缺行时返回默认值"""
+    defaults = {'days_green': 30, 'days_yellow': 90, 'days_orange': 180,
+                'recv_rate': 0.5, 'intensity': 0.5, 'amount_high': 1000000,
+                'trend_months': 2}
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        rows = [dict(r) for r in c.execute("SELECT key, value FROM risk_config").fetchall()]
+        conn.close()
+        for r in rows:
+            defaults[r['key']] = float(r['value'])
+    except Exception:
+        pass
+    return defaults
+
+
+def _calc_risk_level(occupy_days, recv_rate, occupy_intensity, occupy_amount, cfg):
+    """风险分级纯函数：返回 (level, suggestion)。
+
+    level ∈ healthy/yellow/orange/red；阈值来自 cfg（risk_config 表）。
+    """
+    days_green = cfg.get('days_green', 30)
+    days_yellow = cfg.get('days_yellow', 90)
+    days_orange = cfg.get('days_orange', 180)
+    rr = cfg.get('recv_rate', 0.5)
+    inten = cfg.get('intensity', 0.5)
+    amount_high = cfg.get('amount_high', 1000000)
+
+    # 回款率为 0 且占用金额超阈值 → 高危（强制）
+    if recv_rate == 0 and occupy_amount >= amount_high:
+        return 'red', '回款为0且占用金额超阈值，立即催收并上报'
+
+    if occupy_days <= days_green:
+        return 'healthy', '正常回款周期内'
+    if occupy_days <= days_yellow:
+        return 'yellow', '占用超过回款周期，提醒跟进回款'
+    if occupy_days <= days_orange:
+        if recv_rate >= rr:
+            return 'yellow', '占用偏高但回款率达标，持续关注'
+        return 'orange', '占用偏高且回款率不足，通知区域/部门负责人'
+    # > days_orange
+    if occupy_intensity <= inten:
+        return 'orange', '长期占用但占用强度可控，安排对账催收'
+    return 'red', '长期占用且占用强度过高，强制干预（催收/对账/上报）'
+
+
+def _calc_trend_warning(monthly_occupy, trend_months=2):
+    """趋势预警纯函数：按月占用序列判断是否环比连续上升 N 个月。
+
+    monthly_occupy: [{'month': 'YYYY-MM', 'occupy': 100}, ...] 升序。
+    返回 (bool, desc)。
+    """
+    if len(monthly_occupy) < trend_months + 1:
+        return False, ''
+    vals = [float(m.get('occupy', 0) or 0) for m in monthly_occupy]
+    n = trend_months
+    # 检查最后 n+1 个月是否连续上升
+    tail = vals[-(n + 1):]
+    ok = all(tail[i + 1] > tail[i] for i in range(n))
+    if ok:
+        desc = '、'.join(f"{m['month']}:{float(m.get('occupy',0) or 0):,.0f}" for m in monthly_occupy[-n - 1:])
+        return True, f'占用金额连续{n}个月上升（{desc}）'
+    return False, ''
+
+
+def _load_contract_dims(contract_nos):
+    """按合同编号 join 总合同表 + 项目里程碑表，返回 {contract_no: dims_dict}。
+
+    dims 字段：region/province/dept/biz_line/industry/customer_key/
+               contract_status/sign_year/project_status/payment_term/plan_recv_date
+    join 不到的合同返回空 dims（归入「未知」桶，不影响主分析）。
+    """
+    import openpyxl
+    from datetime import datetime, date
+
+    def parse_date(v):
+        if v is None or v == '' or v == '-': return None
+        if isinstance(v, (datetime, date)): return v
+        s = str(v).strip()
+        if s.startswith('='): return None
+        for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%Y/%m/%d', '%Y.%m.%d', '%Y%m%d']:
+            try: return datetime.strptime(s, fmt)
+            except: pass
+        return None
+
+    def find_col(headers, keywords):
+        for h in headers:
+            hl = str(h).lower().replace(' ', '').replace('_', '').replace('-', '')
+            for kw in keywords:
+                if kw.lower().replace(' ', '').replace('_', '').replace('-', '') in hl:
+                    return h
+        return None
+
+    dims_map = {cno: {} for cno in contract_nos}
+
+    # ── 总合同表：区域/部门/业务线/行业/客户标识/合同状态/合同额/签约时间 ──
+    h_fpath = _ds_latest_path('总合同表')
+    if h_fpath and os.path.exists(h_fpath):
+        try:
+            wb = openpyxl.load_workbook(h_fpath, data_only=True)
+            ws = wb.active
+            rows = list(ws.iter_rows(values_only=True))
+            wb.close()
+            headers = [str(h) if h else '' for h in rows[0]]
+            h_idx = {h: i for i, h in enumerate(headers)}
+            col_no = find_col(headers, ['合同编号'])
+            col_region = find_col(headers, ['区域'])
+            col_prov = find_col(headers, ['省分', '省份', '省'])
+            col_dept = find_col(headers, ['签定部门', '签订部门', '部门'])
+            col_biz = find_col(headers, ['业务线'])
+            col_ind = find_col(headers, ['签订行业', '行业'])
+            col_cust = find_col(headers, ['客户标识', '客户编码', '客户编号', '客户名称', '责任人', '签定人'])
+            col_status = find_col(headers, ['合同状态'])
+            col_sign = find_col(headers, ['合同签定时间', '签订时间', '签约日期', '统计日期'])
+            col_amt = find_col(headers, ['合同总金额', '合同金额', '合同额'])
+
+            def gv(r, col):
+                if not col or h_idx.get(col) is None: return None
+                idx = h_idx[col]
+                return r[idx] if idx < len(r) else None
+
+            for r in rows[1:]:
+                if r is None: continue
+                cno = str(gv(r, col_no) or '').strip()
+                if not cno or cno not in dims_map: continue
+                region = str(gv(r, col_region) or '').strip()
+                prov = str(gv(r, col_prov) or '').strip()
+                dept = str(gv(r, col_dept) or '').strip()
+                biz = str(gv(r, col_biz) or '').strip()
+                ind = str(gv(r, col_ind) or '').strip()
+                cust = str(gv(r, col_cust) or '').strip()
+                status = str(gv(r, col_status) or '').strip()
+                sign_dt = parse_date(gv(r, col_sign))
+                amt = gv(r, col_amt)
+                try: amt = float(amt) if amt not in (None, '', '-') else 0.0
+                except: amt = 0.0
+                dims_map[cno] = {
+                    'region': region,
+                    'province': prov,
+                    'dept': dept,
+                    'biz_line': biz,
+                    'industry': ind,
+                    'customer_key': _encode_customer_key(cust),
+                    'contract_status': status,
+                    'sign_year': str(sign_dt.year) if sign_dt else '',
+                    'contract_amount': amt,
+                }
+        except Exception as e:
+            print(f"[fund维度] 总合同表读取失败: {e}", flush=True)
+
+    # ── 项目里程碑表：项目状态/账期/计划回款时间 ──
+    m_fpath = _ds_latest_path('项目里程碑表')
+    if m_fpath and os.path.exists(m_fpath):
+        try:
+            wb = openpyxl.load_workbook(m_fpath, data_only=True)
+            ws = wb.active
+            rows = list(ws.iter_rows(values_only=True))
+            wb.close()
+            headers = [str(h) if h else '' for h in rows[0]]
+            h_idx = {h: i for i, h in enumerate(headers)}
+            col_no = find_col(headers, ['合同编号'])
+            col_pstatus = find_col(headers, ['项目状态'])
+            col_term = find_col(headers, ['账期'])
+            col_plan = find_col(headers, ['计划回款时间', '应收款应流入时间'])
+
+            def gv(r, col):
+                if not col or h_idx.get(col) is None: return None
+                idx = h_idx[col]
+                return r[idx] if idx < len(r) else None
+
+            for r in rows[1:]:
+                if r is None: continue
+                cno = str(gv(r, col_no) or '').strip()
+                if not cno or cno not in dims_map: continue
+                pstatus = str(gv(r, col_pstatus) or '').strip()
+                term = str(gv(r, col_term) or '').strip()
+                plan_dt = parse_date(gv(r, col_plan))
+                d = dims_map[cno]
+                if pstatus: d['project_status'] = pstatus
+                if term: d['payment_term'] = term
+                if plan_dt: d['plan_recv_date'] = plan_dt.strftime('%Y-%m-%d')
+        except Exception as e:
+            print(f"[fund维度] 里程碑表读取失败: {e}", flush=True)
+
+    return dims_map
+
+
+def _fifo_occupy_upto(payments, collections, cutoff):
+    """FIFO 口径：截至 cutoff 日期的资金占用（与 fund_analyze 主口径一致，CC-006 FR-13 同比用）"""
+    if not payments:
+        return 0
+    first_pay = payments[0]['occur_date']
+    if first_pay > cutoff:
+        return 0  # cutoff 时点尚未发生付款，无占用
+    # 预收款（日期 < 首付日）按付款顺序冲抵
+    pre = sum(c['amount'] for c in collections if c['occur_date'] < first_pay)
+    pool = []  # 每笔付款在 cutoff 前发生且未被预收款冲抵的剩余
+    for p in payments:
+        if p['occur_date'] > cutoff:
+            continue
+        remaining = p['amount']
+        if pre > 0:
+            off = min(pre, remaining)
+            remaining -= off
+            pre -= off
+        if remaining > 0:
+            pool.append(remaining)
+    # 回款 FIFO（仅 cutoff 前且 >= 首付日的回款，同日先付后收由排序保证）
+    for c in sorted(
+        [c for c in collections if first_pay <= c['occur_date'] <= cutoff],
+        key=lambda x: x['occur_date']):
+        left = c['amount']
+        while left > 0 and pool:
+            if pool[0] <= left:
+                left -= pool[0]
+                pool.pop(0)
+            else:
+                pool[0] -= left
+                left = 0
+    return sum(pool)
+
 
 @app.post("/api/fund/analyze")
 def fund_analyze():
@@ -1513,12 +1789,21 @@ def fund_analyze():
 
     all_contracts = set(list(pay_pivot.keys()) + list(coll_pivot.keys()))
 
+    # 维度关联：join 总合同表 + 项目里程碑表（CC-006 FR-8）
+    contract_dims = _load_contract_dims(all_contracts)
+    # 风险阈值配置（CC-006 FR-9）
+    risk_cfg = _get_risk_config()
+
     # ── 清空全局缓存 ──
     fund_segments_cache = {}
     fund_flows_cache = {}
 
     # ── FIFO 计算 ──
     summary_rows = []
+    # 全局逐笔现金流序列（跨合同合并，供同比分析 CC-006 FR-13）
+    _global_cashflow = []
+    # 去年同期（上年同日）FIFO 占用合计（CC-006 FR-13 同比）
+    _grand_occupy_prev = 0
 
     for cno in all_contracts:
         # 构建付款列表
@@ -1571,6 +1856,7 @@ def fund_analyze():
                 'flow_id': _fid, 'date': _d.strftime('%Y-%m-%d'), 'type': _t,
                 'amount': round(_amt), 'balance': round(_balance),
             })
+        _global_cashflow.extend(_cashflow)  # 跨合同合并（CC-006 FR-13）
         # 按月汇总（每月付款/回款/净现金流/月末累计余额）
         _monthly = {}
         for _d, _t, _amt, _fid in _events:
@@ -1602,6 +1888,7 @@ def fund_analyze():
         if not payments:
             total_receive = round(sum(c['amount'] for c in collections))
             info = contract_info.get(cno, {})
+            dims = contract_dims.get(cno, {})
             fund_segments_cache[cno] = []
             summary_rows.append({
                 '合同编号': cno,
@@ -1618,6 +1905,18 @@ def fund_analyze():
                 '片段数': 0,
                 '已结清片段': 0,
                 '占用中片段': 0,
+                '区域': dims.get('region', ''),
+                '省份': dims.get('province', ''),
+                '部门': dims.get('dept', ''),
+                '业务线': dims.get('biz_line', ''),
+                '行业': dims.get('industry', ''),
+                '客户键': dims.get('customer_key', ''),
+                '项目状态': dims.get('project_status', ''),
+                '合同状态': dims.get('contract_status', ''),
+                '签约年份': dims.get('sign_year', ''),
+                '回款率': round(total_receive / info.get('合同额', 0), 4) if info.get('合同额', 0) else 0,
+                '占用强度': 0,
+                '风险等级': 'healthy',
             })
             continue
 
@@ -1711,6 +2010,11 @@ def fund_analyze():
         total_pay = round(sum(p['amount'] for p in payments))
         total_receive = round(sum(c['amount'] for c in collections))
         current_occupy = round(sum(s['segment_amount'] for s in segments if s['segment_status'] == 'OCCUPYING'))
+        # 去年同期（上年同日）FIFO 占用（CC-006 FR-13 同比；表格同比复用同一口径）
+        prev_occupy = _fifo_occupy_upto(
+            payments, collections,
+            datetime(REPORT_CUTOFF.year - 1, REPORT_CUTOFF.month, REPORT_CUTOFF.day))
+        _grand_occupy_prev += prev_occupy
         sum_amount_day = round(sum(s['amount_day'] for s in segments))
         cycle_start = payments[0]['occur_date']
         cycle_days = (REPORT_CUTOFF - cycle_start).days
@@ -1719,14 +2023,28 @@ def fund_analyze():
         estimate_cost = round(sum_amount_day * (ANNUAL_COST_RATE / 365))
 
         info = contract_info.get(cno, {})
+        dims = contract_dims.get(cno, {})
+
+        # 新指标：回款率 / 占用强度 / 占用天数 / 风险等级（CC-006 FR-8/FR-9）
+        contract_amount = round(info.get('合同额', 0))
+        if not contract_amount:
+            contract_amount = dims.get('contract_amount', 0) or 0
+        recv_rate = round(total_receive / contract_amount, 4) if contract_amount > 0 else 0
+        occupy_intensity = round(current_occupy / contract_amount, 4) if contract_amount > 0 else (
+            round(current_occupy / total_pay, 4) if total_pay > 0 else 0)
+        # 占用天数：占用中片段的加权平均天数（元天/金额），无占用则为 0
+        occupy_amount_total = sum(s['segment_amount'] for s in segments if s['segment_status'] == 'OCCUPYING')
+        occupy_days = round(sum(s['amount_day'] for s in segments if s['segment_status'] == 'OCCUPYING') / occupy_amount_total) if occupy_amount_total > 0 else 0
+        risk_level, suggestion = _calc_risk_level(occupy_days, recv_rate, occupy_intensity, current_occupy, risk_cfg)
 
         summary_rows.append({
             '合同编号': cno,
-            '合同额': round(info.get('合同额', 0)),
+            '合同额': round(contract_amount),
             '累计付款': total_pay,
             '累计收款': total_receive,
             '净现金流': total_receive - total_pay,
             '当前资金占用': current_occupy,
+            '上年同期占用': prev_occupy,
             '元天合计': sum_amount_day,
             '周期起始日': cycle_start.strftime('%Y-%m-%d'),
             '周期总天数': cycle_days,
@@ -1736,6 +2054,19 @@ def fund_analyze():
             '片段数': len(segments),
             '已结清片段': sum(1 for s in segments if s['segment_status'] == 'SETTLED'),
             '占用中片段': sum(1 for s in segments if s['segment_status'] == 'OCCUPYING'),
+            '区域': dims.get('region', ''),
+            '省份': dims.get('province', ''),
+            '部门': dims.get('dept', ''),
+            '业务线': dims.get('biz_line', ''),
+            '行业': dims.get('industry', ''),
+            '客户键': dims.get('customer_key', ''),
+            '项目状态': dims.get('project_status', ''),
+            '合同状态': dims.get('contract_status', ''),
+            '签约年份': dims.get('sign_year', ''),
+            '回款率': recv_rate,
+            '占用强度': occupy_intensity,
+            '风险等级': risk_level,
+            '风险建议': suggestion,
         })
 
     # 排序：纯付款 → 有付有收 → 纯收款，组内按资金占用降序
@@ -1782,6 +2113,10 @@ def fund_analyze():
             'summary': summary,
             'columns': columns,
             'rows': summary_rows,
+            'flows': _global_cashflow,  # 逐笔现金流序列（CC-006 FR-13 同比分析）
+            'yoy': {  # 同比辅助数据（CC-006 FR-13）
+                'occupy_prev': round(_grand_occupy_prev),  # 上年同期日 FIFO 占用
+            },
         }
     }
     # 写资金占用宽表（fund_metrics，每合同一行）
@@ -1798,15 +2133,21 @@ def fund_analyze():
         for row in summary_rows:
             cw.execute("""INSERT INTO fund_metrics
                 (contract_no, customer_name, project_name, contract_amount, total_pay, total_recv,
-                 current_occupy, amount_day, cycle_start, cycle_days, avg_occupy, est_cost,
-                 annual_rate, segment_count, settled_segments, occupying_segments)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                 current_occupy, prev_occupy, amount_day, cycle_start, cycle_days, avg_occupy, est_cost,
+                 annual_rate, segment_count, settled_segments, occupying_segments,
+                 region, province, dept, biz_line, industry, customer_key,
+                 project_status, contract_status, sign_year, recv_rate, occupy_intensity, risk_level)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (row.get('合同编号', ''), '', '',
                  _num(row, '合同额'), _num(row, '累计付款'), _num(row, '累计收款'),
-                 _num(row, '当前资金占用'), _num(row, '元天合计'), str(row.get('周期起始日', '')),
+                 _num(row, '当前资金占用'), _num(row, '上年同期占用'), _num(row, '元天合计'), str(row.get('周期起始日', '')),
                  int(_num(row, '周期总天数')), _num(row, '平均资金占用'), _num(row, '预估资金成本'),
                  str(row.get('年化成本率', '')), int(_num(row, '片段数')),
-                 int(_num(row, '已结清片段')), int(_num(row, '占用中片段'))))
+                 int(_num(row, '已结清片段')), int(_num(row, '占用中片段')),
+                 str(row.get('区域', '')), str(row.get('省份', '')), str(row.get('部门', '')),
+                 str(row.get('业务线', '')), str(row.get('行业', '')), str(row.get('客户键', '')),
+                 str(row.get('项目状态', '')), str(row.get('合同状态', '')), str(row.get('签约年份', '')),
+                 _num(row, '回款率'), _num(row, '占用强度'), str(row.get('风险等级', 'healthy'))))
         conn_w.commit()
         conn_w.close()
     except Exception as e:
@@ -1852,10 +2193,21 @@ def fund_metrics():
         '累计收款': r['total_recv'],
         '净现金流': r['total_recv'] - r['total_pay'],
         '当前资金占用': r['current_occupy'],
+        '上年同期占用': r.get('prev_occupy') or 0,
         '平均资金占用': r['avg_occupy'],
         '预估资金成本': r['est_cost'],
         '周期总天数': r['cycle_days'],
+        '周期起始日': r.get('cycle_start') or '',
         '片段数': r['segment_count'],
+        '区域': r.get('region') or '',
+        '省份': r.get('province') or '',
+        '部门': r.get('dept') or '',
+        '业务线': r.get('biz_line') or '',
+        '客户键': r.get('customer_key') or '',
+        '项目状态': r.get('project_status') or '',
+        '回款率': r.get('recv_rate') or 0,
+        '占用强度': r.get('occupy_intensity') or 0,
+        '风险等级': r.get('risk_level') or 'healthy',
     } for r in rows]
 
     columns = ['合同编号', '累计付款', '累计收款', '净现金流',
@@ -1881,6 +2233,437 @@ def fund_segments(contract_id: str):
             'total_segments': len(segments),
         }
     }
+
+
+# ═══════════════════════════════════════════
+# 资金多维度聚合 / 预警 API（CC-006 FR-8 ~ FR-12）
+# ═══════════════════════════════════════════
+
+# 维度列 → fund_metrics 列映射
+DIM_COLUMN_MAP = {
+    'region': 'region',
+    'province': 'province',
+    'dept': 'dept',
+    'biz_line': 'biz_line',
+    'industry': 'industry',
+    'customer_key': 'customer_key',
+    'project_status': 'project_status',
+    'contract_status': 'contract_status',
+    'sign_year': 'sign_year',
+}
+DIM_NAME_MAP = {
+    'region': '区域', 'province': '省份', 'dept': '部门', 'biz_line': '业务线',
+    'industry': '行业', 'customer_key': '客户集合', 'project_status': '项目状态',
+    'contract_status': '合同状态', 'sign_year': '签约年份',
+}
+RISK_NAME_MAP = {
+    'healthy': '健康', 'yellow': '关注', 'orange': '预警', 'red': '高危',
+}
+
+
+def _fund_rows_with_dims(where='', params=()):
+    """读取 fund_metrics 宽表（含维度列），未分析时返回 None"""
+    conn = get_db()
+    c = conn.cursor()
+    sql = "SELECT * FROM fund_metrics"
+    if where:
+        sql += f" WHERE {where}"
+    sql += " ORDER BY current_occupy DESC"
+    try:
+        rows = [dict(r) for r in c.execute(sql, params).fetchall()]
+    except Exception:
+        rows = []
+    conn.close()
+    return rows or None
+
+
+def _fund_dim_aggregate_inner(dim):
+    """维度聚合计算（供 API 与测试复用）：返回 {rows, trend} 或抛错信息"""
+    rows = _fund_rows_with_dims()
+    if not rows:
+        return {'error': '资金占用宽表为空，请先执行资金占用分析'}
+
+    col = DIM_COLUMN_MAP[dim]
+    agg = {}
+    for r in rows:
+        name = (r.get(col) or '').strip() or '未知'
+        bucket = agg.setdefault(name, {
+            'name': name,
+            'contract_count': 0,
+            'total_pay': 0, 'total_recv': 0,
+            'current_occupy': 0, 'prev_occupy': 0,
+            'avg_occupy_sum': 0, 'amount_day': 0, 'est_cost': 0,
+            'contract_amount': 0,
+            'risk_count': {'healthy': 0, 'yellow': 0, 'orange': 0, 'red': 0},
+        })
+        bucket['contract_count'] += 1
+        bucket['total_pay'] += r.get('total_pay') or 0
+        bucket['total_recv'] += r.get('total_recv') or 0
+        bucket['current_occupy'] += r.get('current_occupy') or 0
+        bucket['prev_occupy'] += r.get('prev_occupy') or 0
+        bucket['avg_occupy_sum'] += r.get('avg_occupy') or 0
+        bucket['amount_day'] += r.get('amount_day') or 0
+        bucket['est_cost'] += r.get('est_cost') or 0
+        bucket['contract_amount'] += r.get('contract_amount') or 0
+        rl = r.get('risk_level') or 'healthy'
+        bucket['risk_count'][rl if rl in bucket['risk_count'] else 'healthy'] += 1
+
+    out = []
+    for b in agg.values():
+        n = b['contract_count']
+        ca = b['contract_amount'] or b['total_pay'] or 0
+        out.append({
+            'name': b['name'],
+            'contract_count': n,
+            'total_pay': round(b['total_pay'], 2),
+            'total_recv': round(b['total_recv'], 2),
+            'net_cashflow': round(b['total_recv'] - b['total_pay'], 2),
+            'current_occupy': round(b['current_occupy'], 2),
+            'prev_occupy': round(b['prev_occupy'], 2),
+            'avg_occupy': round(b['avg_occupy_sum'] / n, 2) if n else 0,
+            'amount_day': round(b['amount_day'], 2),
+            'est_cost': round(b['est_cost'], 2),
+            'recv_rate': round(b['total_recv'] / ca, 4) if ca > 0 else 0,
+            'occupy_intensity': round(b['current_occupy'] / ca, 4) if ca > 0 else 0,
+            'risk_count': b['risk_count'],
+            # 主风险等级：按 red > orange > yellow > healthy 取最大
+            'risk_level': next((lv for lv in ['red', 'orange', 'yellow', 'healthy']
+                                if b['risk_count'].get(lv, 0) > 0), 'healthy'),
+        })
+    out.sort(key=lambda x: x['current_occupy'], reverse=True)
+
+    # 趋势数据：按客户键/区域分月的占用（供趋势预警折线）
+    trend = None
+    if dim in ('region', 'customer_key'):
+        trend = _fund_monthly_trend(dim)
+    return {'rows': out, 'trend': trend}
+
+
+@app.get("/api/fund/dim/aggregate")
+def fund_dim_aggregate(dim: str = Query('region'), month: str = Query('')):
+    """维度聚合查询：GET /api/fund/dim/aggregate?dim=region&month=2026-07&level=1
+
+    dim 取值见 DIM_COLUMN_MAP；month 可选（YYYY-MM，过滤签约/占用所属月暂按全量）；
+    level 预留下钻层级（level=1 默认聚合；level=2 附加合同清单）。
+    """
+    month = (month or '').strip()
+    if dim not in DIM_COLUMN_MAP:
+        return {'success': False, 'error': f'不支持的维度: {dim}，可选: {",".join(DIM_COLUMN_MAP)}'}
+
+    result = _fund_dim_aggregate_inner(dim)
+    if 'error' in result:
+        return {'success': False, 'error': result['error']}
+
+    return {'success': True, 'dim': dim, 'dim_name': DIM_NAME_MAP.get(dim, dim),
+            'rows': result['rows'], 'trend': result['trend']}
+
+
+@app.get("/api/fund/dim/drill")
+def fund_dim_drill(dim: str = Query('region'), value: str = Query('')):
+    """穿透下钻：GET /api/fund/dim/drill?dim=region&value=华东 → 该维度下合同清单"""
+    value = (value or '').strip()
+    if dim not in DIM_COLUMN_MAP:
+        return {'success': False, 'error': f'不支持的维度: {dim}'}
+    if not value:
+        return {'success': False, 'error': '缺少 value 参数'}
+
+    rows = _fund_rows_with_dims()
+    if not rows:
+        return {'success': False, 'error': '资金占用宽表为空，请先执行资金占用分析'}
+
+    col = DIM_COLUMN_MAP[dim]
+    matched = [r for r in rows if (r.get(col) or '').strip() == value]
+    if not matched:
+        return {'success': True, 'dim': dim, 'value': value, 'rows': [], 'total_occupy': 0}
+
+    out = [{
+        '合同编号': r['contract_no'],
+        '客户键': r.get('customer_key') or '',
+        '区域': r.get('region') or '',
+        '部门': r.get('dept') or '',
+        '业务线': r.get('biz_line') or '',
+        '项目状态': r.get('project_status') or '',
+        '合同额': r.get('contract_amount') or 0,
+        '累计付款': r.get('total_pay') or 0,
+        '累计收款': r.get('total_recv') or 0,
+        '当前资金占用': r.get('current_occupy') or 0,
+        '上年同期占用': r.get('prev_occupy') or 0,
+        '回款率': r.get('recv_rate') or 0,
+        '占用强度': r.get('occupy_intensity') or 0,
+        '风险等级': r.get('risk_level') or 'healthy',
+    } for r in matched]
+    out.sort(key=lambda x: x['当前资金占用'], reverse=True)
+    return {'success': True, 'dim': dim, 'value': value,
+            'rows': out, 'total_occupy': round(sum(x['当前资金占用'] for x in out), 2)}
+
+
+@app.get("/api/fund/risk/config")
+def fund_risk_config_get():
+    """读取风险预警阈值配置"""
+    _seed_risk_config()
+    conn = get_db()
+    c = conn.cursor()
+    rows = [dict(r) for r in c.execute("SELECT * FROM risk_config ORDER BY key").fetchall()]
+    conn.close()
+    return {'success': True, 'config': rows}
+
+
+@app.post("/api/fund/risk/config")
+async def fund_risk_config_set(request: Request):
+    """更新风险预警阈值配置，更新后重算风险等级"""
+    try:
+        payload = await request.json() or {}
+    except Exception:
+        payload = {}
+    if not payload:
+        return {'success': False, 'error': '缺少配置项'}
+
+    allowed = {'days_green', 'days_yellow', 'days_orange', 'recv_rate',
+               'intensity', 'amount_high', 'trend_months'}
+    conn = get_db()
+    c = conn.cursor()
+    for k, v in payload.items():
+        if k not in allowed:
+            continue
+        try:
+            fv = float(v)
+        except Exception:
+            continue
+        c.execute("INSERT INTO risk_config (key, value) VALUES (?,?) "
+                  "ON CONFLICT(key) DO UPDATE SET value=excluded.value, "
+                  "updated_at=datetime('now','localtime')", (k, fv))
+    conn.commit()
+    conn.close()
+
+    # 重算风险等级：基于 fund_metrics 的占用天数近似（周期天数），重跑分析更准确
+    try:
+        fund_analyze()
+        msg = '配置已更新，并已重算风险等级'
+    except Exception as e:
+        msg = f'配置已更新，但重算失败: {e}'
+    return {'success': True, 'message': msg}
+
+
+@app.get("/api/fund/risk/list")
+def fund_risk_list(level: str = Query(''), dim: str = Query(''), dim_value: str = Query('')):
+    """预警清单：GET /api/fund/risk/list?level=red|orange&dim=region&dim_value=华东"""
+    level = (level or '').strip()
+    dim = (dim or '').strip()
+    dim_value = (dim_value or '').strip()
+
+    rows = _fund_rows_with_dims()
+    if not rows:
+        return {'success': False, 'error': '资金占用宽表为空，请先执行资金占用分析'}
+
+    def _ok(r):
+        rl = r.get('risk_level') or 'healthy'
+        if level and rl != level:
+            return False
+        if dim and dim in DIM_COLUMN_MAP:
+            v = (r.get(DIM_COLUMN_MAP[dim]) or '').strip()
+            if dim_value and v != dim_value:
+                return False
+            if not dim_value and v == '':
+                return False
+        return True
+
+    matched = [r for r in rows if _ok(r)]
+    matched.sort(key=lambda x: x.get('current_occupy') or 0, reverse=True)
+
+    out = [{
+        'contract_no': r['contract_no'],
+        'customer_key': r.get('customer_key') or '',
+        'region': r.get('region') or '',
+        'dept': r.get('dept') or '',
+        'biz_line': r.get('biz_line') or '',
+        'project_status': r.get('project_status') or '',
+        'contract_amount': r.get('contract_amount') or 0,
+        'current_occupy': r.get('current_occupy') or 0,
+        'recv_rate': r.get('recv_rate') or 0,
+        'occupy_intensity': r.get('occupy_intensity') or 0,
+        'risk_level': r.get('risk_level') or 'healthy',
+        'risk_name': RISK_NAME_MAP.get(r.get('risk_level'), r.get('risk_level')),
+        'suggestion': _risk_suggestion(r.get('risk_level') or 'healthy'),
+    } for r in matched]
+
+    # 分维度统计预警数量
+    stat = {'red': 0, 'orange': 0, 'yellow': 0, 'healthy': 0}
+    for r in rows:
+        rl = r.get('risk_level') or 'healthy'
+        stat[rl if rl in stat else 'healthy'] += 1
+
+    return {'success': True, 'rows': out, 'count': len(out), 'stat': stat}
+
+
+def _risk_suggestion(level):
+    return {
+        'healthy': '正常回款周期内',
+        'yellow': '提醒跟进回款',
+        'orange': '通知区域/部门负责人，安排对账',
+        'red': '强制干预：催收/对账/风险上报',
+    }.get(level, '')
+
+
+def _fund_monthly_trend(dim):
+    """按月聚合占用金额（用于趋势折线）：返回 [{dim_value, month, occupy}]"""
+    rows = _fund_rows_with_dims()
+    if not rows:
+        return []
+    from collections import defaultdict
+    buckets = defaultdict(float)
+    # 月度近似：用 cycle_start 月份（无则用当前月）
+    from datetime import datetime
+    for r in rows:
+        key = (r.get(DIM_COLUMN_MAP[dim]) or '').strip() or '未知'
+        cs = r.get('cycle_start') or ''
+        month = cs[:7] if cs and len(cs) >= 7 else datetime.now().strftime('%Y-%m')
+        buckets[(key, month)] += r.get('current_occupy') or 0
+    return [{'dim_value': k, 'month': m, 'occupy': round(v, 2)}
+            for (k, m), v in sorted(buckets.items())]
+
+
+@app.get("/api/fund/risk/trend")
+def fund_risk_trend(dim: str = Query('region')):
+    """趋势预警：区域/客户集合维度占用金额环比连续上升 N 个月 → 预警"""
+    cfg = _get_risk_config()
+    trend_months = int(cfg.get('trend_months', 2))
+    dim = (dim or 'region').strip()
+    if dim not in ('region', 'customer_key'):
+        return {'success': False, 'error': '趋势预警仅支持 dim=region 或 customer_key'}
+
+    trend = _fund_monthly_trend(dim)
+    from collections import defaultdict
+    by_key = defaultdict(list)
+    for t in trend:
+        by_key[t['dim_value']].append({'month': t['month'], 'occupy': t['occupy']})
+    for k in by_key:
+        by_key[k].sort(key=lambda x: x['month'])
+
+    warnings = []
+    for key, series in by_key.items():
+        ok, desc = _calc_trend_warning(series, trend_months)
+        if ok:
+            warnings.append({'dim': dim, 'dim_value': key, 'message': desc})
+    warnings.sort(key=lambda x: x['dim_value'])
+    return {'success': True, 'trend_months': trend_months, 'warnings': warnings,
+            'trend': trend}
+
+
+@app.get("/api/fund/dim/export")
+def fund_dim_export(dim: str = Query('region')):
+    """导出维度聚合数据为 Excel：GET /api/fund/dim/export?dim=region"""
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill
+    from datetime import datetime
+
+    result = _fund_dim_aggregate_inner(dim)
+    if 'error' in result:
+        return {'success': False, 'error': result['error']}
+    rows = result['rows']
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = f'资金{DIM_NAME_MAP.get(dim, dim)}维度聚合'
+    ws.merge_cells('A1:K1')
+    ws['A1'] = f'{DIM_NAME_MAP.get(dim, dim)}维度资金占用聚合（{datetime.now().strftime("%Y-%m-%d %H:%M")}）'
+    ws['A1'].font = Font(bold=True, size=14)
+
+    headers = ['维度', '合同数', '累计付款', '累计收款', '净现金流', '当前资金占用',
+               '平均资金占用', '预估资金成本', '回款率', '占用强度', '主风险等级']
+    for i, h in enumerate(headers, start=1):
+        cell = ws.cell(row=2, column=i, value=h)
+        cell.font = Font(bold=True)
+        cell.fill = PatternFill('solid', fgColor='DDEBF7')
+
+    for ri, r in enumerate(rows, start=3):
+        ws.cell(row=ri, column=1, value=r['name'])
+        ws.cell(row=ri, column=2, value=r['contract_count'])
+        ws.cell(row=ri, column=3, value=r['total_pay'])
+        ws.cell(row=ri, column=4, value=r['total_recv'])
+        ws.cell(row=ri, column=5, value=r['net_cashflow'])
+        ws.cell(row=ri, column=6, value=r['current_occupy'])
+        ws.cell(row=ri, column=7, value=r['avg_occupy'])
+        ws.cell(row=ri, column=8, value=r['est_cost'])
+        ws.cell(row=ri, column=9, value=r['recv_rate'])
+        ws.cell(row=ri, column=10, value=r['occupy_intensity'])
+        ws.cell(row=ri, column=11, value=RISK_NAME_MAP.get(r['risk_level'], r['risk_level']))
+
+    for col in 'ABCDEFGHIJK':
+        ws.column_dimensions[col].width = 16
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return Response(buf.getvalue(),
+                    media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    headers={'Content-Disposition': f'attachment; filename=fund_{dim}.xlsx'})
+
+
+@app.get("/api/fund/risk/export")
+def fund_risk_export(level: str = Query('')):
+    """导出预警清单为 Excel：GET /api/fund/risk/export?level=red"""
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill
+    from datetime import datetime
+
+    rows = _fund_rows_with_dims()
+    if not rows:
+        return {'success': False, 'error': '资金占用宽表为空，请先执行资金占用分析'}
+    if level:
+        rows = [r for r in rows if (r.get('risk_level') or '') == level]
+    out = [{
+        'contract_no': r['contract_no'],
+        'customer_key': r.get('customer_key') or '',
+        'region': r.get('region') or '',
+        'dept': r.get('dept') or '',
+        'biz_line': r.get('biz_line') or '',
+        'project_status': r.get('project_status') or '',
+        'contract_amount': r.get('contract_amount') or 0,
+        'current_occupy': r.get('current_occupy') or 0,
+        'recv_rate': r.get('recv_rate') or 0,
+        'occupy_intensity': r.get('occupy_intensity') or 0,
+        'risk_level': r.get('risk_level') or 'healthy',
+        'risk_name': RISK_NAME_MAP.get(r.get('risk_level'), r.get('risk_level')),
+        'suggestion': _risk_suggestion(r.get('risk_level') or 'healthy'),
+    } for r in rows]
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = '资金风险预警清单'
+    ws.merge_cells('A1:J1')
+    ws['A1'] = f'资金风险预警清单（{datetime.now().strftime("%Y-%m-%d %H:%M")}）'
+    ws['A1'].font = Font(bold=True, size=14)
+
+    headers = ['合同编号', '客户键', '区域', '部门', '业务线', '项目状态',
+               '合同额', '当前资金占用', '回款率', '占用强度', '风险等级', '干预建议']
+    for i, h in enumerate(headers, start=1):
+        cell = ws.cell(row=2, column=i, value=h)
+        cell.font = Font(bold=True)
+        cell.fill = PatternFill('solid', fgColor='FCE4D6')
+
+    for ri, r in enumerate(out, start=3):
+        ws.cell(row=ri, column=1, value=r['contract_no'])
+        ws.cell(row=ri, column=2, value=r['customer_key'])
+        ws.cell(row=ri, column=3, value=r['region'])
+        ws.cell(row=ri, column=4, value=r['dept'])
+        ws.cell(row=ri, column=5, value=r['biz_line'])
+        ws.cell(row=ri, column=6, value=r['project_status'])
+        ws.cell(row=ri, column=7, value=r['contract_amount'])
+        ws.cell(row=ri, column=8, value=r['current_occupy'])
+        ws.cell(row=ri, column=9, value=r['recv_rate'])
+        ws.cell(row=ri, column=10, value=r['occupy_intensity'])
+        ws.cell(row=ri, column=11, value=r['risk_name'])
+        ws.cell(row=ri, column=12, value=r['suggestion'])
+
+    for col in 'ABCDEFGHIJKL':
+        ws.column_dimensions[col].width = 16
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return Response(buf.getvalue(),
+                    media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    headers={'Content-Disposition': 'attachment; filename=fund_risk.xlsx'})
 
 
 @app.get("/api/fund/analyze/export")
@@ -1983,6 +2766,13 @@ ETL_JOB_DEFS = [
         'schedule': '0 5 * * *',
         'calculation_logic': '数据源：付款明细表 + 收款明细表。口径：按合同编号透视（付款/收款按日期聚合）→ FIFO 先进先出冲抵 → 预收款冲抵后续付款 → 生成垫资片段（SETTLED/OCCUPYING）。计算：当前资金占用=占用中片段金额和；元天合计=片段金额×占用天数；预估资金成本=元天×日利率（年化3%）。产出：fund_metrics 宽表（每合同一行）。',
     },
+    {
+        'job_key': 'fund-multidim',
+        'job_name': '资金占用多维度聚合',
+        'description': '按区域/部门/业务线/客户集合/月份聚合资金占用与风险分布',
+        'schedule': '30 5 * * *',
+        'calculation_logic': '数据源：fund_metrics 宽表（资金占用指标计算产物）。口径：按维度列（region/dept/biz_line/industry/customer_key/project_status/contract_status/sign_year/month）分组聚合合同数、累计付款/收款、当前资金占用、回款率、占用强度、风险等级分布。产出：indicator_metrics 宽表（dim_type=fund_dim）。',
+    },
 ]
 
 
@@ -2054,7 +2844,24 @@ def run_etl_gross_margin():
     col_gross = find_col(headers, ['签单毛利'])
     col_region = find_col(headers, ['区域'])
     col_date = find_col(headers, ['统计日期'])
-    col_dept = find_col(headers, ['部门', '责任部门'])
+    col_dept = find_col(headers, ['业务类型'])
+
+    def dept_cn(biz):
+        """从业务类型映射部门（智能计算与集成事业部 ICID 下属）：
+        系统集成业务→系统集成部、运维服务业务→运维服务部、资产运营业务→资产运营部、一体化运维→运维平台；
+        其余业务类型不纳入部门维度"""
+        biz = str(biz).strip()
+        if not biz:
+            return ''
+        if '一体化运维' in biz:
+            return '运维平台'
+        if '运维服务' in biz:
+            return '运维服务部'
+        if '系统集成' in biz:
+            return '系统集成部'
+        if '资产运营' in biz:
+            return '资产运营部'
+        return ''
 
     def parse_year(v):
         if isinstance(v, datetime): return v.year
@@ -2065,12 +2872,14 @@ def run_etl_gross_margin():
     year_agg = defaultdict(lambda: {'amt': 0.0, 'gross': 0.0})
     region_year_agg = defaultdict(lambda: defaultdict(lambda: {'amt': 0.0, 'gross': 0.0}))
     dept_year_agg = defaultdict(lambda: defaultdict(lambda: {'amt': 0.0, 'gross': 0.0}))
+    dept_region_year_agg = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: {'amt': 0.0, 'gross': 0.0})))
     for r in rows[1:]:
         if r is None: continue
         amt = safe_float(r[col_idx[col_amt]]) if col_amt else 0.0
         gross = safe_float(r[col_idx[col_gross]]) if col_gross else 0.0
         region = str(r[col_idx[col_region]]).strip() if col_region and r[col_idx[col_region]] else ''
         dept = str(r[col_idx[col_dept]]).strip() if col_dept and r[col_idx[col_dept]] else ''
+        dept = dept_cn(dept) if dept else ''
         y = parse_year(r[col_idx[col_date]]) if col_date else None
         if y is not None:
             year_agg[y]['amt'] += amt
@@ -2081,11 +2890,18 @@ def run_etl_gross_margin():
             if dept:
                 dept_year_agg[dept][y]['amt'] += amt
                 dept_year_agg[dept][y]['gross'] += gross
+            if region and dept:
+                dept_region_year_agg[dept][region][y]['amt'] += amt
+                dept_region_year_agg[dept][region][y]['gross'] += gross
 
     def rate(g, a): return round(g / a, 6) if a else 0.0
 
     conn = get_db()
     c = conn.cursor()
+    # 兼容旧数据库：若 indicator_metrics 无 extra_json 列则添加
+    cols = [row[1] for row in c.execute("PRAGMA table_info(indicator_metrics)").fetchall()]
+    if 'extra_json' not in cols:
+        c.execute("ALTER TABLE indicator_metrics ADD COLUMN extra_json TEXT DEFAULT '{}' ")
     c.execute("DELETE FROM indicator_metrics WHERE job_key='gross-margin'")
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     n = 0
@@ -2103,6 +2919,13 @@ def run_etl_gross_margin():
             c.execute("INSERT INTO indicator_metrics (job_key, metric_name, dim_type, dim_value, year, contract_amt, gross_profit, gross_rate, calc_time) VALUES (?,?,?,?,?,?,?,?,?)",
                       ('gross-margin', '签单毛利率', 'dept', dept, str(y), v['amt'], v['gross'], rate(v['gross'], v['amt']), now))
             n += 1
+    for dept, rd in dept_region_year_agg.items():
+        for region, yd in rd.items():
+            for y, v in yd.items():
+                extra = json.dumps({'dept': dept, 'region': region})
+                c.execute("INSERT INTO indicator_metrics (job_key, metric_name, dim_type, dim_value, year, contract_amt, gross_profit, gross_rate, extra_json, calc_time) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                          ('gross-margin', '签单毛利率', 'dept_region', f"{dept}|{region}", str(y), v['amt'], v['gross'], rate(v['gross'], v['amt']), extra, now))
+                n += 1
     conn.commit()
     conn.close()
     return {'success': True, 'rows': n}
@@ -2178,13 +3001,149 @@ def gross_metrics():
             '2025签单毛利率': m25['gross_rate'] if m25 else None,
         })
 
+    # 部门 × 区域 二维热力图数据
+    dr_rows = [r for r in rows if r['dim_type'] == 'dept_region']
+    dr_dept_region_year = defaultdict(lambda: defaultdict(dict))
+    for r in dr_rows:
+        extra = json.loads(r['extra_json'] or '{}')
+        dept = extra.get('dept') or r['dim_value'].split('|')[0]
+        region = extra.get('region') or r['dim_value'].split('|')[1]
+        dr_dept_region_year[dept][region][r['year']] = r
+
+    dr_depts = sorted({d for d, _ in dr_dept_region_year.items()})
+    dr_regions = sorted({r for _, rd in dr_dept_region_year.items() for r in rd.keys()})
+
+    def _cell(r26, r25):
+        if r26 is None:
+            return {'rate': None, 'diff': None, 'hasData': False}
+        return {
+            'rate': round(r26['gross_rate'], 6),
+            'diff': round((r26['gross_rate'] - (r25['gross_rate'] if r25 else 0)) * 100, 2) if r25 else None,
+            'hasData': True,
+        }
+
+    cells = {}
+    total_by_dept = {}
+    total_by_region = {}
+    for dept in dr_depts:
+        cells[dept] = {}
+        dept_amt_26 = dept_amt_25 = 0.0
+        dept_gross_26 = dept_gross_25 = 0.0
+        for region in dr_regions:
+            yd = dr_dept_region_year[dept].get(region, {})
+            m26 = yd.get('2026')
+            m25 = yd.get('2025')
+            cells[dept][region] = _cell(m26, m25)
+            if m26:
+                dept_amt_26 += m26['contract_amt']
+                dept_gross_26 += m26['gross_profit']
+            if m25:
+                dept_amt_25 += m25['contract_amt']
+                dept_gross_25 += m25['gross_profit']
+        total_by_dept[dept] = {
+            'rate': round(dept_gross_26 / dept_amt_26, 6) if dept_amt_26 else None,
+            'diff': round((dept_gross_26 / dept_amt_26 - dept_gross_25 / dept_amt_25) * 100, 2) if (dept_amt_26 and dept_amt_25) else None,
+            'hasData': dept_amt_26 > 0,
+        }
+
+    for region in dr_regions:
+        reg_amt_26 = reg_amt_25 = 0.0
+        reg_gross_26 = reg_gross_25 = 0.0
+        for dept in dr_depts:
+            yd = dr_dept_region_year[dept].get(region, {})
+            m26 = yd.get('2026')
+            m25 = yd.get('2025')
+            if m26:
+                reg_amt_26 += m26['contract_amt']
+                reg_gross_26 += m26['gross_profit']
+            if m25:
+                reg_amt_25 += m25['contract_amt']
+                reg_gross_25 += m25['gross_profit']
+        total_by_region[region] = {
+            'rate': round(reg_gross_26 / reg_amt_26, 6) if reg_amt_26 else None,
+            'diff': round((reg_gross_26 / reg_amt_26 - reg_gross_25 / reg_amt_25) * 100, 2) if (reg_amt_26 and reg_amt_25) else None,
+            'hasData': reg_amt_26 > 0,
+        }
+
+    dept_region_rows = {
+        'regions': dr_regions,
+        'depts': dr_depts,
+        'cells': cells,
+        'totals': {'byDept': total_by_dept, 'byRegion': total_by_region},
+    }
+
     return {
         'success': True,
         'summary': summary,
         'year_rows': year_list,
         'region_rows': region_list,
         'dept_rows': dept_list,
+        'dept_region_rows': dept_region_rows,
     }
+
+
+def run_etl_fund_multidim():
+    """资金占用多维度 ETL：读 fund_metrics 宽表 → 按维度×月份聚合 → 写 indicator_metrics
+
+    产出 dim_type='fund_dim'，metric_name 形如 'fund_dim:region'。
+    """
+    from datetime import datetime
+    from collections import defaultdict
+    import json
+
+    rows = _fund_rows_with_dims()
+    if not rows:
+        return {'success': False, 'error': 'fund_metrics 为空，请先执行「资金占用指标计算」'}
+
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM indicator_metrics WHERE job_key='fund-multidim'")
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    n = 0
+
+    for dim in DIM_COLUMN_MAP:
+        col = DIM_COLUMN_MAP[dim]
+        agg = defaultdict(lambda: {
+            'count': 0, 'pay': 0.0, 'recv': 0.0, 'occupy': 0.0, 'amt_day': 0.0,
+            'cost': 0.0, 'ca': 0.0, 'risk': {'healthy': 0, 'yellow': 0, 'orange': 0, 'red': 0},
+        })
+        for r in rows:
+            name = (r.get(col) or '').strip() or '未知'
+            month = (r.get('cycle_start') or '')[:7] or '未知'
+            b = agg[(name, month)]
+            b['count'] += 1
+            b['pay'] += r.get('total_pay') or 0
+            b['recv'] += r.get('total_recv') or 0
+            b['occupy'] += r.get('current_occupy') or 0
+            b['amt_day'] += r.get('amount_day') or 0
+            b['cost'] += r.get('est_cost') or 0
+            b['ca'] += r.get('contract_amount') or 0
+            rl = r.get('risk_level') or 'healthy'
+            b['risk'][rl if rl in b['risk'] else 'healthy'] += 1
+
+        for (name, month), b in agg.items():
+            ca = b['ca'] or b['pay'] or 0
+            extra = {
+                'dim': dim, 'dim_name': DIM_NAME_MAP.get(dim, dim), 'month': month,
+                'contract_count': b['count'],
+                'total_pay': round(b['pay'], 2), 'total_recv': round(b['recv'], 2),
+                'current_occupy': round(b['occupy'], 2), 'amount_day': round(b['amt_day'], 2),
+                'est_cost': round(b['cost'], 2),
+                'recv_rate': round(b['recv'] / ca, 4) if ca > 0 else 0,
+                'occupy_intensity': round(b['occupy'] / ca, 4) if ca > 0 else 0,
+                'risk_count': b['risk'],
+                'risk_level': next((lv for lv in ['red', 'orange', 'yellow', 'healthy']
+                                    if b['risk'].get(lv, 0) > 0), 'healthy'),
+            }
+            c.execute("INSERT INTO indicator_metrics (job_key, metric_name, dim_type, dim_value, year, contract_amt, gross_profit, gross_rate, extra_json, calc_time) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                      ('fund-multidim', f'fund_dim:{dim}', 'fund_dim', name, month,
+                       b['count'], b['occupy'], extra['occupy_intensity'],
+                       json.dumps(extra, ensure_ascii=False), now))
+            n += 1
+
+    conn.commit()
+    conn.close()
+    return {'success': True, 'rows': n}
 
 
 def run_etl_payment_cycle():
@@ -2355,6 +3314,8 @@ def etl_run(job_key: str):
         result = fund_analyze()
         if result.get('success'):
             result['rows'] = len(result.get('data', {}).get('rows', []))
+    elif job_key == 'fund-multidim':
+        result = run_etl_fund_multidim()
     elif job_key == 'payment-cycle':
         result = run_etl_payment_cycle()
     else:
@@ -2590,6 +3551,9 @@ def _start_scheduler():
 
 # 启动时注册 ETL 任务（幂等）
 _register_etl_jobs()
+
+# 启动时写入风险预警阈值默认值（幂等）
+_seed_risk_config()
 
 # 启动后台调度线程
 _start_scheduler()

@@ -299,3 +299,34 @@ tr:hover td{background:rgba(79,140,255,.04)}
 
 .neg{color:var(--red)}
 .ana-actions{display:flex;align-items:center;gap:12px}
+
+/* ---------- 热力图表格 (CC-008) ---------- */
+.heatmap-table { width:100%; border-collapse:separate; border-spacing:2px; font-size:12px; background:transparent; }
+.heatmap-table th,
+.heatmap-table td { min-width:72px; height:52px; padding:6px 4px; text-align:center; vertical-align:middle; border-radius:4px; }
+.heatmap-table .heat-corner { background:#0f1c2e; color:#8fa1b3; font-weight:600; border:1px solid #1e3a5f; }
+.heatmap-table .heat-col-header { background:#152b45; color:#a8c6e0; font-weight:600; border:1px solid #1e3a5f; white-space:nowrap; }
+.heatmap-table .heat-total-col { background:#1a3452; color:#cbe4ff; }
+.heatmap-table .row-label { background:#152b45; color:#a8c6e0; font-weight:600; text-align:left; padding-left:10px; border:1px solid #1e3a5f; white-space:nowrap; }
+.heatmap-table .row-total { background:#1a3452; color:#cbe4ff; font-weight:700; }
+.heatmap-table .heat-cell { color:#161b22; font-weight:700; cursor:default; transition:transform .08s ease; border:1px solid rgba(0,0,0,.08); }
+.heatmap-table .heat-cell:hover { transform:scale(1.05); z-index:2; border-color:rgba(255,255,255,.35); box-shadow:0 2px 6px rgba(0,0,0,.25); }
+.heatmap-table .heat-rate { font-size:14px; line-height:1.2; }
+.heatmap-table .heat-diff { font-size:10px; line-height:1.2; opacity:.9; margin-top:2px; }
+.heatmap-note { font-size:12px; color:var(--text2); margin-bottom:10px; }
+
+/* 颜色分档：红涨 / 绿跌 */
+.heatmap-table .heat-up-20  { background:#c92a2a; color:#fff; }
+.heatmap-table .heat-up-5    { background:#fa5252; color:#fff; }
+.heatmap-table .heat-up-2    { background:#ff8787; color:#4a0e0e; }
+.heatmap-table .heat-flat    { background:#ffd43b; color:#343a40; }
+.heatmap-table .heat-down-2  { background:#69db7c; color:#0b4f18; }
+.heatmap-table .heat-down-5  { background:#40c057; color:#fff; }
+.heatmap-table .heat-down-20 { background:#2b8a3e; color:#fff; }
+.heatmap-table .heat-empty   { background:#343a40; color:#6c757d; }
+
+/* 小计列/行高亮 */
+.heatmap-table .col-total.heat-up-20,
+.heatmap-table .row-total.heat-up-20 { outline:2px solid rgba(255,255,255,.25); }
+.heatmap-table .col-total.heat-down-20,
+.heatmap-table .row-total.heat-down-20 { outline:2px solid rgba(255,255,255,.25); }
