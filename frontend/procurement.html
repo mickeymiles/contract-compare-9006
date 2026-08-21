@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>备品备件采购询比价</title>
+<link rel="stylesheet" href="/common.css">
+<style>
+  /* procurement 专用补充样式（沿用 common.css 设计语言） */
+  .proc-actions{display:flex;gap:10px;margin-bottom:16px;align-items:center;flex-wrap:wrap}
+  .proc-status-filter{display:flex;gap:4px;flex-wrap:wrap}
+  .proc-status-filter .btn{padding:5px 12px}
+  .proc-supplier-row{display:flex;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;background:var(--bg3)}
+  .proc-supplier-row input[type="checkbox"]{cursor:pointer}
+  .proc-supplier-row .sp-name{flex:1;font-size:13px;color:var(--text)}
+  .proc-supplier-row .sp-email{font-size:11px;color:var(--text2);font-family:var(--mono)}
+  .proc-supplier-row .sp-del{background:none;border:none;color:var(--red);cursor:pointer;font-size:16px}
+  .proc-tab-bar{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:16px}
+  .proc-tab{padding:10px 20px;background:none;border:none;color:var(--text2);cursor:pointer;font-size:13px;border-bottom:2px solid transparent;transition:all .2s}
+  .proc-tab:hover{color:var(--text)}
+  .proc-tab.active{color:var(--cyan);border-bottom-color:var(--cyan)}
+  .proc-field{display:flex;gap:8px;margin-bottom:10px;align-items:center}
+  .proc-field .l{width:110px;color:var(--text2);font-size:12px;flex-shrink:0}
+  .proc-field .v{flex:1;color:var(--text);font-size:13px}
+  .proc-field input,.proc-field select,.proc-field textarea{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:5px;font-size:13px;width:100%;font-family:inherit}
+  .proc-field input:focus,.proc-field select:focus,.proc-field textarea:focus{outline:none;border-color:var(--cyan)}
+  .proc-field input[type="number"]{max-width:200px}
+  .proc-quote-row.selected{background:rgba(0,229,255,.08)}
+  .proc-radio-row{display:flex;gap:16px;padding:8px 0}
+  .proc-radio-row label{display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--text);font-size:13px}
+  .empty-tip{text-align:center;padding:40px 20px;color:var(--text2);font-size:13px}
+  .badge-proc-running{background:rgba(0,229,255,.15);color:var(--cyan)}
+  .badge-proc-timeout-p{background:rgba(255,145,0,.18);color:var(--orange)}
+  .badge-proc-timeout-a{background:rgba(255,82,82,.18);color:var(--red)}
+  .badge-proc-confirm{background:rgba(179,136,255,.18);color:var(--purple)}
+  .badge-proc-shipping{background:rgba(0,229,255,.12);color:var(--cyan2)}
+  .badge-proc-closed{background:rgba(0,230,118,.18);color:var(--green)}
+  .badge-proc-failed{background:rgba(255,82,82,.18);color:var(--red)}
+  .badge-proc-canceled{background:rgba(125,141,176,.18);color:var(--text2)}
+  /* 时间轴 */
+  .timeline{display:flex;align-items:flex-start;gap:0;margin-bottom:24px;overflow-x:auto;padding:16px 8px}
+  .tl-step{flex:1;min-width:140px;text-align:center;position:relative}
+  .tl-step .tl-node{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 8px;font-size:16px;border:2px solid var(--border);background:var(--bg3);transition:all .3s}
+  .tl-step.done .tl-node{border-color:var(--green);background:rgba(0,230,118,.12);color:var(--green)}
+  .tl-step.current .tl-node{border-color:var(--cyan);background:rgba(0,229,255,.12);color:var(--cyan);box-shadow:0 0 0 4px rgba(0,229,255,.1);animation:pulse 2s infinite}
+  .tl-step.failed .tl-node{border-color:var(--red);background:rgba(255,82,82,.12);color:var(--red)}
+  .tl-step.canceled .tl-node{border-color:var(--text2);background:rgba(125,141,176,.12);color:var(--text2)}
+  .tl-step .tl-label{font-size:12px;color:var(--text2);margin-bottom:2px}
+  .tl-step.current .tl-label{color:var(--cyan);font-weight:600}
+  .tl-step.done .tl-label{color:var(--green)}
+  .tl-step .tl-time{font-size:10px;color:var(--text2);font-family:var(--mono)}
+  .tl-step .tl-line{position:absolute;top:18px;left:50%;width:100%;height:2px;background:var(--border)}
+  .tl-step:last-child .tl-line{display:none}
+  .tl-step.done .tl-line{background:var(--green)}
+  .tl-step.current .tl-line{background:linear-gradient(90deg,var(--cyan),var(--border))}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 4px rgba(0,229,255,.1)}50%{box-shadow:0 0 0 8px rgba(0,229,255,.05)}}
+</style>
+</head>
+<body>
+<div class="header">
+  <nav class="crumb">
+    <span class="crumb-root" onclick="location.href='/'">运营管理</span>
+    <span class="crumb-sep">›</span>
+    <span class="crumb-cur" id="procCrumb">🛒 备品备件采购询比价</span>
+  </nav>
+  <span style="flex:1"></span>
+  <button class="btn btn-o btn-s" onclick="toggleHelp()" title="系统说明">? 帮助</button>
+</div>
+
+<div style="padding:20px 24px">
+
+  <!-- 页面1: 任务列表 -->
+  <div id="page-proc-list" class="page active">
+    <div class="proc-actions">
+      <button class="btn btn-c" onclick="showPage('new')">＋ 发起新询价</button>
+      <button class="btn btn-o" onclick="loadTaskList()">🔄 刷新</button>
+      <span style="flex:1"></span>
+      <div class="proc-status-filter" id="statusFilter">
+        <button class="btn btn-o btn-s" data-status="" onclick="filterStatus(this)">全部</button>
+        <button class="btn btn-o btn-s" data-status="询比价进行中" onclick="filterStatus(this)">进行中</button>
+        <button class="btn btn-o btn-s" data-status="部分供应商超时" onclick="filterStatus(this)">部分超时</button>
+        <button class="btn btn-o btn-s" data-status="全部供应商超时" onclick="filterStatus(this)">全部超时</button>
+        <button class="btn btn-o btn-s" data-status="已选型确认" onclick="filterStatus(this)">已选型</button>
+        <button class="btn btn-o btn-s" data-status="供应商发货中" onclick="filterStatus(this)">发货中</button>
+        <button class="btn btn-o btn-s" data-status="流程闭环" onclick="filterStatus(this)">已闭环</button>
+        <button class="btn btn-o btn-s" data-status="收货测试失败" onclick="filterStatus(this)">测试失败</button>
+        <button class="btn btn-o btn-s" data-status="任务已取消" onclick="filterStatus(this)">已取消</button>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>询比价任务列表</h3>
+      <div class="twrap">
+        <table>
+          <thead>
+            <tr>
+              <th>任务ID</th><th>项目</th><th>合同号</th><th>备件型号</th>
+              <th>数量</th><th>状态</th><th>报价截止</th><th>创建时间</th><th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="taskListBody">
+            <tr><td colspan="9" class="empty-tip">加载中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 页面2: 新建询价表单 -->
+  <div id="page-proc-new" class="page">
+    <div class="proc-actions">
+      <button class="btn btn-o" onclick="showPage('list')">← 返回列表</button>
+    </div>
+    <div class="panel">
+      <h3>新建询价任务</h3>
+      <div style="max-width:720px">
+        <div class="proc-field">
+          <div class="l">选择项目</div>
+          <select id="newProject" onchange="onProjectChange()" style="width:100%"></select>
+        </div>
+        <div class="proc-field">
+          <div class="l">合同编号</div>
+          <select id="newContract" onchange="onContractChange()" style="width:100%"></select>
+        </div>
+        <div class="proc-field">
+          <div class="l">备件型号</div>
+          <select id="newPart" style="width:100%"></select>
+        </div>
+        <div class="proc-field">
+          <div class="l">采购数量</div>
+          <input type="number" id="newQty" min="1" value="1" placeholder="请输入采购数量">
+        </div>
+        <div class="proc-field">
+          <div class="l">紧急等级</div>
+          <select id="newEmergency" onchange="updateDeadlinePreview()" style="max-width:200px">
+            <option value="2h">2 小时</option>
+            <option value="4h" selected>4 小时</option>
+            <option value="5h">5 小时</option>
+          </select>
+          <span style="font-size:11px;color:var(--cyan);margin-left:10px" id="deadlinePreview"></span>
+        </div>
+        <div class="proc-field" style="align-items:flex-start">
+          <div class="l" style="padding-top:8px">询价供应商</div>
+          <div style="flex:1" id="supplierList">
+            <div class="empty-tip">请先选择项目和合同</div>
+          </div>
+        </div>
+        <div class="proc-field">
+          <div class="l"></div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" id="newSpName" placeholder="临时供应商名称" style="max-width:200px">
+            <input type="text" id="newSpEmail" placeholder="邮箱" style="max-width:240px">
+            <button class="btn btn-o btn-s" onclick="addTempSupplier()">＋ 添加临时供应商</button>
+          </div>
+        </div>
+        <div style="margin-top:24px;display:flex;gap:10px">
+          <button class="btn btn-c" onclick="submitNewInquiry()">🚀 一键发起询价</button>
+          <button class="btn btn-o" onclick="resetNewForm()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 页面3: 任务详情 -->
+  <div id="page-proc-detail" class="page">
+    <div class="proc-actions">
+      <button class="btn btn-o" onclick="showPage('list')">← 返回列表</button>
+      <span style="flex:1"></span>
+      <span id="detailTaskId" style="font-family:var(--mono);font-size:12px;color:var(--text2)"></span>
+    </div>
+    <!-- 时间轴 -->
+    <div class="panel" style="margin-bottom:16px">
+      <div id="detailTimeline" class="timeline"><div class="empty-tip">加载中...</div></div>
+    </div>
+    <div class="proc-tab-bar">
+      <button class="proc-tab active" data-tab="base" onclick="switchDetailTab('base')">📋 基础信息</button>
+      <button class="proc-tab" data-tab="quote" onclick="switchDetailTab('quote')">💰 报价汇总</button>
+      <button class="proc-tab" data-tab="action" onclick="switchDetailTab('action')">⚙️ 处置操作</button>
+    </div>
+
+    <!-- Tab1: 基础信息 -->
+    <div id="detailTabBase" class="panel">
+      <h3>任务基础信息</h3>
+      <div id="detailBaseBody"><div class="empty-tip">加载中...</div></div>
+    </div>
+
+    <!-- Tab2: 报价汇总 -->
+    <div id="detailTabQuote" class="panel" style="display:none">
+      <h3>供应商报价汇总</h3>
+      <div id="detailQuoteBody"><div class="empty-tip">加载中...</div></div>
+    </div>
+
+    <!-- Tab3: 处置操作 -->
+    <div id="detailTabAction" class="panel" style="display:none">
+      <h3>处置操作</h3>
+      <div id="detailActionBody"><div class="empty-tip">加载中...</div></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- 录入测试结果弹窗 -->
+<div id="testResultModal" class="modal" onclick="if(event.target===this)closeTestModal()">
+  <div class="box">
+    <h3>录入测试结果</h3>
+    <div class="proc-radio-row" style="margin:10px 0 16px">
+      <label><input type="radio" name="testResult" value="通过" checked> ✅ 测试通过</label>
+      <label><input type="radio" name="testResult" value="失败"> ❌ 测试失败</label>
+    </div>
+    <div class="proc-field" style="margin-bottom:16px">
+      <div class="l">备注</div>
+      <textarea id="testRemark" rows="3" placeholder="测试情况说明"></textarea>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn btn-o" onclick="closeTestModal()">取消</button>
+      <button class="btn btn-c" onclick="submitTestResult()">提交</button>
+    </div>
+  </div>
+</div>
+
+<!-- 取消任务弹窗 -->
+<div id="cancelModal" class="modal" onclick="if(event.target===this)closeCancelModal()">
+  <div class="box">
+    <h3>取消询比价任务</h3>
+    <div class="proc-field" style="margin:16px 0">
+      <div class="l">取消原因</div>
+      <textarea id="cancelReason" rows="3" placeholder="请说明取消原因"></textarea>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn btn-o" onclick="closeCancelModal()">返回</button>
+      <button class="btn btn-c" style="background:var(--red);color:#fff" onclick="submitCancelTask()">确认取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- 帮助弹窗 -->
+<div id="helpModal" class="modal" onclick="if(event.target===this)closeHelp()">
+  <div class="box">
+    <h3>🛒 备品备件采购询比价智能体</h3>
+    <div style="font-size:12px;line-height:1.8;color:var(--text)">
+      <p><strong style="color:var(--cyan)">业务流程</strong></p>
+      <p>1. 项目经理收到现场工程师的备件需求邮件（系统不解析）</p>
+      <p>2. 平台新建询价任务 → 自动发邮件给供应商 → 飞书通知任务发起</p>
+      <p>3. 询比价进行中：监控供应商报价邮件、每小时飞书进度、临期告警</p>
+      <p>4. 项目经理平台选型确认 → 自动发采购确认邮件给供应商</p>
+      <p>5. 供应商发货回复邮件 → 系统解析回填物流信息</p>
+      <p>6. 现场工程师收货测试 → 项目经理录入测试结果</p>
+      <p>7. 测试通过：自动写入采购台账，流程闭环</p>
+      <p>8. 测试失败：异常告警，人工处置（换货/重新询价）</p>
+      <p style="margin-top:10px;color:var(--text2)">本页面仅项目经理可见，现场工程师无平台入口。</p>
+    </div>
+    <div style="text-align:right;margin-top:16px">
+      <button class="btn btn-c" onclick="closeHelp()">知道了</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script src="/procurement.app.js"></script>
+</body>
+</html>

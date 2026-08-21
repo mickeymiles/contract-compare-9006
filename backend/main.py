@@ -12,10 +12,12 @@ import re
 import shutil
 import urllib.parse
 from openpyxl.utils import get_column_letter
+import httpx
 
 from models import init_db, get_db, create_contract, delete_contract, update_contract_status
 from compare_engine import run_comparison
 from excel_handler import import_contract_excel, import_supplier_excel, export_report, reapply_column_mapping
+from procurement_models import init_procurement_db, seed_procurement_master
 app = FastAPI(title="合同比对系统（多合同版）", version="2.0")
 from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -26,6 +28,24 @@ FRONTEND_DIR = os.path.join(BASE_DIR, '..', 'frontend')
 DATASOURCE_DIR = os.path.join(BASE_DIR, '..', 'datasource')
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(DATASOURCE_DIR, exist_ok=True)
+
+# ── neuops 智能体网关（emp-008 采购询比价）──
+NEUOPS_BASE = os.getenv("NEUOPS_BASE", "http://127.0.0.1:9007")
+
+
+def trigger_neuops(path: str, payload: dict, timeout: float = 15.0) -> dict:
+    """调用 neuops 智能体 trigger API。失败不阻断主流程，返回 trigger 结果。"""
+    import copy
+    p = copy.deepcopy(payload)
+    # 清理空 dict 字段（neuops Pydantic Optional[Model] 遇到 {} 会报 required）
+    if isinstance(p, dict) and isinstance(p.get("selected_supplier"), dict) and not p["selected_supplier"]:
+        p["selected_supplier"] = None
+    try:
+        r = httpx.post(f"{NEUOPS_BASE}/api/procurement-agent/{path}",
+                       json=p, timeout=timeout)
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": f"neuops trigger 失败: {type(e).__name__}: {e}"}
 
 # ─────────────────────────────────────────────────────────────
 # 客户/项目敏感信息：一律丢弃，不导入数据库、不展示（只保留合同编号）
@@ -853,6 +873,9 @@ def export_payment_cycle():
 @app.on_event("startup")
 def startup():
     init_db()
+    # 备品备件采购询比价智能体 — 数据层初始化
+    init_procurement_db()
+    seed_procurement_master()
 
 
 # ===================== 供应商列名 =====================
@@ -876,6 +899,209 @@ def gross_page():
 @app.get("/china.json")
 def china_map_data():
     return FileResponse(os.path.join(FRONTEND_DIR, 'china.json'))
+
+
+# ===================== 备品备件采购询比价 =====================
+from procurement_models import (
+    list_master_data, get_master_data, get_master_by_project,
+    create_master_data, update_master_data, delete_master_data,
+    create_task, get_task, list_tasks,
+    confirm_selection, input_test_result, cancel_task,
+    write_ledger, list_ledger, list_op_logs,
+)
+from pydantic import BaseModel
+from typing import List, Optional, Dict, Any
+
+
+class SupplierItem(BaseModel):
+    name: str
+    email: str
+
+
+class NewTaskBody(BaseModel):
+    master_id: int
+    spare_part_model: str
+    purchase_qty: float
+    emergency_level: str
+    inquiry_supplier_list: List[SupplierItem]
+
+
+class SelectBody(BaseModel):
+    selected_supplier: SupplierItem
+    deal_unit_price: float
+
+
+class TestResultBody(BaseModel):
+    test_result: str
+    remark: str = ''
+
+
+class CancelBody(BaseModel):
+    cancel_reason: str
+
+
+class MasterBody(BaseModel):
+    project_id: str
+    project_name: str = ''
+    contract_no: str = ''
+    allow_spare_parts: List[str] = []
+    default_suppliers: List[SupplierItem] = []
+    default_emergency_level: str = '4h'
+
+
+@app.get("/procurement")
+def procurement_page():
+    return FileResponse(os.path.join(FRONTEND_DIR, 'procurement.html'))
+
+
+@app.get("/procurement.app.js")
+def procurement_app_js():
+    return FileResponse(os.path.join(FRONTEND_DIR, 'procurement.app.js'))
+
+
+# ---- 主数据 ----
+@app.get("/api/procurement/master")
+def api_proc_master_list():
+    return {"success": True, "data": list_master_data()}
+
+
+@app.get("/api/procurement/master/{master_id}")
+def api_proc_master_get(master_id: int):
+    m = get_master_data(master_id)
+    if not m:
+        return JSONResponse({"success": False, "error": "主数据不存在"}, status_code=404)
+    return {"success": True, "data": m}
+
+
+@app.post("/api/procurement/master")
+def api_proc_master_create(body: MasterBody):
+    try:
+        m = create_master_data(
+            project_id=body.project_id, project_name=body.project_name,
+            contract_no=body.contract_no, allow_spare_parts=body.allow_spare_parts,
+            default_suppliers=[s.dict() for s in body.default_suppliers],
+            default_emergency_level=body.default_emergency_level,
+        )
+        return {"success": True, "data": m}
+    except ValueError as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+
+
+@app.put("/api/procurement/master/{master_id}")
+def api_proc_master_update(master_id: int, body: MasterBody):
+    try:
+        m = update_master_data(master_id=master_id,
+                               project_name=body.project_name, contract_no=body.contract_no,
+                               allow_spare_parts=body.allow_spare_parts,
+                               default_suppliers=[s.dict() for s in body.default_suppliers],
+                               default_emergency_level=body.default_emergency_level)
+        return {"success": True, "data": m}
+    except ValueError as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+
+
+@app.delete("/api/procurement/master/{master_id}")
+def api_proc_master_delete(master_id: int):
+    delete_master_data(master_id)
+    return {"success": True}
+
+
+# ---- 任务 ----
+@app.get("/api/procurement/tasks")
+def api_proc_task_list(status: Optional[str] = None, project_id: Optional[str] = None):
+    return {"success": True, "data": list_tasks(status=status, project_id=project_id)}
+
+
+@app.get("/api/procurement/tasks/{task_id}")
+def api_proc_task_get(task_id: str):
+    t = get_task(task_id)
+    if not t:
+        return JSONResponse({"success": False, "error": "任务不存在"}, status_code=404)
+    t['_op_logs'] = list_op_logs(task_id)
+    return {"success": True, "data": t}
+
+
+@app.post("/api/procurement/tasks")
+def api_proc_task_create(body: NewTaskBody):
+    """新建询价任务：落库 + 操作日志 + 触发 neuops 智能体发询价邮件+飞书通知"""
+    m = get_master_data(body.master_id)
+    if not m:
+        return JSONResponse({"success": False, "error": "主数据不存在"}, status_code=404)
+    try:
+        t = create_task(
+            project_id=m['project_id'], project_name=m['project_name'],
+            contract_no=m['contract_no'], spare_part_model=body.spare_part_model,
+            purchase_qty=body.purchase_qty, emergency_level=body.emergency_level,
+            inquiry_supplier_list=[s.dict() for s in body.inquiry_supplier_list],
+            creator='pm',
+        )
+        # 触发 neuops emp-008：skill-proc-01(已落库) + skill-proc-02(发询价邮件+飞书通知)
+        agent_r = trigger_neuops("trigger/task-created", t)
+        return {"success": True, "data": t, "agent_trigger": agent_r}
+    except ValueError as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+
+
+@app.post("/api/procurement/tasks/{task_id}/select")
+def api_proc_task_select(task_id: str, body: SelectBody):
+    """选型确认：落库 + 触发 neuops 发采购确认邮件+飞书通知"""
+    try:
+        t = confirm_selection(
+            task_id=task_id,
+            selected_supplier=body.selected_supplier.dict(),
+            deal_unit_price=body.deal_unit_price,
+            operator='pm',
+        )
+        # 触发 neuops emp-008：skill-proc-05(发采购确认邮件+飞书通知)
+        agent_r = trigger_neuops("trigger/task-selected", {
+            "task": t, "selected_supplier": body.selected_supplier.dict(),
+            "deal_unit_price": body.deal_unit_price,
+        })
+        return {"success": True, "data": t, "agent_trigger": agent_r}
+    except ValueError as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+
+
+@app.post("/api/procurement/tasks/{task_id}/test")
+def api_proc_task_test(task_id: str, body: TestResultBody):
+    """测试结果录入：落库 + 触发 neuops 闭环/告警+飞书通知"""
+    try:
+        t = input_test_result(
+            task_id=task_id, test_result=body.test_result,
+            remark=body.remark, operator='pm',
+        )
+        # 触发 neuops emp-008：skill-proc-07(测试通过→台账写入+闭环 / 失败→告警)
+        agent_r = trigger_neuops("trigger/test-result", {
+            "task": t, "test_result": body.test_result, "remark": body.remark,
+        })
+        return {"success": True, "data": t, "agent_trigger": agent_r}
+    except ValueError as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+
+
+@app.post("/api/procurement/tasks/{task_id}/cancel")
+def api_proc_task_cancel(task_id: str, body: CancelBody):
+    """任务取消：落库 + 触发 neuops 飞书通知取消"""
+    try:
+        t = cancel_task(task_id=task_id, cancel_reason=body.cancel_reason, operator='pm')
+        # 触发 neuops emp-008：skill-proc-09(飞书通知任务取消)
+        agent_r = trigger_neuops("trigger/task-canceled", {
+            "task": t, "cancel_reason": body.cancel_reason,
+        })
+        return {"success": True, "data": t, "agent_trigger": agent_r}
+    except ValueError as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+
+
+@app.get("/api/procurement/tasks/{task_id}/logs")
+def api_proc_task_logs(task_id: str):
+    return {"success": True, "data": list_op_logs(task_id)}
+
+
+# ---- 台账 ----
+@app.get("/api/procurement/ledger")
+def api_proc_ledger_list(project_id: Optional[str] = None):
+    return {"success": True, "data": list_ledger(project_id=project_id)}
 
 # ===================== 合同管理 =====================
 
