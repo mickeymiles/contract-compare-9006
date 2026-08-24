@@ -515,22 +515,25 @@ const FLOW_STEPS = [
         // 解析策略 -> 中文标签（黄色告警）
         const stratTag = q => {
           if (q.is_manual) return '<span class="tag tag-amber" title="已人工录入报价，再次收到邮件复解析不覆盖">✏️ 已人工录入</span>';
-          if (!q.parse_strategy || q.parse_strategy.startsWith('P1') || q.parse_strategy.startsWith('P2') || q.parse_strategy.startsWith('P3')) return '<span class="tag tag-green" title="邮件关键字/货币符号/乘法三元组，解析结果置信度高">✅ 高置信</span>';
-          if (q.parse_strategy.startsWith('P4')) return '<span class="tag tag-amber" title="邮件仅解析到 1-2 个金额数字，按数量反推，建议人工复核">⚠️ 自动推断</span>';
-          if (q.parse_strategy.startsWith('P6') || Number(q.unit_price||0) <= 0) return '<span class="tag tag-red" title="邮件无法自动解析，请点击铅笔图标人工录入报价/货期">🔴 需人工录入</span>';
-          return '<span class="tag tag-cyan" title="解析策略：'+escapeHtml(q.parse_strategy||'')+'">ℹ️ '+escapeHtml(q.parse_strategy||'')+'</span>';
+          const ps = String(q.parse_strategy || '');
+          const manualKeywords = ['P6','failed','fallback_regex','regex_only','unknown'];
+          if (!ps || ps.startsWith('P1') || ps.startsWith('P2') || ps.startsWith('P3')) return '<span class="tag tag-green" title="邮件关键字/货币符号/乘法三元组，解析结果置信度高">✅ 高置信</span>';
+          if (ps.startsWith('P4')) return '<span class="tag tag-amber" title="邮件仅解析到 1-2 个金额数字，按数量反推，建议人工复核">⚠️ 自动推断</span>';
+          if (manualKeywords.some(k => ps.includes(k)) || Number(q.unit_price||0) <= 0) return '<span class="tag tag-red" title="邮件无法自动解析，请点击铅笔图标人工录入报价/货期">🔴 需人工录入</span>';
+          return '<span class="tag tag-cyan" title="解析策略：'+escapeHtml(ps)+'">ℹ️ '+escapeHtml(ps)+'</span>';
         };
         const rowWarn = q => {
           if (q.is_manual) return 'background:rgba(255,193,7,.04)';
-          if (!q.parse_strategy || q.parse_strategy.startsWith('P1') || q.parse_strategy.startsWith('P2') || q.parse_strategy.startsWith('P3')) return '';
+          const ps = String(q.parse_strategy || '');
+          if (!ps || ps.startsWith('P1') || ps.startsWith('P2') || ps.startsWith('P3')) return '';
           return 'background:rgba(255,193,7,.07)';
         };
-        html += `<div class="twrap"><table><thead><tr>
+        html += `<div class="twrap quote-twrap" data-task-id="${escapeHtml(t.task_id||'')}"><table><thead><tr>
           <th style="width:60px">选型</th><th>供应商</th><th>邮箱</th><th>品牌</th><th>型号</th>
           <th style="width:100px;text-align:right">报价(¥)</th>
           <th style="width:90px">货期</th>
           <th style="width:120px">解析</th>
-          <th style="width:70px;text-align:center">操作</th>
+          <th style="width:180px;text-align:center">操作</th>
         </tr></thead><tbody>`;
         replied.forEach((q, i) => {
           html += `<tr style="${rowWarn(q)}">
@@ -542,16 +545,26 @@ const FLOW_STEPS = [
             <td style="text-align:right;font-weight:600">${Number(q.unit_price||0).toFixed(2)}</td>
             <td style="font-size:11px">${escapeHtml(q.lead_time||'-')}</td>
             <td>${stratTag(q)}</td>
-            <td style="text-align:center"><button class="btn btn-o btn-s" title="人工修改报价 / 货期 / 品牌"
-              onclick='openManualEditQuote(${JSON.stringify(t.task_id).replace(/"/g,'&quot;')}, ${i})'>✏️ 修改</button></td>
+            <td style="text-align:center">
+              <div style="display:flex;gap:6px;justify-content:center;flex-wrap:nowrap">
+                <button class="btn btn-o btn-s btn-quote-edit" data-reply-index="${i}" title="人工修改报价 / 货期 / 品牌" style="padding:5px 10px;font-size:12px">✏️ 修改</button>
+                <button class="btn btn-c btn-s btn-quote-orig" data-reply-index="${i}" title="查看供应商回复的邮件原文（只读，可人工检验解析是否准确）" style="padding:5px 10px;font-size:12px">📄 详情</button>
+              </div>
+            </td>
           </tr>`;
         });
         html += '</tbody></table></div>';
         // 若有"需人工录入"的报价 → 顶部红色警示条
-        const needManual = replied.some(q => Number(q.unit_price||0) <= 0 || (q.parse_strategy||'').startsWith('P6'));
+        const ps = qq => String((qq||{}).parse_strategy || '');
+        const isManualNeed = q => {
+          const ps_ = ps(q);
+          return Number(q.unit_price||0) <= 0
+            || ['P6','failed','fallback_regex','regex_only','unknown'].some(k => ps_.includes(k));
+        };
+        const needManual = replied.some(isManualNeed);
         if (needManual) {
           html += `<div style="margin-top:12px;padding:10px 12px;background:rgba(248,113,113,.07);border:1px dashed rgba(248,113,113,.4);border-radius:7px;font-size:12px;color:var(--red)">
-            🔴 有 ${replied.filter(q=>Number(q.unit_price||0)<=0||(q.parse_strategy||'').startsWith('P6')).length} 家供应商的报价无法自动解析（邮件只回一个数字、或没有关键字），请点击每行右侧 ✏️ 人工录入报价后再确认选型。</div>`;
+            🔴 有 ${replied.filter(isManualNeed).length} 家供应商的报价无法自动解析（邮件只回一个数字、或没有关键字），请点击每行右侧 ✏️ 修改 人工录入报价；点 📄 详情 可查看原始邮件内容后再确认选型。</div>`;
         }
         html += `
           <div style="margin-top:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
@@ -978,27 +991,58 @@ async function submitCancelTask() {
   }
 }
 
+// ============ 供应商报价行 操作列 事件委托（修改 / 详情） ============
+// 避免用内联 onclick + JSON.stringify 拼接 task_id 时，引号/特殊字符导致 JS 语法错误从而"按钮无反应"。
+document.addEventListener('click', (ev) => {
+  const el = ev && ev.target;
+  if (!el || !el.classList) return;
+  let tg = el.closest('.btn-quote-edit') || el.closest('.btn-quote-orig');
+  if (!tg) return;
+  const wrap = tg.closest('.quote-twrap');
+  const taskId = (wrap && wrap.getAttribute('data-task-id')) || currentDetailTaskId;
+  const replyIndex = parseInt(tg.getAttribute('data-reply-index') || '-1', 10);
+  if (!taskId || replyIndex < 0) { toast('报价数据缺失，请刷新页面后重试', 'err'); return; }
+  ev.preventDefault();
+  ev.stopPropagation();
+  if (el.closest('.btn-quote-edit')) openManualEditQuote(taskId, replyIndex);
+  else if (el.closest('.btn-quote-orig')) openQuoteOrig(taskId, replyIndex);
+}, true);
+
 // ============ 人工修改报价弹窗（对应第 2 步 ✏️ 修改按钮） ============
 let __mqContext = { taskId: '', replyIndex: -1 };
 function openManualEditQuote(taskId, replyIndex) {
-  const task = (taskListCache || []).find(t => t.task_id === taskId) || currentDetailTask;
-  if (!task) { toast('任务数据未加载，请稍后再试', 'err'); return; }
-  const q = (task.replied_supplier_quotes || [])[replyIndex];
-  if (!q) { toast('未找到该供应商的报价条目', 'err'); return; }
+  if (!taskId || replyIndex == null || replyIndex < 0) { toast('参数错误，请刷新后重试', 'err'); return; }
+  const task = (currentDetailTask && currentDetailTask.task_id === taskId) ? currentDetailTask
+             : (taskListCache || []).find(t => t.task_id === taskId);
+  if (!task) {
+    const msg = `任务 ${taskId} 详情数据未加载，可能是页面缓存失效`;
+    console.warn('[openManualEditQuote]', msg, { taskListCacheLen: (taskListCache||[]).length, currentDetailTaskId, currentDetailTask: !!currentDetailTask });
+    toast(`${msg}，请先点击任务卡片的【查看】打开详情后再操作`, 'err');
+    return;
+  }
+  const arr = Array.isArray(task.replied_supplier_quotes) ? task.replied_supplier_quotes : [];
+  const q = arr[replyIndex];
+  if (!q) { console.warn('[openManualEditQuote] 报价条目不存在', { taskId, replyIndex, arrLen: arr.length }); toast('未找到该供应商的报价条目，请刷新页面', 'err'); return; }
   __mqContext = { taskId, replyIndex };
-  $('manualQuoteTaskHint').textContent =
-    `任务 ${taskId} · 备件 ${task.spare_part_model||'-'} × ${task.purchase_qty||0} · 第 ${replyIndex+1} 号供应商`;
-  $('mqSupplier').value = `${q.supplier_name || q.name || '-'}  <${q.email || '-'}>`;
-  $('mqUnitPrice').value = Number(q.unit_price||0) || '';
-  $('mqTotalPrice').value = Number(q.total_price||0) || '';
-  $('mqLeadTime').value = q.lead_time || '';
-  $('mqBrand').value = q.brand || '';
-  $('mqModel').value = q.model || task.spare_part_model || '';
-  $('mqNote').value = '';
-  $('manualQuoteModal').classList.add('show');
+  try {
+    $('manualQuoteTaskHint').textContent =
+      `任务 ${taskId} · 备件 ${task.spare_part_model||'-'} × ${task.purchase_qty||0} · 第 ${replyIndex+1} 号供应商`;
+    $('mqSupplier').value = `${q.supplier_name || q.name || '-'}  <${q.email || '-'}>`;
+    $('mqUnitPrice').value = Number(q.unit_price||0) || '';
+    $('mqTotalPrice').value = Number(q.total_price||0) || '';
+    $('mqLeadTime').value = q.lead_time || '';
+    $('mqBrand').value = q.brand || '';
+    $('mqModel').value = q.model || task.spare_part_model || '';
+    $('mqNote').value = q.note || '';
+    $('manualQuoteModal').classList.add('show');
+  } catch (err) {
+    console.error('[openManualEditQuote] 打开弹窗失败', err);
+    toast(`打开弹窗失败: ${err && err.message ? err.message : String(err)}`, 'err');
+  }
 }
 function closeManualQuoteModal() {
-  $('manualQuoteModal').classList.remove('show');
+  const m = $('manualQuoteModal');
+  if (m) m.classList.remove('show');
   __mqContext = { taskId: '', replyIndex: -1 };
 }
 async function submitManualQuote() {
@@ -1585,6 +1629,88 @@ async function deleteSparePart(id, code) {
   } finally {
     hidePageLoading();
   }
+}
+
+
+// ============ 报价邮件原文详情弹窗（对应操作列 📄 详情按钮） ============
+let __qoContext = { taskId: '', replyIndex: -1, rawText: '' };
+function __qoParseTagHTML(q) {
+  const ps = String((q && q.parse_strategy) || '');
+  if (q && q.is_manual) return `<span class="tag tag-amber">✏️ 已人工录入</span>`;
+  if (!ps) return `<span class="tag tag-green">✅ 自动解析（高置信）</span>`;
+  if (ps.includes('P1') || ps.includes('P2') || ps.includes('P3')) return `<span class="tag tag-green">✅ 自动解析（${escapeHtml(ps)}）</span>`;
+  if (ps.includes('P4') || ps.includes('P5')) return `<span class="tag tag-amber">⚠️ 自动推断（${escapeHtml(ps)}）</span>`;
+  if (['P6','failed','fallback_regex','regex_only','unknown'].some(k => ps.includes(k)))
+    return `<span class="tag tag-red">🔴 解析失败，需人工录入（${escapeHtml(ps)}）</span>`;
+  if (ps === 'manual_entry') return `<span class="tag tag-amber">✏️ 已人工录入</span>`;
+  if (ps.startsWith('llm')) return `<span class="tag tag-cyan">🧠 LLM 解析（${escapeHtml(ps)}）</span>`;
+  return `<span class="tag tag-cyan">ℹ️ ${escapeHtml(ps)}</span>`;
+}
+function openQuoteOrig(taskId, replyIndex) {
+  if (!taskId || replyIndex == null || replyIndex < 0) { toast('参数错误，请刷新后重试', 'err'); return; }
+  const task = (currentDetailTask && currentDetailTask.task_id === taskId) ? currentDetailTask
+             : (taskListCache || []).find(t => t.task_id === taskId);
+  if (!task) {
+    const msg = `任务 ${taskId} 详情数据未加载`;
+    console.warn('[openQuoteOrig]', msg);
+    toast(`${msg}，请先点击任务卡片的【查看】打开详情后再操作`, 'err');
+    return;
+  }
+  const arr = Array.isArray(task.replied_supplier_quotes) ? task.replied_supplier_quotes : [];
+  const q = arr[replyIndex];
+  if (!q) { toast('未找到该供应商的报价条目，请刷新页面', 'err'); return; }
+  __qoContext = {
+    taskId, replyIndex,
+    rawText: String(q.raw_reply_excerpt || q.raw_reply || q.raw_mail_body || q.email_text || q.raw_body || '（该条回复没有保存原文，可能为旧数据或系统创建的手动报价条目）'),
+  };
+  window.__lastQuoteCtx = { taskId, replyIndex }; // 供弹窗底部"继续：人工录入报价"按钮跳转到修改弹窗
+  try {
+    $('quoteOrigHint').textContent = `任务 ${taskId} · 备件 ${task.spare_part_model||'-'} × ${task.purchase_qty||0} · 第 ${replyIndex+1} 号供应商`;
+    $('qoParseTag').innerHTML = __qoParseTagHTML(q);
+    setText('qoSupplier', `${q.supplier_name || q.name || '-'}  <${q.email || '-'}>`);
+    setText('qoEmail', q.email || '-');
+    setText('qoReplyTime', q.reply_time || '-');
+    const mid = String(q.message_id || q.msg_id || q.in_reply_to || '');
+    const midEl = $('qoMsgId');
+    midEl.textContent = mid || '-';
+    midEl.setAttribute('title', mid || '');
+    setText('qoParseNote', String(q.parse_note || '（该条报价无解析说明）'));
+    setText('qoRawText', __qoContext.rawText);
+    $('quoteOrigModal').classList.add('show');
+  } catch (err) {
+    console.error('[openQuoteOrig] 打开详情失败', err);
+    toast(`打开详情失败: ${err && err.message ? err.message : String(err)}`, 'err');
+  }
+}
+function closeQuoteOrigModal() {
+  const m = $('quoteOrigModal');
+  if (m) m.classList.remove('show');
+  __qoContext = { taskId: '', replyIndex: -1, rawText: '' };
+}
+function __copyQuoteOrig() {
+  const text = __qoContext.rawText || '';
+  if (!text) { toast('没有可复制的内容', 'err'); return; }
+  const done = (ok) => {
+    if (ok) toast(`✅ 已复制 ${text.length} 字符原文到剪贴板`, 'ok');
+    else toast('复制失败，请手动全选复制', 'err');
+  };
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => done(true), () => done(false));
+      return;
+    }
+  } catch (_) { /* ignore */ }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-99999px';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    done(ok);
+  } catch (e) { done(false); }
 }
 
 
