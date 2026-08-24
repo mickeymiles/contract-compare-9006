@@ -264,7 +264,7 @@ function renderSupplierPool() {
       <input type="checkbox" data-idx="${i}" data-pool-id="${escapeHtml(s.id || '')}" checked>
       <span class="sp-name">${escapeHtml(s.name)}</span>
       <span class="sp-email">${escapeHtml(s.email)}</span>
-      ${s.id ? `<span class="badge badge-o" style="margin-left:auto;font-size:10px;opacity:.7">#${escapeHtml(s.id)}</span>` : ''}
+      ${s.id ? `<span class="badge badge-o" style="margin-left:6px;font-size:10px;opacity:.75">#${escapeHtml(s.id)}</span>` : ''}
     </div>
   `).join('');
 }
