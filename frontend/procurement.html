@@ -162,6 +162,20 @@
     border:1px solid rgba(94,215,255,.12);border-radius:12px;display:flex;align-items:center;gap:14px}
   .help-foot .tip{flex:1;font-size:12px;color:var(--text2)}
   .help-foot .tip b{color:var(--cyan)}
+
+  /* ================ 全局页面 Loading 遮罩 ================ */
+  /* 用 opacity + pointer-events 类切换而非 display 硬切，避免闪白 */
+  .page-loading{position:fixed;inset:0;background:rgba(8,16,32,.55);backdrop-filter:blur(3px);
+    display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;
+    z-index:999998;opacity:0;pointer-events:none;transition:opacity .15s ease}
+  .page-loading.show{opacity:1;pointer-events:auto}
+  .page-loading .pl-spinner{width:42px;height:42px;border-radius:50%;
+    border:3px solid rgba(94,215,255,.22);border-top-color:var(--cyan);
+    animation:plSpin .8s linear infinite}
+  @keyframes plSpin{to{transform:rotate(360deg)}}
+  .page-loading .pl-text{color:#fff;font-size:14px;letter-spacing:.5px;
+    text-shadow:0 1px 4px rgba(0,0,0,.5);min-width:80px;text-align:center}
+  .page-loading .pl-sub{color:rgba(255,255,255,.7);font-size:11px;margin-top:-6px}
 </style>
 </head>
 <body>
@@ -913,6 +927,13 @@
 </div>
 
 <div id="toast" class="toast"></div>
+
+<!-- 全局 Loading 遮罩：由 showPageLoading/hidePageLoading 控制 .show 类 -->
+<div id="pageLoading" class="page-loading" aria-hidden="true">
+  <div class="pl-spinner" aria-hidden="true"></div>
+  <div class="pl-text" id="pageLoadingText">加载中...</div>
+  <div class="pl-sub" id="pageLoadingSub" style="display:none"></div>
+</div>
 
 <script src="/procurement.app.js"></script>
 </body>

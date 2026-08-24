@@ -14,15 +14,78 @@ function toast(msg, kind = 'ok') {
   setTimeout(() => t.classList.remove('show'), 2500);
 }
 
-async function api(path, method = 'GET', body = null) {
-  const opts = { method, headers: { 'Content-Type': 'application/json' } };
-  if (body) opts.body = JSON.stringify(body);
-  const r = await fetch(API + path, opts);
-  const data = await r.json().catch(() => ({ success: false, error: '响应解析失败' }));
-  if (!r.ok || data.success === false) {
-    throw new Error(data.error || data.message || `HTTP ${r.status}`);
+// ============ 全局页面 Loading（计数器，嵌套/并行请求不乱闪） ============
+let __plStack = 0;
+let __plHideTimer = null;
+function showPageLoading(text = '加载中...', subText = null) {
+  // 如果 hide 有延迟任务，取消（防止刚 show 又被 scheduled hide 秒撤）
+  if (__plHideTimer) { clearTimeout(__plHideTimer); __plHideTimer = null; }
+  __plStack += 1;
+  const el = $('pageLoading');
+  if (!el) return;
+  $('pageLoadingText').textContent = text;
+  const sub = $('pageLoadingSub');
+  if (subText) { sub.style.display = ''; sub.textContent = subText; }
+  else { sub.style.display = 'none'; }
+  el.classList.add('show');
+  el.setAttribute('aria-hidden', 'false');
+  // 顺便把所有 .btn.disabled-like 效果：通过 pointer-events 已在遮罩层阻挡，不必单独 disable 每颗按钮
+}
+function hidePageLoading(force = false) {
+  if (force) { __plStack = 0; }
+  else { __plStack = Math.max(0, __plStack - 1); }
+  if (__plStack > 0) return;
+  // 延迟 60ms 隐藏：避免"请求极快"时闪一下，同时让用户确认真的点到了
+  if (__plHideTimer) clearTimeout(__plHideTimer);
+  __plHideTimer = setTimeout(() => {
+    const el = $('pageLoading');
+    if (!el) return;
+    el.classList.remove('show');
+    el.setAttribute('aria-hidden', 'true');
+    __plHideTimer = null;
+  }, 60);
+}
+
+/**
+ * 统一 API 调用（自动加 Loading）
+ * @param {string} path       相对路径，例如 /tasks
+ * @param {string} [method='GET']
+ * @param {any}    [body=null]      JSON body（自动序列化）
+ * @param {string|false|null} [loadingMsg=null]
+ *        - 默认 null：GET 不加 Loading（但 GET 的按钮点击场景会在调用方显式加），
+ *          POST/PUT/DELETE 加默认文案"提交中..."
+ *        - string：自定义文字
+ *        - false：强制不加 Loading（例如静默轮询）
+ */
+async function api(path, method = 'GET', body = null, loadingMsg = null) {
+  const showLD = (() => {
+    if (loadingMsg === false) return null;
+    if (typeof loadingMsg === 'string' && loadingMsg.length > 0) return loadingMsg;
+    // 默认规则：写操作一定显示 Loading；读操作默认不显示（避免频繁GET闪遮罩，由调用方在按钮级控制）
+    if (method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE') {
+      const map = {
+        POST: '提交中...',
+        PUT: '保存中...',
+        PATCH: '更新中...',
+        DELETE: '删除中...',
+      };
+      return map[method];
+    }
+    return null;
+  })();
+  if (showLD) showPageLoading(showLD);
+  try {
+    const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    if (body) opts.body = JSON.stringify(body);
+    const r = await fetch(API + path, opts);
+    const data = await r.json().catch(() => ({ success: false, error: '响应解析失败' }));
+    if (!r.ok || data.success === false) {
+      throw new Error(data.error || data.message || `HTTP ${r.status}`);
+    }
+    return data;
+  } finally {
+    if (showLD) hidePageLoading();
   }
-  return data;
 }
 
 function fmtStatus(s) {
@@ -157,9 +220,10 @@ function filterStatus(btn) {
 }
 
 async function loadTaskList() {
+  showPageLoading('加载任务列表...');
   try {
     const path = currentStatusFilter ? `/tasks?status=${encodeURIComponent(currentStatusFilter)}` : '/tasks';
-    const d = await api(path);
+    const d = await api(path, 'GET', null, false);
     const rows = d.data || [];
     const body = $('taskListBody');
     if (!rows.length) {
@@ -183,6 +247,8 @@ async function loadTaskList() {
     `).join('');
   } catch (e) {
     $('taskListBody').innerHTML = `<tr><td colspan="9" class="empty-tip" style="color:var(--red)">加载失败: ${escapeHtml(e.message)}</td></tr>`;
+  } finally {
+    hidePageLoading();
   }
 }
 
@@ -200,22 +266,27 @@ let newSparePartCache = [];     // 备件下拉数据
 let newSupplierPoolCache = [];  // 资源池全部供应商
 
 async function loadNewInquiryData() {
-  // 每个接口独立失败不互卡，单个失败只对应模块显示"暂无…"，避免一个失败 3 个下拉都空
-  const errors = [];
-  const [contractResp, partResp, supplierResp] = await Promise.all([
-    api('/contracts').catch(e => { errors.push(`合同：${e.message}`); return { data: [] }; }),
-    api('/spare-parts').catch(e => { errors.push(`备件：${e.message}`); return { data: [] }; }),
-    api('/suppliers').catch(e => { errors.push(`供应商：${e.message}`); return { data: [] }; }),
-  ]);
-  newContractCache = contractResp.data || [];
-  newSparePartCache = partResp.data || [];
-  newSupplierPoolCache = supplierResp.data || [];
-  renderNewContractOptions();
-  renderNewPartOptions();
-  renderSupplierPool();
-  updateDeadlinePreview();
-  if (errors.length) {
-    toast('部分数据加载失败：' + errors.join('；'), 'err');
+  showPageLoading('正在加载询价表单...');
+  try {
+    // 每个接口独立失败不互卡，单个失败只对应模块显示"暂无…"，避免一个失败 3 个下拉都空
+    const errors = [];
+    const [contractResp, partResp, supplierResp] = await Promise.all([
+      api('/contracts', 'GET', null, false).catch(e => { errors.push(`合同：${e.message}`); return { data: [] }; }),
+      api('/spare-parts', 'GET', null, false).catch(e => { errors.push(`备件：${e.message}`); return { data: [] }; }),
+      api('/suppliers', 'GET', null, false).catch(e => { errors.push(`供应商：${e.message}`); return { data: [] }; }),
+    ]);
+    newContractCache = contractResp.data || [];
+    newSparePartCache = partResp.data || [];
+    newSupplierPoolCache = supplierResp.data || [];
+    renderNewContractOptions();
+    renderNewPartOptions();
+    renderSupplierPool();
+    updateDeadlinePreview();
+    if (errors.length) {
+      toast('部分数据加载失败：' + errors.join('；'), 'err');
+    }
+  } finally {
+    hidePageLoading();
   }
 }
 
@@ -301,43 +372,48 @@ function updateDeadlinePreview() {
 }
 
 async function submitNewInquiry() {
+  showPageLoading('正在发起询价并发送邮件，请稍候...');
   try {
-    const contractNo = $('newContract').value;
-    if (!contractNo) { toast('请选择合同', 'err'); return; }
-    const spare_part_model = $('newPart').value;
-    if (!spare_part_model) { toast('请选择备件型号', 'err'); return; }
-    const purchase_qty = parseFloat($('newQty').value);
-    if (!purchase_qty || purchase_qty <= 0) { toast('请输入有效采购数量', 'err'); return; }
-    const emergency_level = $('newEmergency').value;
-    // 收集勾选的供应商（资源池 + 临时）
-    const supplierRows = document.querySelectorAll('#supplierList .proc-supplier-row');
-    const inquiry_supplier_list = [];
-    supplierRows.forEach(row => {
-      const cb = row.querySelector('input[type="checkbox"]');
-      if (!cb.checked) return;
-      // 临时供应商：name 不带"临时"标记；资源池：name 直接取文本
-      const nameNode = row.querySelector('.sp-name');
-      // 去掉"临时"badge 文本
-      const name = nameNode.firstChild ? nameNode.firstChild.textContent.trim() : nameNode.textContent.replace('临时', '').trim();
-      const email = row.querySelector('.sp-email').textContent.trim();
-      const poolId = cb.dataset.poolId || null;
-      const entry = { name, email };
-      if (poolId) entry.id = poolId;
-      inquiry_supplier_list.push(entry);
-    });
-    if (!inquiry_supplier_list.length) { toast('请至少选择一个询价供应商', 'err'); return; }
+      try {
+        const contractNo = $('newContract').value;
+        if (!contractNo) { toast('请选择合同', 'err'); return; }
+        const spare_part_model = $('newPart').value;
+        if (!spare_part_model) { toast('请选择备件型号', 'err'); return; }
+        const purchase_qty = parseFloat($('newQty').value);
+        if (!purchase_qty || purchase_qty <= 0) { toast('请输入有效采购数量', 'err'); return; }
+        const emergency_level = $('newEmergency').value;
+        // 收集勾选的供应商（资源池 + 临时）
+        const supplierRows = document.querySelectorAll('#supplierList .proc-supplier-row');
+        const inquiry_supplier_list = [];
+        supplierRows.forEach(row => {
+          const cb = row.querySelector('input[type="checkbox"]');
+          if (!cb.checked) return;
+          // 临时供应商：name 不带"临时"标记；资源池：name 直接取文本
+          const nameNode = row.querySelector('.sp-name');
+          // 去掉"临时"badge 文本
+          const name = nameNode.firstChild ? nameNode.firstChild.textContent.trim() : nameNode.textContent.replace('临时', '').trim();
+          const email = row.querySelector('.sp-email').textContent.trim();
+          const poolId = cb.dataset.poolId || null;
+          const entry = { name, email };
+          if (poolId) entry.id = poolId;
+          inquiry_supplier_list.push(entry);
+        });
+        if (!inquiry_supplier_list.length) { toast('请至少选择一个询价供应商', 'err'); return; }
 
-    // 后端 create_task 在 inquiry_supplier_list 为空时也会自动从资源池带出，这里已显式传值
-    const d = await api('/tasks', 'POST', {
-      contract_no: contractNo,
-      spare_part_model, purchase_qty, emergency_level,
-      inquiry_supplier_list
-    });
-    toast(`询价任务已创建：${d.data.task_id}`);
-    resetNewForm();
-    showPage('list');
-  } catch (e) {
-    toast('创建失败: ' + e.message, 'err');
+        // 后端 create_task 在 inquiry_supplier_list 为空时也会自动从资源池带出，这里已显式传值
+        const d = await api('/tasks', 'POST', {
+          contract_no: contractNo,
+          spare_part_model, purchase_qty, emergency_level,
+          inquiry_supplier_list
+        });
+        toast(`询价任务已创建：${d.data.task_id}`);
+        resetNewForm();
+        showPage('list');
+      } catch (e) {
+        toast('创建失败: ' + e.message, 'err');
+      }
+  } finally {
+    hidePageLoading();
   }
 }
 
@@ -666,38 +742,48 @@ function _stepTime(t, stepKey){
 }
 
 async function openDetail(taskId) {
-  currentDetailTaskId = taskId;
-  showPage('detail');
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  const pd = $('page-proc-detail'); if (pd) pd.classList.add('active');
-  const crumb = $('procCrumb'); if (crumb) crumb.textContent = `🛒 备品备件采购询比价 › 任务详情 ${taskId}`;
-  setText('detailTaskId', taskId);
-  // 先占个位，防止渲染慢时显示错误区域
-  setHTML('detailBaseBody', `<div class="empty-tip">加载中…</div>`);
-  setHTML('detailStepFlow', `<div class="empty-tip">流程加载中…</div>`);
-  setHTML('opLogBody', `<div class="empty-tip">加载中…</div>`);
-  await loadDetail();
+  showPageLoading('打开任务详情...');
+  try {
+      currentDetailTaskId = taskId;
+      showPage('detail');
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      const pd = $('page-proc-detail'); if (pd) pd.classList.add('active');
+      const crumb = $('procCrumb'); if (crumb) crumb.textContent = `🛒 备品备件采购询比价 › 任务详情 ${taskId}`;
+      setText('detailTaskId', taskId);
+      // 先占个位，防止渲染慢时显示错误区域
+      setHTML('detailBaseBody', `<div class="empty-tip">加载中…</div>`);
+      setHTML('detailStepFlow', `<div class="empty-tip">流程加载中…</div>`);
+      setHTML('opLogBody', `<div class="empty-tip">加载中…</div>`);
+      await loadDetail();
+  } finally {
+    hidePageLoading();
+  }
 }
 
 async function loadDetail() {
+  showPageLoading('加载任务详情...');
   try {
-    const d = await api(`/tasks/${currentDetailTaskId}`);
-    currentDetailTask = normalizeTask(d.data || {});
-    const t = currentDetailTask;
-    try { setHTML('detailStatusBadge', fmtStatus(t.task_status)); } catch (_) {}
-    try { const btn = $('cancelBtn'); if (btn) btn.style.display = isUnclosed(t.task_status) ? '' : 'none'; } catch (_) {}
-    renderDetailBase();
-    renderStepFlow();
-    loadOpLogs();
-  } catch (e) {
-    console.error('详情页加载失败', e);
-    const stack = (e && e.stack) ? String(e.stack).replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') : '';
-    const msg = `<div style="padding:10px;border:1px dashed var(--red);border-radius:7px;background:rgba(255,82,82,.06);color:var(--red);line-height:1.7;font-size:12px">
-                   加载失败: <b>${escapeHtml(e && e.message || String(e))}</b>
-                   ${stack ? `<details style="margin-top:6px;color:var(--text2);"><summary>展开错误堆栈（发给我定位）</summary>${stack}</details>`:''}
-                 </div>`;
-    try { setHTML('detailBaseBody', msg); } catch (__) {}
-    try { setHTML('detailStepFlow', msg); } catch (__) {}
+      try {
+        const d = await api(`/tasks/${currentDetailTaskId}`);
+        currentDetailTask = normalizeTask(d.data || {});
+        const t = currentDetailTask;
+        try { setHTML('detailStatusBadge', fmtStatus(t.task_status)); } catch (_) {}
+        try { const btn = $('cancelBtn'); if (btn) btn.style.display = isUnclosed(t.task_status) ? '' : 'none'; } catch (_) {}
+        renderDetailBase();
+        renderStepFlow();
+        loadOpLogs();
+      } catch (e) {
+        console.error('详情页加载失败', e);
+        const stack = (e && e.stack) ? String(e.stack).replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') : '';
+        const msg = `<div style="padding:10px;border:1px dashed var(--red);border-radius:7px;background:rgba(255,82,82,.06);color:var(--red);line-height:1.7;font-size:12px">
+                       加载失败: <b>${escapeHtml(e && e.message || String(e))}</b>
+                       ${stack ? `<details style="margin-top:6px;color:var(--text2);"><summary>展开错误堆栈（发给我定位）</summary>${stack}</details>`:''}
+                     </div>`;
+        try { setHTML('detailBaseBody', msg); } catch (__) {}
+        try { setHTML('detailStepFlow', msg); } catch (__) {}
+      }
+  } finally {
+    hidePageLoading();
   }
 }
 
@@ -781,49 +867,59 @@ function renderStepFlow() {
 }
 
 async function loadOpLogs() {
+  showPageLoading('加载操作日志...');
   try {
-    const d = await api(`/tasks/${currentDetailTaskId}/logs`);
-    const logs = Array.isArray(d && d.data) ? d.data : [];
-    if (!logs.length) {
-      setHTML('opLogBody', '<div class="empty-tip">暂无操作日志</div>');
-      return;
-    }
-    setHTML('opLogBody',
-      '<table><thead><tr><th>时间</th><th>操作人</th><th>动作</th><th>备注</th></tr></thead><tbody>' +
-      logs.map(l => `<tr>
-        <td style="font-size:11px">${escapeHtml(l.action_time||'')}</td>
-        <td>${escapeHtml(l.operator||'')}</td>
-        <td><span class="badge badge-o">${escapeHtml(l.action||'')}</span></td>
-        <td style="font-size:11px">${escapeHtml(l.remark || '')}</td>
-      </tr>`).join('') + '</tbody></table>'
-    );
-  } catch (e) {
-    console.error('oplog 加载失败', e);
-    const st = (e && e.stack) ? String(e.stack).replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') : '';
-    setHTML('opLogBody', `<div style="padding:10px;border:1px dashed var(--red);border-radius:7px;background:rgba(255,82,82,.06);color:var(--red);font-size:12px;line-height:1.7">
-                            日志加载失败: <b>${escapeHtml(e.message)}</b>
-                            ${st ? `<details style="margin-top:4px;color:var(--text2);"><summary>堆栈</summary>${st}</details>`:''}
-                          </div>`);
+      try {
+        const d = await api(`/tasks/${currentDetailTaskId}/logs`);
+        const logs = Array.isArray(d && d.data) ? d.data : [];
+        if (!logs.length) {
+          setHTML('opLogBody', '<div class="empty-tip">暂无操作日志</div>');
+          return;
+        }
+        setHTML('opLogBody',
+          '<table><thead><tr><th>时间</th><th>操作人</th><th>动作</th><th>备注</th></tr></thead><tbody>' +
+          logs.map(l => `<tr>
+            <td style="font-size:11px">${escapeHtml(l.action_time||'')}</td>
+            <td>${escapeHtml(l.operator||'')}</td>
+            <td><span class="badge badge-o">${escapeHtml(l.action||'')}</span></td>
+            <td style="font-size:11px">${escapeHtml(l.remark || '')}</td>
+          </tr>`).join('') + '</tbody></table>'
+        );
+      } catch (e) {
+        console.error('oplog 加载失败', e);
+        const st = (e && e.stack) ? String(e.stack).replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') : '';
+        setHTML('opLogBody', `<div style="padding:10px;border:1px dashed var(--red);border-radius:7px;background:rgba(255,82,82,.06);color:var(--red);font-size:12px;line-height:1.7">
+                                日志加载失败: <b>${escapeHtml(e.message)}</b>
+                                ${st ? `<details style="margin-top:4px;color:var(--text2);"><summary>堆栈</summary>${st}</details>`:''}
+                              </div>`);
+      }
+  } finally {
+    hidePageLoading();
   }
 }
 
 async function submitSelection() {
-  const radio = document.querySelector('input[name="quoteRadio"]:checked');
-  if (!radio) { toast('请先选择一个供应商', 'err'); return; }
-  const idx = parseInt(radio.value);
-  const q = currentDetailTask.replied_supplier_quotes[idx];
-  const deal = parseFloat($('dealPrice').value);
-  if (!deal || deal <= 0) { toast('请录入有效的成交单价', 'err'); return; }
+  showPageLoading('正在确认成交并发送通知...');
   try {
-    await api(`/tasks/${currentDetailTaskId}/select`, 'POST', {
-      selected_supplier: { name: q.supplier_name || q.name, email: q.email },
-      deal_unit_price: deal
-    });
-    toast('选型确认成功，已发送采购确认邮件');
-    await loadDetail();
-    loadTaskList();
-  } catch (e) {
-    toast('选型失败: ' + e.message, 'err');
+      const radio = document.querySelector('input[name="quoteRadio"]:checked');
+      if (!radio) { toast('请先选择一个供应商', 'err'); return; }
+      const idx = parseInt(radio.value);
+      const q = currentDetailTask.replied_supplier_quotes[idx];
+      const deal = parseFloat($('dealPrice').value);
+      if (!deal || deal <= 0) { toast('请录入有效的成交单价', 'err'); return; }
+      try {
+        await api(`/tasks/${currentDetailTaskId}/select`, 'POST', {
+          selected_supplier: { name: q.supplier_name || q.name, email: q.email },
+          deal_unit_price: deal
+        });
+        toast('选型确认成功，已发送采购确认邮件');
+        await loadDetail();
+        loadTaskList();
+      } catch (e) {
+        toast('选型失败: ' + e.message, 'err');
+      }
+  } finally {
+    hidePageLoading();
   }
 }
 
@@ -836,16 +932,21 @@ function closeTestModal() {
   $('testRemark').value = '';
 }
 async function submitTestResult() {
-  const result = document.querySelector('input[name="testResult"]:checked').value;
-  const remark = $('testRemark').value.trim();
+  showPageLoading('正在提交验收结果...');
   try {
-    await api(`/tasks/${currentDetailTaskId}/test`, 'POST', { test_result: result, remark });
-    toast(result === '通过' ? '测试通过，台账已写入，任务闭环' : '已标记测试失败，已告警项目经理');
-    closeTestModal();
-    await loadDetail();
-    loadTaskList();
-  } catch (e) {
-    toast('提交失败: ' + e.message, 'err');
+      const result = document.querySelector('input[name="testResult"]:checked').value;
+      const remark = $('testRemark').value.trim();
+      try {
+        await api(`/tasks/${currentDetailTaskId}/test`, 'POST', { test_result: result, remark });
+        toast(result === '通过' ? '测试通过，台账已写入，任务闭环' : '已标记测试失败，已告警项目经理');
+        closeTestModal();
+        await loadDetail();
+        loadTaskList();
+      } catch (e) {
+        toast('提交失败: ' + e.message, 'err');
+      }
+  } finally {
+    hidePageLoading();
   }
 }
 
@@ -859,16 +960,21 @@ function closeCancelModal() {
   $('cancelReason').value = '';
 }
 async function submitCancelTask() {
-  const reason = $('cancelReason').value.trim();
-  if (!reason) { toast('请填写取消原因', 'err'); return; }
+  showPageLoading('正在取消任务...');
   try {
-    await api(`/tasks/${currentDetailTaskId}/cancel`, 'POST', { cancel_reason: reason });
-    toast('任务已取消');
-    closeCancelModal();
-    await loadDetail();
-    loadTaskList();
-  } catch (e) {
-    toast('取消失败: ' + e.message, 'err');
+      const reason = $('cancelReason').value.trim();
+      if (!reason) { toast('请填写取消原因', 'err'); return; }
+      try {
+        await api(`/tasks/${currentDetailTaskId}/cancel`, 'POST', { cancel_reason: reason });
+        toast('任务已取消');
+        closeCancelModal();
+        await loadDetail();
+        loadTaskList();
+      } catch (e) {
+        toast('取消失败: ' + e.message, 'err');
+      }
+  } finally {
+    hidePageLoading();
   }
 }
 
@@ -896,43 +1002,48 @@ function closeManualQuoteModal() {
   __mqContext = { taskId: '', replyIndex: -1 };
 }
 async function submitManualQuote() {
-  const { taskId, replyIndex } = __mqContext;
-  if (!taskId || replyIndex < 0) return;
-  const unit = parseFloat($('mqUnitPrice').value);
-  if (!(unit >= 0) || isNaN(unit)) { toast('请填写有效的成交单价', 'err'); return; }
-  const totalRaw = $('mqTotalPrice').value.trim();
-  const task = currentDetailTask && currentDetailTask.task_id === taskId ? currentDetailTask
-             : (taskListCache || []).find(t => t.task_id === taskId);
-  const qty = Number((task && task.purchase_qty) || 0) || 0;
-  let total = totalRaw === '' ? null : parseFloat(totalRaw);
-  if (total !== null && isNaN(total)) { toast('总价必须是数字', 'err'); return; }
-  if (total === null || total === 0) total = Number((unit * qty).toFixed(2));
-
-  const payload = {
-    reply_index: replyIndex,
-    unit_price: unit,
-    total_price: total,
-    lead_time: $('mqLeadTime').value.trim(),
-    brand: $('mqBrand').value.trim(),
-    model: $('mqModel').value.trim(),
-    note: $('mqNote').value.trim(),
-  };
+  showPageLoading('保存人工录入的报价...');
   try {
-    const r = await api(`/tasks/${taskId}/quote/manual`, 'PATCH', payload);
-    toast('人工报价已保存，后续邮件复解析不会覆盖');
-    closeManualQuoteModal();
-    // 更新详情/列表缓存
-    if (r && r.data) {
-      if (currentDetailTask && currentDetailTask.task_id === taskId) currentDetailTask = r.data;
-      if (taskListCache) {
-        const idx = taskListCache.findIndex(t => t.task_id === taskId);
-        if (idx >= 0) taskListCache[idx] = r.data;
+      const { taskId, replyIndex } = __mqContext;
+      if (!taskId || replyIndex < 0) return;
+      const unit = parseFloat($('mqUnitPrice').value);
+      if (!(unit >= 0) || isNaN(unit)) { toast('请填写有效的成交单价', 'err'); return; }
+      const totalRaw = $('mqTotalPrice').value.trim();
+      const task = currentDetailTask && currentDetailTask.task_id === taskId ? currentDetailTask
+                 : (taskListCache || []).find(t => t.task_id === taskId);
+      const qty = Number((task && task.purchase_qty) || 0) || 0;
+      let total = totalRaw === '' ? null : parseFloat(totalRaw);
+      if (total !== null && isNaN(total)) { toast('总价必须是数字', 'err'); return; }
+      if (total === null || total === 0) total = Number((unit * qty).toFixed(2));
+
+      const payload = {
+        reply_index: replyIndex,
+        unit_price: unit,
+        total_price: total,
+        lead_time: $('mqLeadTime').value.trim(),
+        brand: $('mqBrand').value.trim(),
+        model: $('mqModel').value.trim(),
+        note: $('mqNote').value.trim(),
+      };
+      try {
+        const r = await api(`/tasks/${taskId}/quote/manual`, 'PATCH', payload);
+        toast('人工报价已保存，后续邮件复解析不会覆盖');
+        closeManualQuoteModal();
+        // 更新详情/列表缓存
+        if (r && r.data) {
+          if (currentDetailTask && currentDetailTask.task_id === taskId) currentDetailTask = r.data;
+          if (taskListCache) {
+            const idx = taskListCache.findIndex(t => t.task_id === taskId);
+            if (idx >= 0) taskListCache[idx] = r.data;
+          }
+        }
+        await loadDetail();
+        loadTaskList();
+      } catch (e) {
+        toast('保存失败: ' + e.message, 'err');
       }
-    }
-    await loadDetail();
-    loadTaskList();
-  } catch (e) {
-    toast('保存失败: ' + e.message, 'err');
+  } finally {
+    hidePageLoading();
   }
 }
 
@@ -972,34 +1083,39 @@ window.addEventListener('load', function () {
 let contractTimer = null;
 
 async function loadContractList() {
-  const kw = $('contractFilterKeyword').value.trim();
+  showPageLoading('加载合同列表...');
   try {
-    const d = await api('/contracts' + (kw ? `?keyword=${encodeURIComponent(kw)}` : ''));
-    const rows = d.data || [];
-    const body = $('contractTbody');
-    if (!rows.length) {
-      body.innerHTML = `<tr><td colspan="6" class="empty-tip">${kw ? '没有匹配的合同' : '暂无合同，请点击右上角「＋ 新增合同」'}</td></tr>`;
-      return;
-    }
-    body.innerHTML = rows.map(c => {
-      return `
-        <tr>
-          <td><b>${escapeHtml(c.contract_name || '-')}</b></td>
-          <td style="font-family:var(--mono);color:var(--cyan);font-size:12px">${escapeHtml(c.contract_no)}</td>
-          <td>${escapeHtml(c.pm_name || '-')}</td>
-          <td style="color:#5ed7ff">${escapeHtml(c.pm_email || '-')}</td>
-          <td style="font-size:11px;color:var(--text2)">${escapeHtml(c.updated_at || c.created_at || '-')}</td>
-          <td>
-            <button class="btn btn-o btn-s" onclick="openContractModal(${c.id})">✏️ 编辑</button>
-            <button class="btn btn-o btn-s" style="color:var(--red)"
-              onclick="confirmDeleteContract(${c.id},${JSON.stringify(c.contract_no).replace(/"/g,'&quot;')})">🗑</button>
-          </td>
-        </tr>
-      `;
-    }).join('');
-  } catch (e) {
-    $('contractTbody').innerHTML =
-      `<tr><td colspan="6" class="empty-tip" style="color:var(--red)">加载失败: ${escapeHtml(e.message)}</td></tr>`;
+      const kw = $('contractFilterKeyword').value.trim();
+      try {
+        const d = await api('/contracts' + (kw ? `?keyword=${encodeURIComponent(kw)}` : ''));
+        const rows = d.data || [];
+        const body = $('contractTbody');
+        if (!rows.length) {
+          body.innerHTML = `<tr><td colspan="6" class="empty-tip">${kw ? '没有匹配的合同' : '暂无合同，请点击右上角「＋ 新增合同」'}</td></tr>`;
+          return;
+        }
+        body.innerHTML = rows.map(c => {
+          return `
+            <tr>
+              <td><b>${escapeHtml(c.contract_name || '-')}</b></td>
+              <td style="font-family:var(--mono);color:var(--cyan);font-size:12px">${escapeHtml(c.contract_no)}</td>
+              <td>${escapeHtml(c.pm_name || '-')}</td>
+              <td style="color:#5ed7ff">${escapeHtml(c.pm_email || '-')}</td>
+              <td style="font-size:11px;color:var(--text2)">${escapeHtml(c.updated_at || c.created_at || '-')}</td>
+              <td>
+                <button class="btn btn-o btn-s" onclick="openContractModal(${c.id})">✏️ 编辑</button>
+                <button class="btn btn-o btn-s" style="color:var(--red)"
+                  onclick="confirmDeleteContract(${c.id},${JSON.stringify(c.contract_no).replace(/"/g,'&quot;')})">🗑</button>
+              </td>
+            </tr>
+          `;
+        }).join('');
+      } catch (e) {
+        $('contractTbody').innerHTML =
+          `<tr><td colspan="6" class="empty-tip" style="color:var(--red)">加载失败: ${escapeHtml(e.message)}</td></tr>`;
+      }
+  } finally {
+    hidePageLoading();
   }
 }
 
@@ -1024,31 +1140,41 @@ function openContractModal(contractId = null) {
 }
 function closeContractModal() { $('contractModal').classList.remove('show'); }
 async function submitContract() {
-  const contract_no = $('ctContractNo').value.trim();
-  const contract_name = $('ctContractName').value;
-  const pm_name = $('ctPMName').value;
-  const pm_email = $('ctPMEmail').value;
-  if (!contract_no) { toast('合同编号必填', 'err'); return; }
+  showPageLoading('保存合同信息...');
   try {
-    const id = $('ctEditingId').value;
-    if (id) {
-      await api(`/contracts/${parseInt(id)}`, 'PUT', { contract_no, contract_name, pm_name, pm_email });
-      toast('合同已更新');
-    } else {
-      await api('/contracts', 'POST', { contract_no, contract_name, pm_name, pm_email });
-      toast('合同已创建');
-    }
-    closeContractModal();
-    loadContractList();
-  } catch (e) { toast('保存失败: ' + e.message, 'err'); }
+      const contract_no = $('ctContractNo').value.trim();
+      const contract_name = $('ctContractName').value;
+      const pm_name = $('ctPMName').value;
+      const pm_email = $('ctPMEmail').value;
+      if (!contract_no) { toast('合同编号必填', 'err'); return; }
+      try {
+        const id = $('ctEditingId').value;
+        if (id) {
+          await api(`/contracts/${parseInt(id)}`, 'PUT', { contract_no, contract_name, pm_name, pm_email });
+          toast('合同已更新');
+        } else {
+          await api('/contracts', 'POST', { contract_no, contract_name, pm_name, pm_email });
+          toast('合同已创建');
+        }
+        closeContractModal();
+        loadContractList();
+      } catch (e) { toast('保存失败: ' + e.message, 'err'); }
+  } finally {
+    hidePageLoading();
+  }
 }
 async function confirmDeleteContract(id, no) {
-  if (!confirm(`确认删除合同『${no}』?\n\n如果合同已被任务/台账/供应商关联引用，系统会拒绝删除以保留审计线索。`)) return;
+  showPageLoading('删除合同...');
   try {
-    await api(`/contracts/${id}`, 'DELETE');
-    toast('合同已删除');
-    loadContractList();
-  } catch (e) { toast('删除失败: ' + e.message, 'err'); }
+      if (!confirm(`确认删除合同『${no}』?\n\n如果合同已被任务/台账/供应商关联引用，系统会拒绝删除以保留审计线索。`)) return;
+      try {
+        await api(`/contracts/${id}`, 'DELETE');
+        toast('合同已删除');
+        loadContractList();
+      } catch (e) { toast('删除失败: ' + e.message, 'err'); }
+  } finally {
+    hidePageLoading();
+  }
 }
 
 
@@ -1058,54 +1184,69 @@ async function confirmDeleteContract(id, no) {
 let ccTimer = null;
 
 async function loadMailCCList() {
-  const kw = $('ccFilterKeyword').value.trim();
+  showPageLoading('加载抄送列表...');
   try {
-    const d = await api('/mail-cc' + (kw ? `?keyword=${encodeURIComponent(kw)}` : ''));
-    const rows = d.data || [];
-    $('ccSummary').textContent = `共 ${rows.length} 个抄送邮箱`;
-    const body = $('mailCCTbody');
-    if (!rows.length) {
-      body.innerHTML = `<tr><td colspan="5" class="empty-tip">${kw ? '没有匹配的抄送' : '暂无抄送配置，在上方输入名字+邮箱后点「加入抄送」'}</td></tr>`;
-      return;
-    }
-    body.innerHTML = rows.map((r, idx) => `
-      <tr>
-        <td>${idx + 1}</td>
-        <td><b>${escapeHtml(r.name)}</b></td>
-        <td style="color:#5ed7ff">${escapeHtml(r.email)}</td>
-        <td style="font-size:11px;color:var(--text2)">${escapeHtml(r.created_at || '')}</td>
-        <td>
-          <button class="btn btn-o btn-s" style="color:var(--red)"
-            onclick="confirmDeleteCC(${r.id},${JSON.stringify(r.name).replace(/"/g,'&quot;')})">移除</button>
-        </td>
-      </tr>
-    `).join('');
-  } catch (e) {
-    $('mailCCTbody').innerHTML =
-      `<tr><td colspan="5" class="empty-tip" style="color:var(--red)">加载失败: ${escapeHtml(e.message)}</td></tr>`;
+      const kw = $('ccFilterKeyword').value.trim();
+      try {
+        const d = await api('/mail-cc' + (kw ? `?keyword=${encodeURIComponent(kw)}` : ''));
+        const rows = d.data || [];
+        $('ccSummary').textContent = `共 ${rows.length} 个抄送邮箱`;
+        const body = $('mailCCTbody');
+        if (!rows.length) {
+          body.innerHTML = `<tr><td colspan="5" class="empty-tip">${kw ? '没有匹配的抄送' : '暂无抄送配置，在上方输入名字+邮箱后点「加入抄送」'}</td></tr>`;
+          return;
+        }
+        body.innerHTML = rows.map((r, idx) => `
+          <tr>
+            <td>${idx + 1}</td>
+            <td><b>${escapeHtml(r.name)}</b></td>
+            <td style="color:#5ed7ff">${escapeHtml(r.email)}</td>
+            <td style="font-size:11px;color:var(--text2)">${escapeHtml(r.created_at || '')}</td>
+            <td>
+              <button class="btn btn-o btn-s" style="color:var(--red)"
+                onclick="confirmDeleteCC(${r.id},${JSON.stringify(r.name).replace(/"/g,'&quot;')})">移除</button>
+            </td>
+          </tr>
+        `).join('');
+      } catch (e) {
+        $('mailCCTbody').innerHTML =
+          `<tr><td colspan="5" class="empty-tip" style="color:var(--red)">加载失败: ${escapeHtml(e.message)}</td></tr>`;
+      }
+  } finally {
+    hidePageLoading();
   }
 }
 
 async function submitNewCC() {
-  const name = $('ccNewName').value.trim();
-  const email = $('ccNewEmail').value.trim();
-  if (!name || !email) { toast('名字和邮箱必填', 'err'); return; }
+  showPageLoading('新增抄送人...');
   try {
-    await api('/mail-cc', 'POST', { name, email });
-    toast('已加入全局抄送');
-    $('ccNewName').value = '';
-    $('ccNewEmail').value = '';
-    loadMailCCList();
-  } catch (e) { toast('加入失败: ' + e.message, 'err'); }
+      const name = $('ccNewName').value.trim();
+      const email = $('ccNewEmail').value.trim();
+      if (!name || !email) { toast('名字和邮箱必填', 'err'); return; }
+      try {
+        await api('/mail-cc', 'POST', { name, email });
+        toast('已加入全局抄送');
+        $('ccNewName').value = '';
+        $('ccNewEmail').value = '';
+        loadMailCCList();
+      } catch (e) { toast('加入失败: ' + e.message, 'err'); }
+  } finally {
+    hidePageLoading();
+  }
 }
 
 async function confirmDeleteCC(id, name) {
-  if (!confirm(`确认把『${name}』从全局抄送列表移除？移除后不影响已发邮件。`)) return;
+  showPageLoading('删除抄送人...');
   try {
-    await api(`/mail-cc/${id}`, 'DELETE');
-    toast('已从抄送列表移除');
-    loadMailCCList();
-  } catch (e) { toast('移除失败: ' + e.message, 'err'); }
+      if (!confirm(`确认把『${name}』从全局抄送列表移除？移除后不影响已发邮件。`)) return;
+      try {
+        await api(`/mail-cc/${id}`, 'DELETE');
+        toast('已从抄送列表移除');
+        loadMailCCList();
+      } catch (e) { toast('移除失败: ' + e.message, 'err'); }
+  } finally {
+    hidePageLoading();
+  }
 }
 
 
@@ -1153,60 +1294,65 @@ function resetLedgerFilters() {
 }
 
 async function loadLedger() {
-  const params = new URLSearchParams();
-  ['contract_no=' + $('ledFilterContract').value,
-   'supplier_name=' + $('ledFilterSupplier').value.trim(),
-   'from_date=' + $('ledFilterFrom').value,
-   'to_date='   + $('ledFilterTo').value,
-  ].forEach(s => {
-    const [k, v] = s.split('=');
-    if (v) params.append(k, v);
-  });
-  const qs = params.toString();
+  showPageLoading('加载采购台账...');
   try {
-    const d = await api('/ledger' + (qs ? '?' + qs : ''));
-    const rows = d.data || [];
-    const body = $('ledgerTbody');
-    if (!rows.length) {
-      body.innerHTML =
-        '<tr><td colspan="9" class="empty-tip">暂无闭环采购数据（台账会在测试通过后自动写入）</td></tr>';
-    } else {
-      body.innerHTML = rows.map(r => `
-        <tr>
-          <td><b style="color:#7bffbe">${escapeHtml(r.selected_supplier_name || '-')}</b></td>
-          <td style="font-size:11.5px">${escapeHtml(r.delivery_time || '-')}</td>
-          <td>${escapeHtml(r.spare_part_model || '-')}</td>
-          <td class="num">${(r.purchase_qty == null) ? '-' : Number(r.purchase_qty)}</td>
-          <td class="num">${formatYuan(r.deal_unit_price)}</td>
-          <td class="num" style="color:#ff7089;font-weight:700">${formatYuan(r.total_price)}</td>
-          <td style="font-size:11.5px">${escapeHtml(r.acceptance_time || '-')}</td>
-          <td style="font-size:11px;line-height:1.7">
-            <div style="color:var(--text2)">📄 ${escapeHtml(r.contract_no || '-')}</div>
-            <div style="color:var(--text2);font-family:var(--mono)">🆔 ${escapeHtml(r.task_id || '')}</div>
-            <div style="color:var(--cyan)">🚚 ${escapeHtml(r.logistics_no || '未填物流号')}</div>
-          </td>
-          <td style="font-size:11px;line-height:1.6">
-            <span class="badge ${r.test_result === '通过' ? 'badge-proc-closed' : r.test_result === '失败' ? 'badge-proc-failed' : 'badge-o'}"
-                  style="margin-right:4px">${escapeHtml(r.test_result || '未录入')}</span>
-            <div style="color:var(--text2);margin-top:4px">${escapeHtml(r.remark || '-')}</div>
-          </td>
-        </tr>
-      `).join('');
-    }
-    // 合计行
-    const totalQty = rows.reduce((s, r) => s + (+r.purchase_qty || 0), 0);
-    const totalAmt = rows.reduce((s, r) => s + (+r.total_price || 0), 0);
-    $('ledgerCount').textContent = rows.length;
-    const cur = $('ledFilterContract').value;
-    const curContract = (ledgerContractCache || []).find(m => m.contract_no === cur);
-    $('ledgerContractSummary').textContent = cur
-      ? (curContract ? `${curContract.contract_name || cur} · ${cur}` : cur)
-      : '全部';
-    $('ledgerQtySum').textContent = Number.isFinite(totalQty) ? totalQty : '-';
-    $('ledgerAmtSum').textContent = formatYuan(totalAmt);
-  } catch (e) {
-    $('ledgerTbody').innerHTML =
-      `<tr><td colspan="9" class="empty-tip" style="color:var(--red)">台账加载失败: ${escapeHtml(e.message)}</td></tr>`;
+      const params = new URLSearchParams();
+      ['contract_no=' + $('ledFilterContract').value,
+       'supplier_name=' + $('ledFilterSupplier').value.trim(),
+       'from_date=' + $('ledFilterFrom').value,
+       'to_date='   + $('ledFilterTo').value,
+      ].forEach(s => {
+        const [k, v] = s.split('=');
+        if (v) params.append(k, v);
+      });
+      const qs = params.toString();
+      try {
+        const d = await api('/ledger' + (qs ? '?' + qs : ''));
+        const rows = d.data || [];
+        const body = $('ledgerTbody');
+        if (!rows.length) {
+          body.innerHTML =
+            '<tr><td colspan="9" class="empty-tip">暂无闭环采购数据（台账会在测试通过后自动写入）</td></tr>';
+        } else {
+          body.innerHTML = rows.map(r => `
+            <tr>
+              <td><b style="color:#7bffbe">${escapeHtml(r.selected_supplier_name || '-')}</b></td>
+              <td style="font-size:11.5px">${escapeHtml(r.delivery_time || '-')}</td>
+              <td>${escapeHtml(r.spare_part_model || '-')}</td>
+              <td class="num">${(r.purchase_qty == null) ? '-' : Number(r.purchase_qty)}</td>
+              <td class="num">${formatYuan(r.deal_unit_price)}</td>
+              <td class="num" style="color:#ff7089;font-weight:700">${formatYuan(r.total_price)}</td>
+              <td style="font-size:11.5px">${escapeHtml(r.acceptance_time || '-')}</td>
+              <td style="font-size:11px;line-height:1.7">
+                <div style="color:var(--text2)">📄 ${escapeHtml(r.contract_no || '-')}</div>
+                <div style="color:var(--text2);font-family:var(--mono)">🆔 ${escapeHtml(r.task_id || '')}</div>
+                <div style="color:var(--cyan)">🚚 ${escapeHtml(r.logistics_no || '未填物流号')}</div>
+              </td>
+              <td style="font-size:11px;line-height:1.6">
+                <span class="badge ${r.test_result === '通过' ? 'badge-proc-closed' : r.test_result === '失败' ? 'badge-proc-failed' : 'badge-o'}"
+                      style="margin-right:4px">${escapeHtml(r.test_result || '未录入')}</span>
+                <div style="color:var(--text2);margin-top:4px">${escapeHtml(r.remark || '-')}</div>
+              </td>
+            </tr>
+          `).join('');
+        }
+        // 合计行
+        const totalQty = rows.reduce((s, r) => s + (+r.purchase_qty || 0), 0);
+        const totalAmt = rows.reduce((s, r) => s + (+r.total_price || 0), 0);
+        $('ledgerCount').textContent = rows.length;
+        const cur = $('ledFilterContract').value;
+        const curContract = (ledgerContractCache || []).find(m => m.contract_no === cur);
+        $('ledgerContractSummary').textContent = cur
+          ? (curContract ? `${curContract.contract_name || cur} · ${cur}` : cur)
+          : '全部';
+        $('ledgerQtySum').textContent = Number.isFinite(totalQty) ? totalQty : '-';
+        $('ledgerAmtSum').textContent = formatYuan(totalAmt);
+      } catch (e) {
+        $('ledgerTbody').innerHTML =
+          `<tr><td colspan="9" class="empty-tip" style="color:var(--red)">台账加载失败: ${escapeHtml(e.message)}</td></tr>`;
+      }
+  } finally {
+    hidePageLoading();
   }
 }
 
@@ -1217,34 +1363,39 @@ async function loadLedger() {
 let supplierTimer = null;
 
 async function loadSupplierList() {
-  const kw = $('supFilterKeyword').value.trim();
+  showPageLoading('加载供应商列表...');
   try {
-    const d = await api('/suppliers' + (kw ? `?keyword=${encodeURIComponent(kw)}` : ''));
-    const rows = d.data || [];
-    const body = $('supplierTbody');
-    if (!rows.length) {
-      body.innerHTML = `<tr><td colspan="5" class="empty-tip">${kw ? '没有匹配的供应商' : '暂无供应商，请点击右上角「＋ 新增供应商」'}</td></tr>`;
-      return;
-    }
-    body.innerHTML = rows.map(s => {
-      return `
-        <tr>
-          <td><b>${escapeHtml(s.name)}</b><br>
-              <span style="font-size:10.5px;color:var(--text2);font-family:var(--mono)">id=${s.id}</span>
-          </td>
-          <td style="color:#5ed7ff">${escapeHtml(s.email)}</td>
-          <td style="font-size:11.5px;line-height:1.7;color:var(--text)">${escapeHtml(s.capability || '-')}</td>
-          <td style="font-size:11px;color:var(--text2)">${escapeHtml(s.updated_at || s.created_at || '-')}</td>
-          <td>
-            <button class="btn btn-o btn-s" onclick="openSupplierModal(${s.id})">✏️ 编辑</button>
-            <button class="btn btn-o btn-s" style="color:var(--red)"
-                    onclick="confirmDeleteSupplier(${s.id},${JSON.stringify(s.name).replace(/"/g, '&quot;')})">🗑</button>
-          </td>
-        </tr>`;
-    }).join('');
-  } catch (e) {
-    $('supplierTbody').innerHTML =
-      `<tr><td colspan="5" class="empty-tip" style="color:var(--red)">加载失败: ${escapeHtml(e.message)}</td></tr>`;
+      const kw = $('supFilterKeyword').value.trim();
+      try {
+        const d = await api('/suppliers' + (kw ? `?keyword=${encodeURIComponent(kw)}` : ''));
+        const rows = d.data || [];
+        const body = $('supplierTbody');
+        if (!rows.length) {
+          body.innerHTML = `<tr><td colspan="5" class="empty-tip">${kw ? '没有匹配的供应商' : '暂无供应商，请点击右上角「＋ 新增供应商」'}</td></tr>`;
+          return;
+        }
+        body.innerHTML = rows.map(s => {
+          return `
+            <tr>
+              <td><b>${escapeHtml(s.name)}</b><br>
+                  <span style="font-size:10.5px;color:var(--text2);font-family:var(--mono)">id=${s.id}</span>
+              </td>
+              <td style="color:#5ed7ff">${escapeHtml(s.email)}</td>
+              <td style="font-size:11.5px;line-height:1.7;color:var(--text)">${escapeHtml(s.capability || '-')}</td>
+              <td style="font-size:11px;color:var(--text2)">${escapeHtml(s.updated_at || s.created_at || '-')}</td>
+              <td>
+                <button class="btn btn-o btn-s" onclick="openSupplierModal(${s.id})">✏️ 编辑</button>
+                <button class="btn btn-o btn-s" style="color:var(--red)"
+                        onclick="confirmDeleteSupplier(${s.id},${JSON.stringify(s.name).replace(/"/g, '&quot;')})">🗑</button>
+              </td>
+            </tr>`;
+        }).join('');
+      } catch (e) {
+        $('supplierTbody').innerHTML =
+          `<tr><td colspan="5" class="empty-tip" style="color:var(--red)">加载失败: ${escapeHtml(e.message)}</td></tr>`;
+      }
+  } finally {
+    hidePageLoading();
   }
 }
 
@@ -1267,30 +1418,40 @@ function openSupplierModal(supplierId = null) {
 }
 function closeSupplierModal() { $('supplierModal').classList.remove('show'); }
 async function submitSupplier() {
-  const name = $('supName').value.trim();
-  const email = $('supEmail').value.trim();
-  const capability = $('supCapability').value;
-  if (!name || !email) { toast('供应商名称和邮箱必填', 'err'); return; }
+  showPageLoading('保存供应商信息...');
   try {
-    const editingId = $('supEditingId').value;
-    if (editingId) {
-      await api(`/suppliers/${parseInt(editingId)}`, 'PUT', { name, email, capability });
-      toast('供应商已更新');
-    } else {
-      await api('/suppliers', 'POST', { name, email, capability });
-      toast('供应商已创建');
-    }
-    closeSupplierModal();
-    loadSupplierList();
-  } catch (e) { toast('保存失败: ' + e.message, 'err'); }
+      const name = $('supName').value.trim();
+      const email = $('supEmail').value.trim();
+      const capability = $('supCapability').value;
+      if (!name || !email) { toast('供应商名称和邮箱必填', 'err'); return; }
+      try {
+        const editingId = $('supEditingId').value;
+        if (editingId) {
+          await api(`/suppliers/${parseInt(editingId)}`, 'PUT', { name, email, capability });
+          toast('供应商已更新');
+        } else {
+          await api('/suppliers', 'POST', { name, email, capability });
+          toast('供应商已创建');
+        }
+        closeSupplierModal();
+        loadSupplierList();
+      } catch (e) { toast('保存失败: ' + e.message, 'err'); }
+  } finally {
+    hidePageLoading();
+  }
 }
 async function confirmDeleteSupplier(sid, sname) {
-  if (!confirm(`确认删除供应商『${sname}』(id=${sid})？\n\n如果该供应商已出现在任何任务/台账中，系统会拒绝删除以保留审计线索。`)) return;
+  showPageLoading('删除供应商...');
   try {
-    await api(`/suppliers/${sid}`, 'DELETE');
-    toast('供应商已删除');
-    loadSupplierList();
-  } catch (e) { toast('删除失败: ' + e.message, 'err'); }
+      if (!confirm(`确认删除供应商『${sname}』(id=${sid})？\n\n如果该供应商已出现在任何任务/台账中，系统会拒绝删除以保留审计线索。`)) return;
+      try {
+        await api(`/suppliers/${sid}`, 'DELETE');
+        toast('供应商已删除');
+        loadSupplierList();
+      } catch (e) { toast('删除失败: ' + e.message, 'err'); }
+  } finally {
+    hidePageLoading();
+  }
 }
 
 
@@ -1309,37 +1470,42 @@ async function initSparePartCategoryFilter() {
 }
 
 async function loadSparePartList() {
+  showPageLoading('加载备件列表...');
   try {
-    const keyword = $('spFilterKeyword')?.value?.trim() || '';
-    const category = $('spFilterCategory')?.value || '';
-    const params = new URLSearchParams();
-    if (keyword) params.set('keyword', keyword);
-    if (category) params.set('category', category);
-    const r = await api(`/spare-parts?${params}`);
-    const tbody = $('sparePartTbody');
-    const rows = r.data || [];
-    if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="9" class="empty-tip">暂无备件，点击右上角「＋ 新增备件」添加</td></tr>';
-      return;
-    }
-    tbody.innerHTML = rows.map(r => `
-      <tr>
-        <td style="font-family:var(--mono);color:var(--cyan);font-size:12.5px">${r.part_code || ''}</td>
-        <td style="color:#fff;font-weight:600">${r.part_name || ''}</td>
-        <td style="color:var(--text2);font-size:12.5px">${r.spec_model || ''}</td>
-        <td>${r.brand || ''}</td>
-        <td>${r.unit || '个'}</td>
-        <td><span class="tag-sup">${r.category || '通用'}</span></td>
-        <td style="color:var(--text2);font-size:12px">${r.remark || ''}</td>
-        <td style="color:var(--text2);font-size:11.5px">${r.updated_at || r.created_at || ''}</td>
-        <td>
-          <button class="btn btn-o btn-s" onclick='editSparePart(${r.id})'>✏️ 编辑</button>
-          <button class="btn btn-o btn-s" style="color:var(--red)" onclick='deleteSparePart(${r.id},"${r.part_code}")'>🗑 删除</button>
-        </td>
-      </tr>
-    `).join('');
-  } catch (e) {
-    $('sparePartTbody').innerHTML = `<tr><td colspan="9" class="empty-tip" style="color:var(--red)">加载失败: ${e.message}</td></tr>`;
+      try {
+        const keyword = $('spFilterKeyword')?.value?.trim() || '';
+        const category = $('spFilterCategory')?.value || '';
+        const params = new URLSearchParams();
+        if (keyword) params.set('keyword', keyword);
+        if (category) params.set('category', category);
+        const r = await api(`/spare-parts?${params}`);
+        const tbody = $('sparePartTbody');
+        const rows = r.data || [];
+        if (!rows.length) {
+          tbody.innerHTML = '<tr><td colspan="9" class="empty-tip">暂无备件，点击右上角「＋ 新增备件」添加</td></tr>';
+          return;
+        }
+        tbody.innerHTML = rows.map(r => `
+          <tr>
+            <td style="font-family:var(--mono);color:var(--cyan);font-size:12.5px">${r.part_code || ''}</td>
+            <td style="color:#fff;font-weight:600">${r.part_name || ''}</td>
+            <td style="color:var(--text2);font-size:12.5px">${r.spec_model || ''}</td>
+            <td>${r.brand || ''}</td>
+            <td>${r.unit || '个'}</td>
+            <td><span class="tag-sup">${r.category || '通用'}</span></td>
+            <td style="color:var(--text2);font-size:12px">${r.remark || ''}</td>
+            <td style="color:var(--text2);font-size:11.5px">${r.updated_at || r.created_at || ''}</td>
+            <td>
+              <button class="btn btn-o btn-s" onclick='editSparePart(${r.id})'>✏️ 编辑</button>
+              <button class="btn btn-o btn-s" style="color:var(--red)" onclick='deleteSparePart(${r.id},"${r.part_code}")'>🗑 删除</button>
+            </td>
+          </tr>
+        `).join('');
+      } catch (e) {
+        $('sparePartTbody').innerHTML = `<tr><td colspan="9" class="empty-tip" style="color:var(--red)">加载失败: ${e.message}</td></tr>`;
+      }
+  } finally {
+    hidePageLoading();
   }
 }
 
@@ -1376,39 +1542,49 @@ async function editSparePart(id) {
 }
 
 async function submitSparePart() {
-  const id = $('spEditingId').value;
-  const payload = {
-    part_code: $('spCode').value.trim(),
-    part_name: $('spName').value.trim(),
-    spec_model: $('spSpec').value.trim(),
-    brand: $('spBrand').value.trim(),
-    unit: $('spUnit').value,
-    category: $('spCategory').value,
-    remark: $('spRemark').value.trim(),
-  };
-  if (!payload.part_code || !payload.part_name) {
-    toast('备件编码和名称必填', 'err'); return;
-  }
+  showPageLoading('保存备件信息...');
   try {
-    if (id) {
-      await api(`/spare-parts/${id}`, 'PUT', payload);
-      toast('备件已更新');
-    } else {
-      await api('/spare-parts', 'POST', payload);
-      toast('备件已新增');
-    }
-    closeSparePartModal();
-    loadSparePartList();
-  } catch (e) { toast('保存失败: ' + e.message, 'err'); }
+      const id = $('spEditingId').value;
+      const payload = {
+        part_code: $('spCode').value.trim(),
+        part_name: $('spName').value.trim(),
+        spec_model: $('spSpec').value.trim(),
+        brand: $('spBrand').value.trim(),
+        unit: $('spUnit').value,
+        category: $('spCategory').value,
+        remark: $('spRemark').value.trim(),
+      };
+      if (!payload.part_code || !payload.part_name) {
+        toast('备件编码和名称必填', 'err'); return;
+      }
+      try {
+        if (id) {
+          await api(`/spare-parts/${id}`, 'PUT', payload);
+          toast('备件已更新');
+        } else {
+          await api('/spare-parts', 'POST', payload);
+          toast('备件已新增');
+        }
+        closeSparePartModal();
+        loadSparePartList();
+      } catch (e) { toast('保存失败: ' + e.message, 'err'); }
+  } finally {
+    hidePageLoading();
+  }
 }
 
 async function deleteSparePart(id, code) {
-  if (!confirm(`确定删除备件 ${code}？`)) return;
+  showPageLoading('删除备件...');
   try {
-    await api(`/spare-parts/${id}`, 'DELETE');
-    toast('已删除');
-    loadSparePartList();
-  } catch (e) { toast('删除失败: ' + e.message, 'err'); }
+      if (!confirm(`确定删除备件 ${code}？`)) return;
+      try {
+        await api(`/spare-parts/${id}`, 'DELETE');
+        toast('已删除');
+        loadSparePartList();
+      } catch (e) { toast('删除失败: ' + e.message, 'err'); }
+  } finally {
+    hidePageLoading();
+  }
 }
 
 
