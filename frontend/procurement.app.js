@@ -200,22 +200,22 @@ let newSparePartCache = [];     // 备件下拉数据
 let newSupplierPoolCache = [];  // 资源池全部供应商
 
 async function loadNewInquiryData() {
-  try {
-    // 并行加载合同、备件、供应商资源池
-    const [contractResp, partResp, supplierResp] = await Promise.all([
-      api('/contracts'),
-      api('/spare-parts'),
-      api('/suppliers'),
-    ]);
-    newContractCache = contractResp.data || [];
-    newSparePartCache = partResp.data || [];
-    newSupplierPoolCache = supplierResp.data || [];
-    renderNewContractOptions();
-    renderNewPartOptions();
-    renderSupplierPool();
-    updateDeadlinePreview();
-  } catch (e) {
-    toast('新建询价数据加载失败: ' + e.message, 'err');
+  // 每个接口独立失败不互卡，单个失败只对应模块显示"暂无…"，避免一个失败 3 个下拉都空
+  const errors = [];
+  const [contractResp, partResp, supplierResp] = await Promise.all([
+    api('/contracts').catch(e => { errors.push(`合同：${e.message}`); return { data: [] }; }),
+    api('/spare-parts').catch(e => { errors.push(`备件：${e.message}`); return { data: [] }; }),
+    api('/suppliers').catch(e => { errors.push(`供应商：${e.message}`); return { data: [] }; }),
+  ]);
+  newContractCache = contractResp.data || [];
+  newSparePartCache = partResp.data || [];
+  newSupplierPoolCache = supplierResp.data || [];
+  renderNewContractOptions();
+  renderNewPartOptions();
+  renderSupplierPool();
+  updateDeadlinePreview();
+  if (errors.length) {
+    toast('部分数据加载失败：' + errors.join('；'), 'err');
   }
 }
 
@@ -242,10 +242,14 @@ function renderNewPartOptions() {
   }
   sel.innerHTML = '<option value="">请选择备件</option>' +
     newSparePartCache.map(p => {
-      const model = escapeHtml(p.spec_model || p.name || '');
+      // value：优先 spec_model（备件型号）→ 否则 part_code（编码），对应 create_task 的 spare_part_model
+      const value_ = p.spec_model || p.part_code || '';
+      // label：备件名（规格）/ 品牌 · 编码 —— 即使 spec_model 为空也能看懂
+      const partName = escapeHtml(p.part_name || value_ || '未知备件');
       const brand = p.brand ? ` / ${escapeHtml(p.brand)}` : '';
-      const code = p.part_code ? ` (${escapeHtml(p.part_code)})` : '';
-      return `<option value="${model}">${model}${brand}${code}</option>`;
+      const code = p.part_code ? ` · <span style="opacity:.55;font-family:var(--mono)">${escapeHtml(p.part_code)}</span>` : '';
+      const spec = p.spec_model ? `（${escapeHtml(p.spec_model)}）` : '';
+      return `<option value="${escapeHtml(value_)}">${partName}${spec}${brand}${code}</option>`;
     }).join('');
 }
 
