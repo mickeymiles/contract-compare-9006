@@ -37,23 +37,131 @@
   .badge-proc-closed{background:rgba(0,230,118,.18);color:var(--green)}
   .badge-proc-failed{background:rgba(255,82,82,.18);color:var(--red)}
   .badge-proc-canceled{background:rgba(125,141,176,.18);color:var(--text2)}
-  /* 时间轴 */
-  .timeline{display:flex;align-items:flex-start;gap:0;margin-bottom:24px;overflow-x:auto;padding:16px 8px}
-  .tl-step{flex:1;min-width:140px;text-align:center;position:relative}
-  .tl-step .tl-node{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 8px;font-size:16px;border:2px solid var(--border);background:var(--bg3);transition:all .3s}
-  .tl-step.done .tl-node{border-color:var(--green);background:rgba(0,230,118,.12);color:var(--green)}
-  .tl-step.current .tl-node{border-color:var(--cyan);background:rgba(0,229,255,.12);color:var(--cyan);box-shadow:0 0 0 4px rgba(0,229,255,.1);animation:pulse 2s infinite}
-  .tl-step.failed .tl-node{border-color:var(--red);background:rgba(255,82,82,.12);color:var(--red)}
-  .tl-step.canceled .tl-node{border-color:var(--text2);background:rgba(125,141,176,.12);color:var(--text2)}
-  .tl-step .tl-label{font-size:12px;color:var(--text2);margin-bottom:2px}
-  .tl-step.current .tl-label{color:var(--cyan);font-weight:600}
-  .tl-step.done .tl-label{color:var(--green)}
-  .tl-step .tl-time{font-size:10px;color:var(--text2);font-family:var(--mono)}
-  .tl-step .tl-line{position:absolute;top:18px;left:50%;width:100%;height:2px;background:var(--border)}
-  .tl-step:last-child .tl-line{display:none}
-  .tl-step.done .tl-line{background:var(--green)}
-  .tl-step.current .tl-line{background:linear-gradient(90deg,var(--cyan),var(--border))}
-  @keyframes pulse{0%,100%{box-shadow:0 0 0 4px rgba(0,229,255,.1)}50%{box-shadow:0 0 0 8px rgba(0,229,255,.05)}}
+  /* 垂直流程条（详情页右侧：上下结构的流程步骤，每步包含说明+操作+结果） */
+  .detail-split{display:grid;grid-template-columns:minmax(420px,44%) 1fr;gap:16px;align-items:start}
+  @media (max-width: 1100px){.detail-split{grid-template-columns:1fr}}
+  .step-flow{display:flex;flex-direction:column;gap:14px;counter-reset:step}
+  .step-card{background:var(--bg1);border:1px solid var(--border);border-radius:10px;padding:16px 18px 16px 64px;position:relative;transition:all .2s}
+  .step-card::before{
+    counter-increment:step;content:counter(step);position:absolute;left:18px;top:16px;
+    width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    background:var(--bg3);color:var(--text2);font-weight:600;font-size:14px;border:2px solid var(--border)
+  }
+  .step-card.done{border-color:rgba(0,230,118,.35);background:rgba(0,230,118,.03)}
+  .step-card.done::before{border-color:var(--green);background:rgba(0,230,118,.14);color:var(--green);content:"✓"}
+  .step-card.current{border-color:rgba(0,229,255,.5);background:rgba(0,229,255,.04);box-shadow:0 0 0 4px rgba(0,229,255,.07)}
+  .step-card.current::before{border-color:var(--cyan);background:rgba(0,229,255,.14);color:var(--cyan);box-shadow:0 0 0 4px rgba(0,229,255,.1);animation:pulse 2s infinite}
+  .step-card.failed{border-color:rgba(255,82,82,.5);background:rgba(255,82,82,.04)}
+  .step-card.failed::before{border-color:var(--red);background:rgba(255,82,82,.14);color:var(--red)}
+  .step-card .step-title{font-size:14px;font-weight:600;color:var(--text);margin-bottom:6px;display:flex;align-items:center;gap:8px}
+  .step-card .step-desc{font-size:12px;color:var(--text2);margin-bottom:12px;line-height:1.6}
+  .step-card .step-result{margin-top:10px;padding:10px 12px;background:var(--bg3);border-radius:7px;font-size:12px;color:var(--text);line-height:1.7;border:1px dashed var(--border)}
+  .step-card.done .step-result{background:rgba(0,230,118,.06);border-color:rgba(0,230,118,.3);color:var(--green)}
+  .step-card.current .step-action{margin-top:4px}
+  .supplier-pick-card{background:linear-gradient(135deg,rgba(0,229,255,.08),rgba(179,136,255,.08));border:1px solid rgba(0,229,255,.35);border-radius:9px;padding:12px 14px}
+  .supplier-pick-card h4{margin:0 0 8px;color:var(--cyan);font-size:13px}
+  .pick-summary{background:linear-gradient(135deg,rgba(0,230,118,.09),rgba(0,229,255,.06));border:1px solid rgba(0,230,118,.45);border-radius:9px;padding:12px 14px;margin-top:12px}
+  .pick-summary h4{margin:0 0 6px;color:var(--green);font-size:13px}
+  .kv-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 18px}
+  .kv-grid .k{color:#9fb0d2;font-size:11px;font-weight:500}
+  .kv-grid .v{color:#e6f0ff;font-size:12.5px;line-height:1.55;word-break:break-all}
+  .kv-grid .v b{color:#ffffff}
+  /* 报价汇总高亮卡（第2步选型完成后）：强改文字颜色，防主题 var(--text)/var(--text2) 变黑色看不清 */
+  .pick-summary .kv-grid .k{color:#aad3ff !important}
+  .pick-summary .kv-grid .v{color:#ffffff !important}
+  .pick-summary h4{color:#7bffbe !important}
+  /* 选中供应商 / 成交单价 / 成交总额 高亮：亮红+白字，保证任何背景都清晰可见 */
+  .pick-summary .kv-grid .v.highlight-red{color:#ff7089 !important;font-weight:700}
+  .pick-summary .kv-grid .v.highlight-green{color:#7bffbe !important;font-weight:600}
+  .pick-summary .kv-grid .v.highlight-cyan{color:#5ed7ff !important;font-weight:600}
+  /* 供应商发货信息卡 */
+  .supplier-pick-card h4{color:#5ed7ff !important}
+  .supplier-pick-card .kv-grid .v{color:#ffffff !important}
+  .step-result .kv-grid .k{color:#9fb0d2}
+  .step-result .kv-grid .v{color:#e6f0ff}
+
+  /* 顶层 3 Tab 导航 */
+  .proc-top-tabs{display:flex;gap:6px;padding:4px 24px 0;border-bottom:1px solid rgba(255,255,255,.06)}
+  .proc-top-tab{padding:12px 18px;cursor:pointer;font-size:13px;color:var(--text2);border-radius:8px 8px 0 0;letter-spacing:.5px}
+  .proc-top-tab:hover{color:var(--text);background:rgba(94,215,255,.04)}
+  .proc-top-tab.active{color:var(--cyan);background:rgba(94,215,255,.08);box-shadow:inset 0 -2px 0 var(--cyan)}
+  .proc-top-tab .emoji{margin-right:6px}
+
+  /* 公共筛选条 / 工具栏 */
+  .proc-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
+  .proc-toolbar input,.proc-toolbar select{background:#111a2d;color:var(--text);border:1px solid rgba(255,255,255,.08);padding:6px 10px;border-radius:8px;font-size:12.5px;outline:none}
+  .proc-toolbar input:focus,.proc-toolbar select:focus{border-color:var(--cyan)}
+  .proc-toolbar label{font-size:11.5px;color:var(--text2);margin-right:2px}
+
+  /* 台账数据列：金额/数字列右对齐 */
+  table td.num,table th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .tag-sup{display:inline-flex;align-items:center;background:rgba(123,255,190,.08);color:#7bffbe;border:1px solid rgba(123,255,190,.25);padding:2px 8px;border-radius:999px;font-size:11px;margin:2px 4px 2px 0}
+
+  /* 合同关联弹窗里的多行勾选项 */
+  .contract-check-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:8px;max-height:440px;overflow:auto;padding:8px 4px}
+  .contract-check-row{display:flex;align-items:flex-start;padding:8px 10px;border-radius:8px;background:rgba(94,215,255,.04);border:1px solid rgba(94,215,255,.08)}
+  .contract-check-row input[type=checkbox]{margin-top:4px;margin-right:8px}
+  .contract-check-row .ttl{font-size:12.5px;color:var(--text);font-weight:600}
+  .contract-check-row .sub{font-size:11px;color:var(--text2);margin-top:2px}
+
+  /* 顶层 Tab 内容容器：仅靠 .active 切换，不用 !important，避免误伤内部 modal / help-overlay */
+  .proc-top-panel{display:none}
+  .proc-top-panel.active{display:block;animation:fadeIn .22s ease}
+
+  /* 左侧菜单布局 */
+  .proc-layout{display:flex;min-height:calc(100vh - 56px)}
+  .proc-sidebar{width:200px;background:linear-gradient(180deg,#0d1629 0%,#0a1120 100%);border-right:1px solid rgba(255,255,255,.06);padding:16px 0;flex-shrink:0}
+  .proc-sidebar .menu-group{padding:14px 20px 6px;font-size:11px;color:var(--text2);letter-spacing:1px;text-transform:uppercase}
+  .proc-sidebar .menu-item{display:flex;align-items:center;gap:10px;padding:11px 20px;cursor:pointer;font-size:13px;color:var(--text2);border-left:3px solid transparent;transition:all .18s}
+  .proc-sidebar .menu-item:hover{color:var(--text);background:rgba(94,215,255,.04)}
+  .proc-sidebar .menu-item.active{color:var(--cyan);background:rgba(94,215,255,.08);border-left-color:var(--cyan);font-weight:600}
+  .proc-sidebar .menu-item .icon{font-size:15px;width:18px;text-align:center}
+  .proc-content{flex:1;padding:20px 24px;min-width:0}
+
+  /* 帮助文档 Modal（大尺寸 + 文档样式） */
+  .help-overlay{position:fixed;inset:0;z-index:3000;background:rgba(4,10,22,.86);backdrop-filter:blur(6px);
+    display:none;justify-content:center;align-items:flex-start;padding:40px 20px;overflow-y:auto}
+  .help-overlay.show{display:flex}
+  .help-box{background:linear-gradient(180deg,#0d1a33 0%, #0a1428 100%);border:1px solid rgba(94,215,255,.2);
+    border-radius:18px;padding:36px 40px 40px;width:94%;max-width:1080px;box-shadow:0 20px 80px rgba(0,0,0,.7);
+    animation:modalIn .25s ease}
+  .help-close{position:fixed;top:24px;right:28px;font-size:28px;color:#fff;cursor:pointer;
+    background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);width:44px;height:44px;
+    border-radius:12px;display:flex;align-items:center;justify-content:center;z-index:3100}
+  .help-close:hover{background:rgba(94,215,255,.18);color:var(--cyan)}
+  .help-head{border-bottom:1px solid rgba(94,215,255,.15);padding-bottom:16px;margin-bottom:20px}
+  .help-head h1{font-size:22px;color:var(--cyan);margin:0 0 6px}
+  .help-head p{margin:0;font-size:12px;color:var(--text2)}
+  .help-doc{font-size:13px;color:var(--text);line-height:1.82}
+  .help-doc h2{font-size:16.5px;color:#fff;border-left:4px solid var(--cyan);padding:2px 0 2px 12px;
+    margin:30px 0 14px;background:rgba(94,215,255,.04);border-radius:0 6px 6px 0}
+  .help-doc h3{font-size:14.5px;color:#ffe6a7;margin:22px 0 10px}
+  .help-doc h4{font-size:13px;color:#ffd37a;margin:16px 0 8px}
+  .help-doc p{margin:6px 0 10px;color:var(--text)}
+  .help-doc ul,.help-doc ol{margin:8px 0 12px 20px;padding-left:4px}
+  .help-doc li{margin:4px 0 6px;color:var(--text)}
+  .help-doc strong{color:#fff}
+  .help-doc em{color:var(--amber);font-style:normal;font-weight:600}
+  .help-doc table{width:100%;border-collapse:collapse;margin:12px 0 18px;font-size:12.5px;
+    border:1px solid rgba(94,215,255,.15);border-radius:8px;overflow:hidden}
+  .help-doc th{background:rgba(94,215,255,.1);color:var(--cyan);font-weight:600;text-align:left;
+    padding:9px 12px;border-bottom:1px solid rgba(94,215,255,.22)}
+  .help-doc td{padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.05);color:var(--text);
+    vertical-align:top}
+  .help-doc tr:last-child td{border-bottom:none}
+  .help-doc tr:hover td{background:rgba(94,215,255,.03)}
+  .help-doc blockquote{margin:10px 0 14px;padding:10px 14px;border-left:3px solid var(--amber);
+    background:rgba(255,193,7,.05);color:var(--text2);font-size:12.5px;border-radius:0 6px 6px 0}
+  .help-doc .tag{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;margin-right:6px;
+    font-weight:600}
+  .help-doc .tag-green{background:rgba(5,150,105,.14);color:#6ee7b7;border:1px solid rgba(5,150,105,.3)}
+  .help-doc .tag-cyan{background:rgba(94,215,255,.12);color:#7de7ff;border:1px solid rgba(94,215,255,.28)}
+  .help-doc .tag-amber{background:rgba(255,193,7,.12);color:#ffd37a;border:1px solid rgba(255,193,7,.28)}
+  .help-doc .tag-red{background:rgba(248,113,113,.12);color:#ffacb8;border:1px solid rgba(248,113,113,.28)}
+  .help-foot{margin-top:28px;padding:14px 18px;background:rgba(94,215,255,.04);
+    border:1px solid rgba(94,215,255,.12);border-radius:12px;display:flex;align-items:center;gap:14px}
+  .help-foot .tip{flex:1;font-size:12px;color:var(--text2)}
+  .help-foot .tip b{color:var(--cyan)}
 </style>
 </head>
 <body>
@@ -64,12 +172,29 @@
     <span class="crumb-cur" id="procCrumb">🛒 备品备件采购询比价</span>
   </nav>
   <span style="flex:1"></span>
-  <button class="btn btn-o btn-s" onclick="toggleHelp()" title="系统说明">? 帮助</button>
+  <button class="btn btn-o btn-s" onclick="openHelp()" title="系统说明">❓ 帮助</button>
 </div>
 
-<div style="padding:20px 24px">
+<!-- 左侧菜单 + 内容区 -->
+<div class="proc-layout">
+  <aside class="proc-sidebar" id="procSidebar">
+    <div class="menu-group">业务中心</div>
+    <div class="menu-item active" data-menu="tasks" onclick="switchSidebar('tasks')"><span class="icon">📋</span>询价任务</div>
+    <div class="menu-item" data-menu="ledger" onclick="switchSidebar('ledger')"><span class="icon">📊</span>采购台账</div>
 
-  <!-- 页面1: 任务列表 -->
+    <div class="menu-group">基础数据</div>
+    <div class="menu-item" data-menu="sparepart" onclick="switchSidebar('sparepart')"><span class="icon">🔧</span>备品备件</div>
+    <div class="menu-item" data-menu="supplier" onclick="switchSidebar('supplier')"><span class="icon">🏢</span>供应商</div>
+    <div class="menu-item" data-menu="contract" onclick="switchSidebar('contract')"><span class="icon">📄</span>合同</div>
+    <div class="menu-item" data-menu="mailcc" onclick="switchSidebar('mailcc')"><span class="icon">📮</span>抄送</div>
+  </aside>
+
+  <div class="proc-content">
+
+  <!-- ================================================== -->
+  <!-- Panel 1: 询价任务（包含 列表 / 新建 / 详情 3 个子页）-->
+  <!-- ================================================== -->
+  <div id="proc-tab-tasks" class="proc-top-panel active">
   <div id="page-proc-list" class="page active">
     <div class="proc-actions">
       <button class="btn btn-c" onclick="showPage('new')">＋ 发起新询价</button>
@@ -93,12 +218,12 @@
         <table>
           <thead>
             <tr>
-              <th>任务ID</th><th>项目</th><th>合同号</th><th>备件型号</th>
+              <th>任务ID</th><th>合同号</th><th>备件型号</th>
               <th>数量</th><th>状态</th><th>报价截止</th><th>创建时间</th><th>操作</th>
             </tr>
           </thead>
           <tbody id="taskListBody">
-            <tr><td colspan="9" class="empty-tip">加载中...</td></tr>
+            <tr><td colspan="8" class="empty-tip">加载中...</td></tr>
           </tbody>
         </table>
       </div>
@@ -114,12 +239,8 @@
       <h3>新建询价任务</h3>
       <div style="max-width:720px">
         <div class="proc-field">
-          <div class="l">选择项目</div>
-          <select id="newProject" onchange="onProjectChange()" style="width:100%"></select>
-        </div>
-        <div class="proc-field">
           <div class="l">合同编号</div>
-          <select id="newContract" onchange="onContractChange()" style="width:100%"></select>
+          <select id="newContract" style="width:100%"></select>
         </div>
         <div class="proc-field">
           <div class="l">备件型号</div>
@@ -141,7 +262,7 @@
         <div class="proc-field" style="align-items:flex-start">
           <div class="l" style="padding-top:8px">询价供应商</div>
           <div style="flex:1" id="supplierList">
-            <div class="empty-tip">请先选择项目和合同</div>
+            <div class="empty-tip">供应商资源池加载中...</div>
           </div>
         </div>
         <div class="proc-field">
@@ -164,38 +285,393 @@
   <div id="page-proc-detail" class="page">
     <div class="proc-actions">
       <button class="btn btn-o" onclick="showPage('list')">← 返回列表</button>
+      <span style="font-family:var(--mono);color:var(--text2);font-size:13px;margin-left:4px">任务ID：<span id="detailTaskId" style="color:var(--text)"></span></span>
+      <span id="detailStatusBadge" style="margin-left:8px"></span>
       <span style="flex:1"></span>
-      <span id="detailTaskId" style="font-family:var(--mono);font-size:12px;color:var(--text2)"></span>
-    </div>
-    <!-- 时间轴 -->
-    <div class="panel" style="margin-bottom:16px">
-      <div id="detailTimeline" class="timeline"><div class="empty-tip">加载中...</div></div>
-    </div>
-    <div class="proc-tab-bar">
-      <button class="proc-tab active" data-tab="base" onclick="switchDetailTab('base')">📋 基础信息</button>
-      <button class="proc-tab" data-tab="quote" onclick="switchDetailTab('quote')">💰 报价汇总</button>
-      <button class="proc-tab" data-tab="action" onclick="switchDetailTab('action')">⚙️ 处置操作</button>
+      <button class="btn btn-o" onclick="loadDetail()">🔄 刷新详情</button>
+      <button class="btn btn-o" style="color:var(--red);border-color:rgba(255,82,82,.4)" onclick="openCancel(currentDetailTaskId)" id="cancelBtn" title="任务取消后不可恢复">❌ 取消任务</button>
     </div>
 
-    <!-- Tab1: 基础信息 -->
-    <div id="detailTabBase" class="panel">
-      <h3>任务基础信息</h3>
-      <div id="detailBaseBody"><div class="empty-tip">加载中...</div></div>
-    </div>
+    <div class="detail-split">
+      <!-- 左侧：采购基础信息（沿用原 Tab1 内容，不做 tab 切换了，直接展示更直观） -->
+      <div class="panel" style="position:sticky;top:8px">
+        <h3>📋 采购基础信息</h3>
+        <div id="detailBaseBody"><div class="empty-tip">加载中...</div></div>
 
-    <!-- Tab2: 报价汇总 -->
-    <div id="detailTabQuote" class="panel" style="display:none">
-      <h3>供应商报价汇总</h3>
-      <div id="detailQuoteBody"><div class="empty-tip">加载中...</div></div>
-    </div>
+        <!-- 操作日志折叠在左侧底部（因为原Tab3不需要了，日志放这里更顺手） -->
+        <div style="margin-top:24px">
+          <h3>📜 操作日志</h3>
+          <div id="opLogBody" class="twrap" style="max-height:340px;overflow:auto"><div class="empty-tip">加载中...</div></div>
+        </div>
+      </div>
 
-    <!-- Tab3: 处置操作 -->
-    <div id="detailTabAction" class="panel" style="display:none">
-      <h3>处置操作</h3>
-      <div id="detailActionBody"><div class="empty-tip">加载中...</div></div>
+      <!-- 右侧：5步垂直流程条（每一步到了就告诉你这一步做什么、需要选什么、点什么按钮） -->
+      <div>
+        <div class="step-flow" id="detailStepFlow">
+          <div class="empty-tip">流程加载中...</div>
+        </div>
+      </div>
     </div>
   </div>
+  </div>  <!-- /proc-tab-tasks -->
 
+
+  <!-- ================================================== -->
+  <!-- Panel 2: 🔧 备品备件主数据 -->
+  <!-- ================================================== -->
+  <div id="proc-tab-sparepart" class="proc-top-panel">
+    <div class="panel">
+      <h3>🔧 备品备件主数据</h3>
+      <p style="font-size:12px;color:var(--text2);margin:4px 0 14px">
+        维护常用备品备件的<b>编码、名称、规格型号、品牌、单位、分类</b>，询价时可从备件库快速选择，避免重复录入。
+      </p>
+      <div class="proc-toolbar">
+        <input type="text" id="spFilterKeyword" placeholder="🔍 搜 编码 / 名称 / 规格 / 品牌"
+               style="min-width:300px;flex:1"
+               oninput="spTimer && clearTimeout(spTimer);spTimer=setTimeout(loadSparePartList,300)">
+        <label>分类：</label>
+        <select id="spFilterCategory" onchange="loadSparePartList()" style="min-width:140px">
+          <option value="">全部分类</option>
+        </select>
+        <span style="flex:1"></span>
+        <button class="btn btn-c" onclick="openSparePartModal()">＋ 新增备件</button>
+        <button class="btn btn-o btn-s" onclick="loadSparePartList()">🔄 刷新</button>
+      </div>
+      <div class="twrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="min-width:120px">备件编码</th>
+              <th style="min-width:140px">名称</th>
+              <th style="min-width:200px">规格型号</th>
+              <th style="min-width:120px">品牌</th>
+              <th>单位</th>
+              <th>分类</th>
+              <th style="min-width:200px">备注</th>
+              <th>更新时间</th>
+              <th style="min-width:180px">操作</th>
+            </tr>
+          </thead>
+          <tbody id="sparePartTbody">
+            <tr><td colspan="9" class="empty-tip">备件列表加载中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>  <!-- /proc-tab-sparepart -->
+
+
+  <!-- ================================================== -->
+  <!-- Panel 3: 📊 采购台账 -->
+  <!-- ================================================== -->
+  <div id="proc-tab-ledger" class="proc-top-panel">
+    <div class="panel">
+      <h3>📊 采购业务台账（闭环凭证）</h3>
+      <p style="font-size:12px;color:var(--text2);margin:4px 0 14px">
+        这里展示 <b>测试通过、流程闭环</b> 之后自动写入的采购台账，可作为财务结算与审计凭证。所有字段自动从询比价任务抽取，无需人工录入。
+      </p>
+
+      <!-- 筛选条 -->
+      <div class="proc-toolbar">
+        <label>合同号：</label>
+        <select id="ledFilterContract" onchange="loadLedger()" style="min-width:220px">
+          <option value="">全部合同</option>
+        </select>
+        <label>供应商：</label>
+        <input type="text" id="ledFilterSupplier" placeholder="供应商名称模糊搜"
+               style="min-width:200px" oninput="ledgerTimer && clearTimeout(ledgerTimer);ledgerTimer=setTimeout(loadLedger,300)">
+        <label>创建起：</label>
+        <input type="date" id="ledFilterFrom" onchange="loadLedger()">
+        <label>止：</label>
+        <input type="date" id="ledFilterTo" onchange="loadLedger()">
+        <span style="flex:1"></span>
+        <button class="btn btn-o btn-s" onclick="resetLedgerFilters()">清空筛选</button>
+        <button class="btn btn-o btn-s" onclick="loadLedger()">🔄 刷新</button>
+      </div>
+
+      <div class="twrap">
+        <table>
+          <thead>
+            <tr>
+              <th>供应商<br><span style="font-weight:400;color:var(--text2);font-size:11px">谁供的</span></th>
+              <th>供货时间<br><span style="font-weight:400;color:var(--text2);font-size:11px">发货时间</span></th>
+              <th>供了什么货<br><span style="font-weight:400;color:var(--text2);font-size:11px">备件型号</span></th>
+              <th class="num">数量</th>
+              <th class="num">单价(元)</th>
+              <th class="num" style="color:#ff7089">总价(元)</th>
+              <th>验收时间<br><span style="font-weight:400;color:var(--text2);font-size:11px">任务闭环时间</span></th>
+              <th style="min-width:280px">合同/任务/物流</th>
+              <th>测试结果/备注</th>
+            </tr>
+          </thead>
+          <tbody id="ledgerTbody">
+            <tr><td colspan="9" class="empty-tip">台账加载中...</td></tr>
+          </tbody>
+          <tfoot>
+            <tr style="background:rgba(94,215,255,.04);color:#fff;font-weight:600">
+              <td colspan="3" style="text-align:right">合计：<span id="ledgerCount">0</span> 条台账，合同范围：<b id="ledgerContractSummary">全部</b></td>
+              <td class="num" id="ledgerQtySum">-</td>
+              <td class="num">-</td>
+              <td class="num" id="ledgerAmtSum" style="color:#ff7089">-</td>
+              <td colspan="3"></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  </div>  <!-- /proc-tab-ledger -->
+
+
+  <!-- ================================================== -->
+  <!-- Panel: 🏢 供应商主数据（资源池：名称 邮箱 供货能力说明）
+       供应商与合同/备件解耦：所有供应商自动进入资源池，新建任务时全量带出，可临时新增
+  -->
+  <!-- ================================================== -->
+  <div id="proc-tab-supplier" class="proc-top-panel">
+    <div class="panel">
+      <h3>🏢 供应商主数据（资源池）</h3>
+      <p style="font-size:12px;color:var(--text2);margin:4px 0 14px">
+        维护供应商<b>名称、邮箱、供货能力</b>三大字段。<b>所有供应商自动进入资源池</b>，<b>不与合同/备件绑定</b>；
+        新建询价任务时会自动把资源池中全部供应商带出，可勾选参与本次询价；也可临时新增供应商（仅本次任务可见）。
+      </p>
+
+      <div class="proc-toolbar">
+        <input type="text" id="supFilterKeyword" placeholder="🔍 搜 名称 / 邮箱 / 供货能力"
+               style="min-width:300px;flex:1"
+               oninput="supplierTimer && clearTimeout(supplierTimer);supplierTimer=setTimeout(loadSupplierList,300)">
+        <span style="flex:1"></span>
+        <button class="btn btn-c" onclick="openSupplierModal()">＋ 新增供应商</button>
+        <button class="btn btn-o btn-s" onclick="loadSupplierList()">🔄 刷新</button>
+      </div>
+
+      <div class="twrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="min-width:200px">供应商名称</th>
+              <th style="min-width:240px">邮箱</th>
+              <th>供货能力说明</th>
+              <th>更新时间</th>
+              <th style="min-width:180px">操作</th>
+            </tr>
+          </thead>
+          <tbody id="supplierTbody">
+            <tr><td colspan="5" class="empty-tip">供应商列表加载中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>  <!-- /proc-tab-supplier -->
+
+
+  <!-- ================================================== -->
+  <!-- Tab 4: 📄 合同主数据（需求①：合同名 / 合同编号 / 项目经理 / 项目经理邮箱） -->
+  <!-- ================================================== -->
+  <div id="proc-tab-contract" class="proc-top-panel">
+    <div class="panel">
+      <h3>📄 合同主数据</h3>
+      <p style="font-size:12px;color:var(--text2);margin:4px 0 14px">
+        合同是<b>采购核心数据</b>。每个合同独立维护 4 个字段：<b>合同名 / 合同编号 / 项目经理 / 项目经理邮箱</b>。
+        新建询价任务只需选择合同 → 备件 → 数量，系统会自动带出资源池全部供应商。
+      </p>
+      <div class="proc-toolbar">
+        <input type="text" id="contractFilterKeyword" placeholder="🔍 搜 合同编号 / 合同名 / 项目经理名 / 邮箱"
+               style="min-width:320px;flex:1"
+               oninput="contractTimer && clearTimeout(contractTimer);contractTimer=setTimeout(loadContractList,300)">
+        <span style="flex:1"></span>
+        <button class="btn btn-c" onclick="openContractModal()">＋ 新增合同</button>
+        <button class="btn btn-o btn-s" onclick="loadContractList()">🔄 刷新</button>
+      </div>
+      <div class="twrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="min-width:260px">合同名</th>
+              <th style="min-width:160px">合同编号</th>
+              <th>项目经理</th>
+              <th style="min-width:220px">项目经理邮箱</th>
+              <th>更新时间</th>
+              <th style="min-width:200px">操作</th>
+            </tr>
+          </thead>
+          <tbody id="contractTbody">
+            <tr><td colspan="6" class="empty-tip">合同列表加载中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>  <!-- /proc-tab-contract -->
+
+
+  <!-- ================================================== -->
+  <!-- Tab 5: 📮 全局抄送配置（需求②：所有发给供应商的邮件都会 CC 这些人，全局生效） -->
+  <!-- ================================================== -->
+  <div id="proc-tab-mailcc" class="proc-top-panel">
+    <div class="panel">
+      <h3>📮 全局邮件抄送列表</h3>
+      <p style="font-size:12px;color:var(--text2);margin:4px 0 14px">
+        所有 <b>询价 / 采购确认 / 验收通过</b> 等发给供应商的邮件，都会自动 <b style="color:var(--cyan)">抄送（CC）</b> 这里的邮箱，
+        每个任务都生效；新增只需填名字 + 邮箱，邮箱不允许重复。删除后不影响已发邮件。
+      </p>
+
+      <!-- 行内"新增抄送"（符合用户说的 "页面填写名字和邮箱"） -->
+      <div class="proc-field" style="max-width:820px;margin-bottom:18px;padding:14px;border:1px dashed rgba(94,215,255,.25);border-radius:10px;background:rgba(94,215,255,.03)">
+        <div style="font-weight:600;font-size:12.5px;color:var(--cyan);margin-bottom:10px">＋ 新增抄送</div>
+        <div style="display:grid;grid-template-columns:1fr 2fr auto;gap:12px;align-items:flex-end">
+          <div>
+            <div class="l" style="margin:0 0 4px 0;font-size:11.5px;color:var(--text2)">名字 *</div>
+            <input type="text" id="ccNewName" placeholder="如：财务部 刘会计" />
+          </div>
+          <div>
+            <div class="l" style="margin:0 0 4px 0;font-size:11.5px;color:var(--text2)">邮箱 *（全局唯一）</div>
+            <input type="email" id="ccNewEmail" placeholder="如：finance@example.com" />
+          </div>
+          <button class="btn btn-c" onclick="submitNewCC()">💾 加入抄送</button>
+        </div>
+      </div>
+
+      <div class="proc-toolbar">
+        <input type="text" id="ccFilterKeyword" placeholder="🔍 按名字/邮箱搜索"
+               style="min-width:260px"
+               oninput="ccTimer && clearTimeout(ccTimer);ccTimer=setTimeout(loadMailCCList,300)">
+        <span style="flex:1"></span>
+        <span id="ccSummary" style="font-size:11.5px;color:#5ed7ff">共 0 个抄送邮箱</span>
+        <button class="btn btn-o btn-s" onclick="loadMailCCList()">🔄 刷新</button>
+      </div>
+      <div class="twrap" style="max-width:820px">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:60px">#</th>
+              <th style="min-width:220px">名字</th>
+              <th style="min-width:260px">邮箱</th>
+              <th>加入时间</th>
+              <th style="min-width:80px">操作</th>
+            </tr>
+          </thead>
+          <tbody id="mailCCTbody">
+            <tr><td colspan="5" class="empty-tip">抄送列表加载中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>  <!-- /proc-tab-mailcc -->
+
+  </div>  <!-- /proc-content -->
+</div>  <!-- /proc-layout -->
+
+<!-- 弹窗: 备品备件 新增 / 编辑 -->
+<div id="sparePartModal" class="modal" onclick="if(event.target===this)closeSparePartModal()">
+  <div class="box">
+    <h3 id="sparePartModalTitle">新增备品备件</h3>
+    <input type="hidden" id="spEditingId">
+    <div class="proc-field" style="margin:12px 0">
+      <div class="l">备件编码 *</div>
+      <input type="text" id="spCode" placeholder="如：SP-0009">
+    </div>
+    <div class="proc-field" style="margin:12px 0">
+      <div class="l">备件名称 *</div>
+      <input type="text" id="spName" placeholder="如：内存条">
+    </div>
+    <div class="proc-field" style="margin:12px 0">
+      <div class="l">规格型号</div>
+      <input type="text" id="spSpec" placeholder="如：DDR4 32GB 3200MHz">
+    </div>
+    <div class="proc-field" style="margin:12px 0">
+      <div class="l">品牌</div>
+      <input type="text" id="spBrand" placeholder="如：三星/Samsung">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="proc-field" style="margin:12px 0">
+        <div class="l">单位</div>
+        <select id="spUnit">
+          <option value="个">个</option>
+          <option value="条">条</option>
+          <option value="块">块</option>
+          <option value="根">根</option>
+          <option value="套">套</option>
+          <option value="对">对</option>
+        </select>
+      </div>
+      <div class="proc-field" style="margin:12px 0">
+        <div class="l">分类</div>
+        <select id="spCategory">
+          <option value="通用">通用</option>
+          <option value="服务器配件">服务器配件</option>
+          <option value="存储配件">存储配件</option>
+          <option value="网络配件">网络配件</option>
+          <option value="电源配件">电源配件</option>
+          <option value="散热配件">散热配件</option>
+        </select>
+      </div>
+    </div>
+    <div class="proc-field" style="margin:12px 0">
+      <div class="l">备注</div>
+      <textarea id="spRemark" rows="2" placeholder="兼容性说明、使用场景等"></textarea>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+      <button class="btn btn-o" onclick="closeSparePartModal()">取消</button>
+      <button class="btn btn-c" onclick="submitSparePart()">💾 保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 弹窗 D1: 供应商 新增 / 编辑 -->
+<div id="supplierModal" class="modal" onclick="if(event.target===this)closeSupplierModal()">
+  <div class="box">
+    <h3 id="supplierModalTitle">新增供应商</h3>
+    <input type="hidden" id="supEditingId">
+    <div class="proc-field" style="margin:12px 0">
+      <div class="l">供应商名称 *</div>
+      <input type="text" id="supName" placeholder="如：华为总代 星辰设备">
+    </div>
+    <div class="proc-field" style="margin:12px 0">
+      <div class="l">邮箱 *</div>
+      <input type="email" id="supEmail" placeholder="如：sales@example.com（全局唯一）">
+    </div>
+    <div class="proc-field" style="margin:12px 0">
+      <div class="l" style="padding-top:8px">供货能力说明</div>
+      <textarea id="supCapability" rows="4"
+        placeholder="如：华为数通/安全产品金牌总代，AR/NetEngine/S 系列主板/整机现货，7×24 响应，支持原厂 RMA。"></textarea>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+      <button class="btn btn-o" onclick="closeSupplierModal()">取消</button>
+      <button class="btn btn-c" onclick="submitSupplier()">💾 保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 弹窗 D3: 合同主数据 新增 / 编辑（4 字段：合同编号/合同名/项目经理/项目经理邮箱） -->
+<div id="contractModal" class="modal" onclick="if(event.target===this)closeContractModal()">
+  <div class="box" style="max-width:720px">
+    <h3 id="contractModalTitle">新增合同</h3>
+    <input type="hidden" id="ctEditingId">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px 18px">
+      <div class="proc-field" style="margin:4px 0 0">
+        <div class="l">合同编号 *<br><span style="font-weight:400;font-size:10.5px;color:var(--text2)">全局唯一，建议大写英数</span></div>
+        <input type="text" id="ctContractNo" placeholder="如：IDZB2607070A">
+      </div>
+      <div class="proc-field" style="margin:4px 0 0">
+        <div class="l">合同名</div>
+        <input type="text" id="ctContractName" placeholder="如：示范项目A期-IT基础设施扩容合同">
+      </div>
+      <div class="proc-field" style="margin:4px 0 0">
+        <div class="l">项目经理</div>
+        <input type="text" id="ctPMName" placeholder="如：张启明">
+      </div>
+      <div class="proc-field" style="margin:4px 0 0">
+        <div class="l">项目经理邮箱</div>
+        <input type="email" id="ctPMEmail" placeholder="如：rich-miles@163.com">
+      </div>
+    </div>
+    <p id="ctNoChangeHint" style="display:none;margin:10px 4px;font-size:11px;color:var(--amber);background:rgba(255,193,7,.06);padding:8px 10px;border-radius:6px;border:1px solid rgba(255,193,7,.25)">
+      ⚠️ 修改合同编号会同步更新任务表 / 台账表的旧编号，建议谨慎操作。
+    </p>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+      <button class="btn btn-o" onclick="closeContractModal()">取消</button>
+      <button class="btn btn-c" onclick="submitContract()">💾 保存</button>
+    </div>
+  </div>
 </div>
 
 <!-- 录入测试结果弹窗 -->
@@ -232,24 +708,206 @@
   </div>
 </div>
 
-<!-- 帮助弹窗 -->
-<div id="helpModal" class="modal" onclick="if(event.target===this)closeHelp()">
-  <div class="box">
-    <h3>🛒 备品备件采购询比价智能体</h3>
-    <div style="font-size:12px;line-height:1.8;color:var(--text)">
-      <p><strong style="color:var(--cyan)">业务流程</strong></p>
-      <p>1. 项目经理收到现场工程师的备件需求邮件（系统不解析）</p>
-      <p>2. 平台新建询价任务 → 自动发邮件给供应商 → 飞书通知任务发起</p>
-      <p>3. 询比价进行中：监控供应商报价邮件、每小时飞书进度、临期告警</p>
-      <p>4. 项目经理平台选型确认 → 自动发采购确认邮件给供应商</p>
-      <p>5. 供应商发货回复邮件 → 系统解析回填物流信息</p>
-      <p>6. 现场工程师收货测试 → 项目经理录入测试结果</p>
-      <p>7. 测试通过：自动写入采购台账，流程闭环</p>
-      <p>8. 测试失败：异常告警，人工处置（换货/重新询价）</p>
-      <p style="margin-top:10px;color:var(--text2)">本页面仅项目经理可见，现场工程师无平台入口。</p>
+<!-- 人工修改报价弹窗：用于解析失败/不完整时人工录入单价/总价/货期/品牌 -->
+<div id="manualQuoteModal" class="modal" onclick="if(event.target===this)closeManualQuoteModal()">
+  <div class="box" style="width:460px">
+    <h3 style="margin-bottom:6px">✏️ 人工修改报价</h3>
+    <div id="manualQuoteTaskHint" style="color:var(--muted);font-size:12px;margin-bottom:14px">—</div>
+    <div class="proc-field" style="margin-bottom:10px">
+      <div class="l">供应商</div>
+      <input id="mqSupplier" disabled style="background:rgba(255,255,255,0.03);color:var(--muted)">
     </div>
-    <div style="text-align:right;margin-top:16px">
-      <button class="btn btn-c" onclick="closeHelp()">知道了</button>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px">
+      <div class="proc-field" style="margin:0">
+        <div class="l" style="color:#ff7089">成交单价 <span style="color:var(--red)">*</span></div>
+        <input id="mqUnitPrice" type="number" step="0.01" min="0" placeholder="必填，如 3200">
+      </div>
+      <div class="proc-field" style="margin:0">
+        <div class="l">成交总价（留空=单价×数量）</div>
+        <input id="mqTotalPrice" type="number" step="0.01" min="0" placeholder="选填">
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px">
+      <div class="proc-field" style="margin:0">
+        <div class="l">货期（如 7天 / 现货 / 2026-08-30）</div>
+        <input id="mqLeadTime" placeholder="例如 3-5 天">
+      </div>
+      <div class="proc-field" style="margin:0">
+        <div class="l">品牌</div>
+        <input id="mqBrand" placeholder="例如 西门子">
+      </div>
+    </div>
+    <div class="proc-field" style="margin-bottom:10px">
+      <div class="l">型号（默认取备件型号，可改）</div>
+      <input id="mqModel">
+    </div>
+    <div class="proc-field" style="margin-bottom:14px">
+      <div class="l">备注</div>
+      <textarea id="mqNote" rows="2" placeholder="人工修改原因 / 电话沟通说明等"></textarea>
+    </div>
+    <div style="background:rgba(255,193,7,.06);border:1px dashed rgba(255,193,7,.35);border-radius:6px;padding:8px 10px;font-size:12px;color:#f0c371;margin-bottom:14px">
+      💡 保存后该条报价标记为「已人工录入」，后续 IMAP 再收到该供应商邮件不会覆盖人工值；再次点击铅笔可继续修改。
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn btn-o" onclick="closeManualQuoteModal()">取消</button>
+      <button class="btn btn-c" onclick="submitManualQuote()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 帮助弹窗（业务系统说明 V1.0 纯业务文档） -->
+<div id="helpOverlay" class="help-overlay" onclick="if(event.target===this)closeHelp()">
+  <div class="help-close" onclick="closeHelp()" title="关闭 (ESC)">✕</div>
+  <div class="help-box">
+    <div class="help-head">
+      <h1>🛒 备品备件采购询比价智能体 · 业务系统说明</h1>
+      <p>版本 <b style="color:var(--cyan)">V2.0</b> ｜ 面向：项目经理 / 运维结算组 / 采购人员 ｜ 本文档为纯业务描述，不含技术实现</p>
+    </div>
+    <div class="help-doc">
+
+      <h2>一、系统是做什么的？</h2>
+      <p>备品备件采购询比价智能体（简称「本系统」）用于帮助信息运维团队<strong>快速、规范、留痕地完成备品备件采购全过程</strong>：从"发起询价"到"收齐报价、选择成交供应商、下单确认、到货验收、台账归档"，<em>每一步都自动通过邮件与供应商互动</em>，并<em>自动把所有邮件抄送给相关业务方</em>（项目经理、结算组等），做到"全程有据可查"。</p>
+      <h3>🎯 系统解决的 5 个业务痛点</h3>
+      <table>
+        <thead><tr><th style="width:40px">#</th><th>业务痛点</th><th>系统给出的答案</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>询价过程靠手动发邮件，抄送容易漏</td><td><span class="tag tag-cyan">自动抄送</span><strong>所有发给供应商的邮件自动走统一抄送列表</strong>，不再需要手动加抄送</td></tr>
+          <tr><td>2</td><td>供应商报价散落在各邮箱里，对比要手动</td><td><span class="tag tag-green">自动汇总</span><strong>自动收齐所有供应商报价后形成报价汇总单</strong>，实时高亮推荐成交供应商</td></tr>
+          <tr><td>3</td><td>项目经理审批在群里点，事后找不到证据</td><td><span class="tag tag-cyan">飞书留痕</span><strong>审批通过消息卡片直达项目经理飞书</strong>，卡片点击"确认成交"直接留痕</td></tr>
+          <tr><td>4</td><td>合同号、项目经理每次发起询价都要手动填，容易错</td><td><span class="tag tag-amber">集中维护</span><strong>合同档案集中管理</strong>，下拉一键选中，姓名/邮箱自动带出</td></tr>
+          <tr><td>5</td><td>验收/结算要翻历史聊天记录</td><td><span class="tag tag-green">自动台账</span><strong>所有询价/报价/确认/验收自动写入采购台账</strong>，可按合同号、供应商、日期筛选导出</td></tr>
+        </tbody>
+      </table>
+
+      <h2>二、系统里有哪些业务模块（左侧菜单 2 组共 5 项）</h2>
+      <p>左侧菜单分 2 组：<strong>业务中心</strong>（询价任务 / 采购台账）+ <strong>基础数据</strong>（备品备件 / 供应商 / 合同 / 抄送）。</p>
+
+      <h3>📋 询价任务（首页）</h3>
+      <p>显示<strong>所有正在进行和已经完成的采购任务</strong>，可按"进行中 / 已完成 / 已归档"等状态过滤。点击任意一条任务 → 进入【任务详情页】（左右分栏）：</p>
+      <ul>
+        <li><strong>左侧</strong>：任务基础信息（合同名 / 备件型号 / 数量 / 创建时间）+ 操作日志（每一步谁、什么时候、做了什么）</li>
+        <li><strong>右侧</strong>：5 步<strong>垂直流程条</strong>，每一步都有【说明】【操作区】【结果摘要】
+          <ol>
+            <li>第 1 步 · 发起询价 → 显示已选中的供应商清单 + 询价邮件内容预览</li>
+            <li>第 2 步 · 等待报价 → 实时显示"已回复 / 未回复"供应商列表</li>
+            <li>第 3 步 · 报价汇总 → 报价汇总高亮卡（推荐成交供应商 = <span class="tag tag-green">绿色高亮</span> + <span class="tag tag-red">成交单价/总额 红色加粗醒目</span>）</li>
+            <li>第 4 步 · 采购确认 → 显示"已发送采购确认邮件给供应商"状态</li>
+            <li>第 5 步 · 到货验收归档 → 显示"验收通过通知 / 已写入台账"状态</li>
+          </ol>
+        </li>
+      </ul>
+
+      <h3>➕ 新建询价</h3>
+      <p>用户在这里<strong>发起一次全新的备品备件采购</strong>，操作分 5 步：</p>
+      <ol>
+        <li><strong>选择合同</strong>（下拉选中具体合同；显示格式：<em>合同名 + 合同号 + 项目经理</em>）</li>
+        <li><strong>选择备件型号</strong>（从备件库全量带出，可任意选择）</li>
+        <li><strong>填写采购数量 / 紧急等级</strong>（2h / 4h / 5h，决定报价截止时间）</li>
+        <li><strong>勾选供应商</strong>（<b>系统自动带出资源池全部供应商</b>，可勾选参与本次询价；也可在表单底部临时新增供应商：仅本次任务可见，不入库）</li>
+        <li>点击「🚀 一键发起询价」→ 系统自动给每个供应商发询价邮件 → 自动跳转回【询价任务】页查看进度</li>
+      </ol>
+      <blockquote>📌 <strong>设计要点</strong>：<b>合同是核心数据</b>，不与供应商/备件做绑定；供应商统一进资源池，新建任务时全量带出。</blockquote>
+
+      <h3>📊 采购台账</h3>
+      <p><strong>所有已完成采购的历史记录汇总册</strong>（审计/结算/对账用），每条记录含：合同号 · 供应商 · 成交单价 · 成交总额 · 采购数量 · 下单时间 · 验收时间。顶部支持筛选条件：<em>合同号 / 供应商 / 下单时间区间</em>，可随时重置回"全部"。</p>
+
+      <h3>🔧 备品备件主数据（基础数据）</h3>
+      <p><strong>维护常用备品备件档案</strong>：编码 · 名称 · 规格型号 · 品牌 · 单位 · 分类 · 备注。新建询价时备件下拉直接从此处带出。支持新增 / 编辑 / 删除 / 按编码/名称/规格/品牌/分类搜索。</p>
+
+      <h3>🏢 供应商主数据（基础数据 · 资源池）</h3>
+      <p><strong>维护所有合作供应商的档案</strong>：名字 + 邮箱 + 供货能力说明。供应商<b>不与合同/备件绑定</b>，全部进入资源池，新建询价时自动全量带出供勾选。支持新增 / 编辑 / 删除 / 按名字、邮箱、供货能力模糊搜索。</p>
+      <blockquote>📌 <strong>业务规则</strong>：删除供应商时，如果该供应商曾出现在任何采购任务/台账中，系统会<strong>禁止删除以保留审计线索</strong>。</blockquote>
+
+      <h3>📄 合同主数据（基础数据 · 核心实体）</h3>
+      <p><strong>维护所有合同的档案</strong>（<em>合同号唯一</em>，是采购业务的唯一键），每条合同档案包含：</p>
+      <ul>
+        <li>合同名（全称，如"IT基础设施扩容合同"）</li>
+        <li>合同号（英文+数字唯一编号，如 <code>IDZB2607070A</code>）</li>
+        <li>项目经理（中文名）</li>
+        <li>项目经理邮箱（接收抄送人 / 审批人邮箱）</li>
+      </ul>
+      <p>支持搜索（合同名/合同号/项目经理名/邮箱）、新增、编辑、删除。</p>
+      <blockquote>
+        📌 <strong>重要业务规则</strong>：<br>
+        ① <strong>合同号全局唯一</strong>，重复会拒绝保存；<br>
+        ② <strong>合同名、项目经理、邮箱修改会同步到所有引用该合同的地方</strong>（采购任务、采购台账），保证信息一致；<br>
+        ③ 如果合同<strong>已被任何采购任务/台账引用</strong>，<strong>禁止删除</strong>以保留审计线索。
+      </blockquote>
+
+      <h3>📮 全局邮件抄送（基础数据）</h3>
+      <p><strong>配置"所有发给供应商的邮件，都自动抄送哪些邮箱"</strong>（<em>全局生效，每个任务都自动加上这些抄送</em>），每条抄送配置含：抄送人姓名 + 抄送人邮箱。支持新增 / 编辑 / 删除 / 搜索。</p>
+      <blockquote>
+        📌 <strong>生效范围</strong>：以下 4 类发给供应商的邮件，都会<strong>自动抄送本列表的全部邮箱</strong>：<br>
+        ① 第 1 步「发起询价」询价邮件 ｜ ② 第 4 步「采购确认」邮件（确认成交后发给中选供应商）｜ ③ 第 5 步「到货验收通过」通知邮件 ｜ ④ 测试确认邮件（运维调试用）
+      </blockquote>
+
+      <h2>三、典型完整业务流程（从 0 到台账归档的 5 步）</h2>
+      <blockquote>示例场景：要采购 3 块华为 AR6280 路由器主板，走完全流程。</blockquote>
+      <h4>第 1 步：发起询价（人：采购人员）</h4>
+      <p>进入【新建询价】页 → 选合同「IDZB2607070A · IT基础设施扩容合同（项目经理：张启明）」→ 选备件「华为 AR6280 路由器主板」，数量=3，紧急等级=4h → 系统自动带出资源池全部供应商，勾选参与询价的：东软供应商、华为总代、运维配件供应商（3 家，也可临时新增临时供应商）→ 点「🚀 一键发起询价」</p>
+      <p><span class="tag tag-cyan">系统自动做的事</span>：给 3 个供应商各发 1 封询价邮件 + <strong>自动抄送给全局抄送列表（张启明 + 运维结算组）</strong> + 生成一条任务，状态=「询比价进行中」+ 写入操作日志</p>
+      <h4>第 2 步：等待报价（无人为操作，系统自动轮询邮箱）</h4>
+      <p>供应商回复报价邮件到系统邮箱 → 系统<strong>自动解析报价单中的单价/总价/货期</strong>，全部收齐或截止时间到后，任务状态进入「已选型确认」前的待审批态</p>
+      <h4>第 3 步：报价汇总 + 项目经理审批</h4>
+      <p>系统<strong>自动生成报价汇总单</strong>，按「总价最低优先 + 货期满足 + 有历史合作」算法推荐成交供应商，报价卡上：<span class="tag tag-green">🟢 推荐成交供应商 = 绿色高亮（亮青邮箱高亮）</span>，<span class="tag tag-red">🔴 成交单价 / 成交总额 = 红色 15px 加粗（醒目）</span>。同时给项目经理<strong>发飞书审批卡片</strong> → 项目经理点开卡片看报价汇总 → 点「确认成交」</p>
+      <h4>第 4 步：采购确认</h4>
+      <p>项目经理点「确认成交」后：系统自动给<strong>中选供应商</strong>发「采购确认邮件」（含订单号、交货地址、签收人）+ <strong>自动抄送给全局抄送列表</strong> + 任务状态=「供应商发货中」</p>
+      <h4>第 5 步：到货验收 + 台账归档</h4>
+      <p>货物到库后，采购人员在任务详情页点「✅ 验收通过」→ 系统自动给供应商发「验收通过通知邮件」+ <em>再次自动抄送全局列表</em> + 自动写入【采购台账】（合同号、供应商、单价、总额、数量、下单/验收时间一应俱全）+ 任务状态=「流程闭环」，全流程闭环</p>
+
+      <h2>四、全局业务规则（所有业务模块都遵守）</h2>
+      <table>
+        <thead><tr><th style="width:48px">#</th><th>业务规则</th><th>业务影响</th></tr></thead>
+        <tbody>
+          <tr><td>R1</td><td><strong>所有供应商邮件 → 自动抄送全局抄送列表</strong></td><td>发件人不用手动加抄送；项目经理/结算组永远能收到副本，<span class="tag tag-green">杜绝漏抄</span></td></tr>
+          <tr><td>R2</td><td><strong>合同号全局唯一</strong></td><td>合同档案里合同号不可重复；后续所有下拉引用都用合同号作唯一键</td></tr>
+          <tr><td>R3</td><td><strong>合同被引用不可删除</strong></td><td>合同一旦被采购任务/台账引用 → 删除按钮返回错误；只能编辑合同元信息</td></tr>
+          <tr><td>R4</td><td><strong>合同信息更新同步全链路</strong></td><td>修改合同名/项目经理/邮箱后，所有引用处（采购任务、采购台账）<em>自动同步</em>，避免信息错乱</td></tr>
+          <tr><td>R5</td><td><strong>供应商 = 资源池</strong></td><td>供应商不与合同/备件绑定；所有供应商自动进资源池；新建询价时<b>自动全量带出</b>供勾选；可临时新增临时供应商（仅本次任务可见，不入库）</td></tr>
+          <tr><td>R6</td><td><strong>合同 = 核心实体</strong></td><td>新建询价只需选合同 → 备件 → 数量；不再有项目层级；台账、任务均以合同为主键串联</td></tr>
+          <tr><td>R7</td><td><strong>审批留痕 = 飞书卡片点击</strong></td><td>项目经理的"确认成交"不可口头；必须点击飞书审批卡片上的按钮，才能触发后续流程（有操作日志记录）</td></tr>
+          <tr><td>R8</td><td><strong>采购台账 = 全量历史记录</strong></td><td>任何"验收通过"的任务自动写入台账，不可手动删除；用于对账、审计、年度备件盘点</td></tr>
+          <tr><td>R9</td><td><strong>紧急等级</strong></td><td>新建询价时，紧急等级由用户选择：2h / 4h / 5h，决定报价截止时间</td></tr>
+          <tr><td>R10</td><td><strong>操作日志不可删除</strong></td><td>所有模块的创建/编辑/删除/审批/验收动作都会写入操作日志，用于事后追溯</td></tr>
+        </tbody>
+      </table>
+
+      <h2>五、验收要点（上线时逐项确认，便于业务验收）</h2>
+      <p>为了便于业务方快速验收上线，列出 <strong>8 项开箱即可验证的要点</strong>：</p>
+      <table>
+        <thead><tr><th style="width:48px">编号</th><th>验收项</th><th>操作方法</th><th>期望结果</th></tr></thead>
+        <tbody>
+          <tr><td>Y1</td><td>合同档案有示例数据</td><td>打开【📄合同】菜单</td><td>能看到示例合同，每条都有合同名、合同号、项目经理、项目经理邮箱</td></tr>
+          <tr><td>Y2</td><td>全局抄送有示例数据</td><td>打开【📮抄送】菜单</td><td>能看到示例抄送：项目管理（张启明）、运维结算组；邮箱都有值</td></tr>
+          <tr><td>Y3</td><td>新建询价的合同下拉来自合同档案</td><td>【➕新建询价】展开合同下拉</td><td>合同下拉显示<em>合同名（主）+ 合同号 + 项目经理</em></td></tr>
+          <tr><td>Y4</td><td>台账合同筛选下拉来自合同档案</td><td>【📊采购台账】展开"合同"筛选框</td><td>显示"合同名 · 合同号 · 项目经理"格式</td></tr>
+          <tr><td>Y5</td><td>新建询价自动带出资源池全部供应商</td><td>【➕新建询价】选好合同/备件/数量后</td><td>底部供应商列表自动显示资源池全部供应商，可勾选；可临时新增（不入库）</td></tr>
+          <tr><td>Y6</td><td><span class="tag tag-red">重点</span>真实询价邮件<strong>有抄送</strong></td><td>用系统发起 1 次真实询价，收件人填自己的测试邮箱</td><td>收到询价邮件后，查看邮件详情→抄送栏应<strong>明确显示全局抄送列表里的邮箱</strong></td></tr>
+          <tr><td>Y7</td><td><span class="tag tag-red">重点</span>采购确认 / 验收邮件<strong>也有抄送</strong></td><td>将 Y6 的询价走到"确认成交"→再走"验收通过"</td><td>确认邮件、验收邮件的<strong>抄送栏也同样显示全局抄送邮箱</strong></td></tr>
+          <tr><td>Y8</td><td>合同禁止删除（保护审计）</td><td>在【📄合同】里选中任一条示例合同 → 点「删除」</td><td>应弹出"合同已被引用，禁止删除"的提示</td></tr>
+        </tbody>
+      </table>
+
+      <h2>六、常见问题 FAQ（业务向）</h2>
+      <p><strong>Q1：我想加一个新的合同，合同号必须什么格式？</strong><br>
+      A：合同号建议用「类别代码 2 位 + 日期（年4月2日2）+ 流水号 1 位」，例如 <code>IDZB2607070A</code> = IT类 + 2026.07.07 立项 + 第A份。<em>只要唯一就行，格式没有强制限制</em>。</p>
+      <p><strong>Q2：全局抄送列表里加了一个新邮箱，多久生效？</strong><br>
+      A：<span class="tag tag-green">即时生效</span>。下一次系统发出的任何供应商邮件都会自动带上这个抄送邮箱；无需重启或刷新。</p>
+      <p><strong>Q3：某供应商离职/停合作了，为什么删不掉？</strong><br>
+      A：系统遵守"审计线索优先"原则——只要该供应商曾出现在任何采购任务或台账中，就禁止彻底删除；可以编辑其邮箱或备注（如标注"已停用"），历史记录保留。</p>
+      <p><strong>Q4：项目经理审批如果没装飞书怎么办？</strong><br>
+      A：项目经理可直接用网页打开系统 → 在采购任务详情页的第 3 步（报价汇总）手动点「✅ 我是项目经理，确认成交」也能完成确认，操作日志同样记录确认人。</p>
+      <p><strong>Q5：供应商回复的报价不是在邮件正文，而是 Excel 附件怎么办？</strong><br>
+      A：系统会自动解析邮件正文里写的"单价×数量=总价"格式；若供应商只发附件，目前需人工把附件里的单价回填到报价汇总卡（后续版本会自动解析 Excel 附件）。</p>
+
+    </div>
+    <div class="help-foot">
+      <div style="font-size:32px">🧭</div>
+      <div class="tip">
+        💡 使用过程中如需临时查阅本说明，随时点击页面右上角的 <b>❓ 帮助</b> 按钮（或按键盘 <b>Esc</b> 关闭当前窗口）。<br>
+        如发现业务规则与实际不符，请联系系统维护人员同步更新业务配置：<b>合同档案 / 备品备件 / 供应商资源池 / 全局抄送</b>。
+      </div>
+      <button class="btn btn-c" onclick="closeHelp()">我知道了</button>
     </div>
   </div>
 </div>
