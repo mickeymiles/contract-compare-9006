@@ -361,6 +361,7 @@
               <th style="min-width:120px">品牌</th>
               <th>单位</th>
               <th>分类</th>
+              <th>成色</th>
               <th style="min-width:200px">备注</th>
               <th>更新时间</th>
               <th style="min-width:180px">操作</th>
@@ -620,6 +621,10 @@
       </div>
     </div>
     <div class="proc-field" style="margin:12px 0">
+      <div class="l">成色</div>
+      <input type="text" id="spCondition" placeholder="如：全新 / 九成新 / 翻新">
+    </div>
+    <div class="proc-field" style="margin:12px 0">
       <div class="l">备注</div>
       <textarea id="spRemark" rows="2" placeholder="兼容性说明、使用场景等"></textarea>
     </div>
@@ -676,6 +681,18 @@
       <div class="proc-field" style="margin:4px 0 0">
         <div class="l">项目经理邮箱</div>
         <input type="email" id="ctPMEmail" placeholder="如：rich-miles@163.com">
+      </div>
+      <div class="proc-field" style="margin:4px 0 0">
+        <div class="l">收货收件人</div>
+        <input type="text" id="ctReceiverName" placeholder="如：张启明">
+      </div>
+      <div class="proc-field" style="margin:4px 0 0">
+        <div class="l">联系方式</div>
+        <input type="text" id="ctReceiverPhone" placeholder="如：13800001111">
+      </div>
+      <div class="proc-field" style="margin:4px 0 0;grid-column:1/-1">
+        <div class="l">邮寄地址</div>
+        <input type="text" id="ctReceiverAddress" placeholder="如：北京市朝阳区望京街10号 望京SOHO塔1-1902">
       </div>
     </div>
     <p id="ctNoChangeHint" style="display:none;margin:10px 4px;font-size:11px;color:var(--amber);background:rgba(255,193,7,.06);padding:8px 10px;border-radius:6px;border:1px solid rgba(255,193,7,.25)">

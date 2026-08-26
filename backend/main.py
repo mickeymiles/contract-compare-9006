@@ -903,9 +903,8 @@ def china_map_data():
 
 # ===================== 备品备件采购询比价 =====================
 from procurement_models import (
-    create_task, get_task, list_tasks, update_task_quote,
-    confirm_selection, input_test_result, cancel_task,
-    write_ledger, list_ledger, list_op_logs,
+    create_task, get_task, list_tasks, confirm_selection, input_test_result, cancel_task,
+    list_op_logs,
     # ---- 供应商主数据 CRUD（资源池，不绑定合同）----
     list_suppliers, get_supplier, create_supplier, update_supplier, delete_supplier,
     # ---- 台账增强查询 ----
@@ -921,10 +920,16 @@ from procurement_models import (
     delete_spare_part, list_spare_part_categories,
 )
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict
 
 
 class SupplierItem(BaseModel):
+    """询价供应商条目（前端页面 -> 9006 API -> DB）。
+    【修复 2026-08-24】显式声明 id 字段（资源池供应商有id，临时供应商无id）。
+    之前未声明时，Pydantic 默认 extra='ignore' 会静默丢弃前端传入的 data-pool-id，
+    导致 flow-02 中 s.id 恒为 None，全部被误标记为 _is_temp=True。"""
+    model_config = {"extra": "allow"}  # 允许额外字段（如 flow-02 回写的下划线字段透传）
+    id: int | None = None
     name: str
     email: str
 
@@ -1199,6 +1204,9 @@ class ProcContractBody(BaseModel):
     contract_name: Optional[str] = ''
     pm_name: Optional[str] = ''
     pm_email: Optional[str] = ''
+    receiver_name: Optional[str] = ''
+    receiver_phone: Optional[str] = ''
+    receiver_address: Optional[str] = ''
 
 
 class ProcContractUpdateBody(BaseModel):
@@ -1206,6 +1214,9 @@ class ProcContractUpdateBody(BaseModel):
     contract_name: Optional[str] = None
     pm_name: Optional[str] = None
     pm_email: Optional[str] = None
+    receiver_name: Optional[str] = None
+    receiver_phone: Optional[str] = None
+    receiver_address: Optional[str] = None
 
 
 @app.get("/api/procurement/contracts")
@@ -1230,6 +1241,9 @@ def api_proc_contracts_create(body: ProcContractBody):
             contract_name=body.contract_name or '',
             pm_name=body.pm_name or '',
             pm_email=body.pm_email or '',
+            receiver_name=body.receiver_name or '',
+            receiver_phone=body.receiver_phone or '',
+            receiver_address=body.receiver_address or '',
         )
         return {"success": True, "data": c}
     except ValueError as e:
@@ -1241,7 +1255,9 @@ def api_proc_contracts_update(contract_id: int, body: ProcContractUpdateBody):
     try:
         c = update_contract(contract_id=contract_id, contract_no=body.contract_no,
                             contract_name=body.contract_name, pm_name=body.pm_name,
-                            pm_email=body.pm_email)
+                            pm_email=body.pm_email,
+                            receiver_name=body.receiver_name, receiver_phone=body.receiver_phone,
+                            receiver_address=body.receiver_address)
         if c is None:
             return JSONResponse({"success": False, "error": "合同不存在"}, status_code=404)
         return {"success": True, "data": c}
@@ -1325,6 +1341,7 @@ class SparePartBody(BaseModel):
     brand: str = ''
     unit: str = '个'
     category: str = '通用'
+    condition: str = ''
     remark: str = ''
 
 
@@ -1334,7 +1351,8 @@ def api_proc_spare_part_create(body: SparePartBody):
         r = create_spare_part(
             part_code=body.part_code, part_name=body.part_name,
             spec_model=body.spec_model, brand=body.brand,
-            unit=body.unit, category=body.category, remark=body.remark)
+            unit=body.unit, category=body.category,
+            condition=body.condition, remark=body.remark)
         return {"success": True, "data": r}
     except ValueError as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=400)
@@ -1346,7 +1364,8 @@ def api_proc_spare_part_update(part_id: int, body: SparePartBody):
         r = update_spare_part(part_id,
                               part_code=body.part_code, part_name=body.part_name,
                               spec_model=body.spec_model, brand=body.brand,
-                              unit=body.unit, category=body.category, remark=body.remark)
+                              unit=body.unit, category=body.category,
+                              condition=body.condition, remark=body.remark)
         return {"success": True, "data": r}
     except ValueError as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=400)
@@ -1816,6 +1835,7 @@ os.makedirs(FUND_DATA_DIR, exist_ok=True)
 @app.get("/api/fund/status")
 def fund_status():
     """查询付款/收款明细的上传状态：优先数据源管理，回退到 fund_data 目录"""
+    from datetime import datetime
     result = {}
     meta = _load_ds_meta()
     name_map = {'payment': ('付款明细表', 'payment_details.xlsx'),

@@ -484,13 +484,52 @@ const FLOW_STEPS = [
       return 0;
     },
     renderResult(t){
-      const inq = (t.inquiry_supplier_list||[]).map(s=>`· ${escapeHtml(s.name)}  <span style="font-family:var(--mono);color:var(--text2)">${escapeHtml(s.email)}</span>`).join('<br>') || '-';
+      // 建立 email -> 报价 的索引，用于快速查找回复状态
+      const replyByEmail = {};
+      (t.replied_supplier_quotes || []).forEach(q => {
+        if (q && q.email) replyByEmail[String(q.email).toLowerCase().trim()] = q;
+      });
+      const row_s = s => {
+        const tempBadge = (s._is_temp || !s.id) ? `<span class="badge badge-c" style="margin-left:6px">临时</span>` : '';
+        const idBadge = s.id ? `<span class="badge badge-o" style="margin-left:4px;font-size:10px;opacity:.75">#${escapeHtml(String(s.id))}</span>` : '';
+        let sendBadge = '';
+        if (s._sent_ok === true) sendBadge = `<span class="tag tag-green" title="询价邮件已成功发送" style="margin-left:6px">✅ 已发送</span>`;
+        else if (s._sent_ok === false) sendBadge = `<span class="tag tag-red" title="询价邮件发送失败：${escapeHtml(s._sent_error||'未知原因')}" style="margin-left:6px">❌ 失败</span>`;
+        else sendBadge = `<span class="tag tag-cyan" style="margin-left:6px">⏳ 发送中</span>`;
+        // 回复状态徽章（从 replied_supplier_quotes 按 email 查找）
+        const emailKey = String(s.email || '').toLowerCase().trim();
+        const replyQ = replyByEmail[emailKey];
+        let replyBadge = '';
+        if (replyQ) {
+          const price = Number(replyQ.unit_price || replyQ.total_price || 0);
+          const priceStr = price > 0 ? ` ¥${price.toFixed(0)}` : '';
+          replyBadge = `<span class="tag tag-green" title="供应商已回复报价${priceStr}" style="margin-left:4px">📨 已回复${priceStr}</span>`;
+        } else if (s._sent_ok === true) {
+          replyBadge = `<span class="tag tag-cyan" title="已发送询价邮件，等待供应商回复" style="margin-left:4px">⏳ 待回复</span>`;
+        }
+        return `<li style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span>· ${escapeHtml(s.name)}${tempBadge}${idBadge}</span>
+          <span style="font-family:var(--mono);color:var(--text2);font-size:12px">&lt;${escapeHtml(s.email)}&gt;</span>
+          ${sendBadge}${replyBadge}
+        </li>`;
+      };
+      const inq = (t.inquiry_supplier_list||[]).length
+        ? `<ul style="margin:4px 0 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px">${
+              (t.inquiry_supplier_list||[]).map(row_s).join('')
+           }</ul>`
+        : '<span style="color:var(--muted)">（无）</span>';
+      const okCnt = (t.inquiry_supplier_list||[]).filter(s=>s._sent_ok===true).length;
+      const failCnt = (t.inquiry_supplier_list||[]).filter(s=>s._sent_ok===false).length;
+      const mailSummary = okCnt===t.inquiry_supplier_list.length
+        ? `✅ 已自动发送（${okCnt}/${t.inquiry_supplier_list.length}）`
+        : (failCnt>0 ? `⚠️ 部分失败（成功${okCnt} / 失败${failCnt} / 总计${t.inquiry_supplier_list.length}）`
+                       : '⏳ 发送中');
       return `
         <div class="kv-grid">
           <div><div class="k">任务创建时间</div><div class="v">${t.create_time||'-'}</div></div>
-          <div><div class="k">询价邮件</div><div class="v">✅ 已自动发送</div></div>
+          <div><div class="k">询价邮件</div><div class="v">${mailSummary}</div></div>
           <div style="grid-column:1 / -1"><div class="k">询价供应商 (共 ${(t.inquiry_supplier_list||[]).length} 家)</div>
-            <div class="v" style="line-height:1.7">${inq}</div>
+            <div class="v">${inq}</div>
           </div>
         </div>`;
     },
@@ -511,8 +550,31 @@ const FLOW_STEPS = [
       let html = '';
       if (!replied.length) {
         html += '<div class="empty-tip" style="padding:14px">暂无供应商回复报价，请等待供应商回邮（系统每 2 分钟自动轮询一次邮箱）。</div>';
+        // 占位，避免 dealPrice 脚本找不到元素
+        html += `<div style="margin-top:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <div style="display:flex;gap:8px;align-items:center">
+            <span style="color:var(--text2);font-size:12px">成交单价：</span>
+            <input type="number" id="dealPrice" min="0" step="0.01" placeholder="输入最终成交价" style="max-width:180px;background:var(--bg3);border:1px solid var(--border);padding:6px 10px;border-radius:5px;color:var(--text)">
+          </div>
+          <button class="btn btn-c" onclick="submitSelection()">✅ 确认选型</button>
+        </div>`;
       } else {
-        // 解析策略 -> 中文标签（黄色告警）
+        // —— 自动选中逻辑 ——
+        // 筛选有有效报价（unit_price > 0）的条目
+        const valid = replied.map((q, i) => ({ i, price: Number(q.unit_price || q.total_price || 0), q }))
+                             .filter(x => x.price > 0);
+        let autoIdx = -1;
+        if (valid.length === 1) {
+          autoIdx = valid[0].i;  // 只有一家回复，直接选中
+        } else if (valid.length > 1) {
+          // 多家回复，选最低价
+          valid.sort((a, b) => a.price - b.price);
+          autoIdx = valid[0].i;
+        } else if (replied.length === 1) {
+          autoIdx = 0;  // 只有一家但报价为0（需人工录入的情况）
+        }
+
+        // 解析策略 -> 中文标签
         const stratTag = q => {
           if (q.is_manual) return '<span class="tag tag-amber" title="已人工录入报价，再次收到邮件复解析不覆盖">✏️ 已人工录入</span>';
           const ps = String(q.parse_strategy || '');
@@ -522,27 +584,35 @@ const FLOW_STEPS = [
           if (manualKeywords.some(k => ps.includes(k)) || Number(q.unit_price||0) <= 0) return '<span class="tag tag-red" title="邮件无法自动解析，请点击铅笔图标人工录入报价/货期">🔴 需人工录入</span>';
           return '<span class="tag tag-cyan" title="解析策略：'+escapeHtml(ps)+'">ℹ️ '+escapeHtml(ps)+'</span>';
         };
-        const rowWarn = q => {
-          if (q.is_manual) return 'background:rgba(255,193,7,.04)';
-          const ps = String(q.parse_strategy || '');
-          if (!ps || ps.startsWith('P1') || ps.startsWith('P2') || ps.startsWith('P3')) return '';
-          return 'background:rgba(255,193,7,.07)';
-        };
+
         html += `<div class="twrap quote-twrap" data-task-id="${escapeHtml(t.task_id||'')}"><table><thead><tr>
           <th style="width:60px">选型</th><th>供应商</th><th>邮箱</th><th>品牌</th><th>型号</th>
-          <th style="width:100px;text-align:right">报价(¥)</th>
+          <th style="width:100px;text-align:right">单价(¥)</th>
+          <th style="width:70px;text-align:center">数量</th>
+          <th style="width:110px;text-align:right">总价(¥)</th>
           <th style="width:90px">货期</th>
           <th style="width:120px">解析</th>
           <th style="width:180px;text-align:center">操作</th>
         </tr></thead><tbody>`;
+        const qty = Number(t.purchase_qty || 1);
         replied.forEach((q, i) => {
-          html += `<tr style="${rowWarn(q)}">
-            <td><input type="radio" name="quoteRadio" value="${i}" ${Number(q.unit_price||0)<=0?'disabled title="该供应商报价未解析或为0，需先人工录入再选型"':''}></td>
+          const isAutoSel = i === autoIdx;
+          const rowBg = isAutoSel ? 'background:rgba(255,64,129,.10)' : '';
+          const priceStyle = isAutoSel ? 'color:var(--red);font-size:16px;font-weight:700' : '';
+          const unitPrice = Number(q.unit_price || q.total_price || 0);
+          // 若报价里已带 total_price 则用它，否则 unit × qty
+          const totalPrice = Number(q.total_price || 0) > 0
+            ? Number(q.total_price || 0)
+            : unitPrice * qty;
+          html += `<tr style="${rowBg}">
+            <td><input type="radio" name="quoteRadio" value="${i}" ${isAutoSel ? 'checked' : ''} ${unitPrice<=0?'disabled title="该供应商报价未解析或为0，需先人工录入再选型"':''} onchange="onQuoteRadioChange(this)"></td>
             <td>${escapeHtml(q.supplier_name || q.name || '')}</td>
             <td style="font-family:var(--mono);font-size:11px">${escapeHtml(q.email || '')}</td>
             <td>${escapeHtml(q.brand || '')}</td>
             <td>${escapeHtml(q.model || '')}</td>
-            <td style="text-align:right;font-weight:600">${Number(q.unit_price||0).toFixed(2)}</td>
+            <td style="text-align:right;${priceStyle}">${unitPrice.toFixed(2)}</td>
+            <td style="text-align:center">${qty}</td>
+            <td style="text-align:right;${priceStyle}">${totalPrice.toFixed(2)}</td>
             <td style="font-size:11px">${escapeHtml(q.lead_time||'-')}</td>
             <td>${stratTag(q)}</td>
             <td style="text-align:center">
@@ -554,6 +624,7 @@ const FLOW_STEPS = [
           </tr>`;
         });
         html += '</tbody></table></div>';
+
         // 若有"需人工录入"的报价 → 顶部红色警示条
         const ps = qq => String((qq||{}).parse_strategy || '');
         const isManualNeed = q => {
@@ -566,12 +637,15 @@ const FLOW_STEPS = [
           html += `<div style="margin-top:12px;padding:10px 12px;background:rgba(248,113,113,.07);border:1px dashed rgba(248,113,113,.4);border-radius:7px;font-size:12px;color:var(--red)">
             🔴 有 ${replied.filter(isManualNeed).length} 家供应商的报价无法自动解析（邮件只回一个数字、或没有关键字），请点击每行右侧 ✏️ 修改 人工录入报价；点 📄 详情 可查看原始邮件内容后再确认选型。</div>`;
         }
+
+        // 自动填入最低价到成交单价
+        const autoPrice = autoIdx >= 0 ? Number(replied[autoIdx]?.unit_price || 0) : '';
         html += `
           <div style="margin-top:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
             <div style="display:flex;gap:8px;align-items:center">
               <span style="color:var(--text2);font-size:12px">成交单价：</span>
-              <input type="number" id="dealPrice" min="0" step="0.01" placeholder="输入最终成交价" style="max-width:180px;background:var(--bg3);border:1px solid var(--border);padding:6px 10px;border-radius:5px">
-              <span style="color:var(--text2);font-size:11px">（通常为选中的报价，可按议价结果手动调整）</span>
+              <input type="number" id="dealPrice" min="0" step="0.01" placeholder="输入最终成交价" value="${autoPrice}" style="max-width:180px;background:var(--bg3);border:1px solid var(--border);padding:6px 10px;border-radius:5px;color:var(--text);font-size:14px;font-weight:600">
+              <span style="color:var(--text2);font-size:11px">${autoIdx >= 0 ? `（已自动填入最低价 ¥${autoPrice}，可手动调整）` : '（请选择供应商后手动填写）'}</span>
             </div>
             <button class="btn btn-c" onclick="submitSelection()">✅ 确认选型</button>
           </div>`;
@@ -656,6 +730,7 @@ const FLOW_STEPS = [
     renderAction(t){
       const dl = t.delivery_time;
       const no = t.logistics_no;
+      const carrier = t.logistics_carrier;
       let card = '';
       if (no || dl) {
         card = `
@@ -664,6 +739,7 @@ const FLOW_STEPS = [
             <div class="kv-grid">
               <div><div class="k">发货时间</div><div class="v">${dl||'-'}</div></div>
               <div><div class="k">物流单号</div><div class="v" style="font-family:var(--mono);font-weight:700">${no||'-'}</div></div>
+              ${carrier ? `<div><div class="k">承运商</div><div class="v">${carrier}</div></div>` : ''}
             </div>
           </div>`;
       } else {
@@ -1008,6 +1084,72 @@ document.addEventListener('click', (ev) => {
   else if (el.closest('.btn-quote-orig')) openQuoteOrig(taskId, replyIndex);
 }, true);
 
+// ============ 报价单选联动成交单价 + 行高亮 ============
+function onQuoteRadioChange(radioEl) {
+  if (!radioEl) return;
+  const idx = parseInt(radioEl.value, 10);
+  const task = currentDetailTask;
+  const quotes = (task && task.replied_supplier_quotes) || [];
+  const q = quotes[idx];
+  const price = Number(q?.unit_price || q?.total_price || 0);
+
+  // 1. 更新成交单价输入框
+  const deal = $('dealPrice');
+  if (deal && price > 0) {
+    deal.value = price.toFixed(2);
+  }
+
+  // 2. 高亮选中行（红色加大字体）
+  // 列索引: 0=单选, 1=供应商, 2=邮箱, 3=品牌, 4=型号, 5=单价, 6=数量, 7=总价, 8=货期, 9=解析, 10=操作
+  const PRICE_COL = 5;
+  const TOTAL_COL = 7;
+  const tbody = radioEl.closest('tbody');
+  if (tbody) {
+    tbody.querySelectorAll('tr').forEach(tr => {
+      tr.style.background = '';
+      tr.querySelectorAll('td').forEach((td, ci) => {
+        if (ci === PRICE_COL || ci === TOTAL_COL) {
+          td.style.color = '';
+          td.style.fontSize = '';
+          td.style.fontWeight = '';
+        }
+      });
+    });
+    const tr = radioEl.closest('tr');
+    if (tr) {
+      tr.style.background = 'rgba(255,64,129,.10)';
+      const tds = tr.querySelectorAll('td');
+      const qty = Number(currentDetailTask?.purchase_qty || 1);
+      const total = Number(q?.total_price || 0) > 0
+        ? Number(q.total_price)
+        : price * qty;
+      if (tds[PRICE_COL]) {
+        tds[PRICE_COL].style.color = 'var(--red)';
+        tds[PRICE_COL].style.fontSize = '16px';
+        tds[PRICE_COL].style.fontWeight = '700';
+      }
+      if (tds[TOTAL_COL]) {
+        tds[TOTAL_COL].style.color = 'var(--red)';
+        tds[TOTAL_COL].style.fontSize = '16px';
+        tds[TOTAL_COL].style.fontWeight = '700';
+        tds[TOTAL_COL].textContent = total.toFixed(2);
+      }
+    }
+  }
+
+  // 3. 更新成交单价说明文字
+  const hintEl = document.querySelector('.step-action');
+  if (hintEl && price > 0) {
+    const allSpans = hintEl.querySelectorAll('span');
+    for (const sp of allSpans) {
+      if (sp.textContent && sp.textContent.includes('已自动填入')) {
+        sp.textContent = `（已选择 ${q?.supplier_name || q?.name || ''} 报价 ¥${price}，可手动调整）`;
+        break;
+      }
+    }
+  }
+}
+
 // ============ 人工修改报价弹窗（对应第 2 步 ✏️ 修改按钮） ============
 let __mqContext = { taskId: '', replyIndex: -1 };
 function openManualEditQuote(taskId, replyIndex) {
@@ -1139,12 +1281,15 @@ async function loadContractList() {
           return;
         }
         body.innerHTML = rows.map(c => {
+          const recvInfo = (c.receiver_name || c.receiver_address || c.receiver_phone)
+            ? `<div style="font-size:11px;color:var(--text2);margin-top:3px">📦 ${escapeHtml([c.receiver_address, c.receiver_name, c.receiver_phone].filter(Boolean).join(' · '))}</div>`
+            : '';
           return `
             <tr>
               <td><b>${escapeHtml(c.contract_name || '-')}</b></td>
               <td style="font-family:var(--mono);color:var(--cyan);font-size:12px">${escapeHtml(c.contract_no)}</td>
               <td>${escapeHtml(c.pm_name || '-')}</td>
-              <td style="color:#5ed7ff">${escapeHtml(c.pm_email || '-')}</td>
+              <td style="color:#5ed7ff">${escapeHtml(c.pm_email || '-')}${recvInfo}</td>
               <td style="font-size:11px;color:var(--text2)">${escapeHtml(c.updated_at || c.created_at || '-')}</td>
               <td>
                 <button class="btn btn-o btn-s" onclick="openContractModal(${c.id})">✏️ 编辑</button>
@@ -1170,6 +1315,9 @@ function openContractModal(contractId = null) {
   $('ctContractName').value = '';
   $('ctPMName').value = '';
   $('ctPMEmail').value = '';
+  $('ctReceiverName').value = '';
+  $('ctReceiverPhone').value = '';
+  $('ctReceiverAddress').value = '';
   $('ctNoChangeHint').style.display = contractId ? 'block' : 'none';
   if (contractId) {
     api(`/contracts/${contractId}`).then(d => {
@@ -1178,6 +1326,9 @@ function openContractModal(contractId = null) {
       $('ctContractName').value = c.contract_name || '';
       $('ctPMName').value = c.pm_name || '';
       $('ctPMEmail').value = c.pm_email || '';
+      $('ctReceiverName').value = c.receiver_name || '';
+      $('ctReceiverPhone').value = c.receiver_phone || '';
+      $('ctReceiverAddress').value = c.receiver_address || '';
     }).catch(e => toast('加载合同失败: ' + e.message, 'err'));
   }
   $('contractModal').classList.add('show');
@@ -1190,14 +1341,18 @@ async function submitContract() {
       const contract_name = $('ctContractName').value;
       const pm_name = $('ctPMName').value;
       const pm_email = $('ctPMEmail').value;
+      const receiver_name = $('ctReceiverName').value;
+      const receiver_phone = $('ctReceiverPhone').value;
+      const receiver_address = $('ctReceiverAddress').value;
       if (!contract_no) { toast('合同编号必填', 'err'); return; }
       try {
         const id = $('ctEditingId').value;
+        const payload = { contract_no, contract_name, pm_name, pm_email, receiver_name, receiver_phone, receiver_address };
         if (id) {
-          await api(`/contracts/${parseInt(id)}`, 'PUT', { contract_no, contract_name, pm_name, pm_email });
+          await api(`/contracts/${parseInt(id)}`, 'PUT', payload);
           toast('合同已更新');
         } else {
-          await api('/contracts', 'POST', { contract_no, contract_name, pm_name, pm_email });
+          await api('/contracts', 'POST', payload);
           toast('合同已创建');
         }
         closeContractModal();
@@ -1537,6 +1692,7 @@ async function loadSparePartList() {
             <td>${r.brand || ''}</td>
             <td>${r.unit || '个'}</td>
             <td><span class="tag-sup">${r.category || '通用'}</span></td>
+            <td>${r.condition || '-'}</td>
             <td style="color:var(--text2);font-size:12px">${r.remark || ''}</td>
             <td style="color:var(--text2);font-size:11.5px">${r.updated_at || r.created_at || ''}</td>
             <td>
@@ -1562,6 +1718,7 @@ function openSparePartModal() {
   $('spBrand').value = '';
   $('spUnit').value = '个';
   $('spCategory').value = '通用';
+  $('spCondition').value = '';
   $('spRemark').value = '';
   $('sparePartModal').classList.add('show');
 }
@@ -1580,6 +1737,7 @@ async function editSparePart(id) {
     $('spBrand').value = d.brand || '';
     $('spUnit').value = d.unit || '个';
     $('spCategory').value = d.category || '通用';
+    $('spCondition').value = d.condition || '';
     $('spRemark').value = d.remark || '';
     $('sparePartModal').classList.add('show');
   } catch (e) { toast('加载失败: ' + e.message, 'err'); }
@@ -1596,6 +1754,7 @@ async function submitSparePart() {
         brand: $('spBrand').value.trim(),
         unit: $('spUnit').value,
         category: $('spCategory').value,
+        condition: $('spCondition').value.trim(),
         remark: $('spRemark').value.trim(),
       };
       if (!payload.part_code || !payload.part_name) {

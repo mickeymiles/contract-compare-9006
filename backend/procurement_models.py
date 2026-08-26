@@ -164,25 +164,39 @@ def init_procurement_db():
             contract_name TEXT DEFAULT '',
             pm_name       TEXT DEFAULT '',
             pm_email      TEXT DEFAULT '',
+            receiver_name TEXT DEFAULT '',
+            receiver_phone TEXT DEFAULT '',
+            receiver_address TEXT DEFAULT '',
             created_at    TEXT DEFAULT (datetime('now','localtime')),
             updated_at    TEXT DEFAULT (datetime('now','localtime')),
             UNIQUE(contract_no)
         )
     """)
     c.execute("CREATE INDEX IF NOT EXISTS idx_proc_contract_name ON procurement_contract(contract_name)")
+    # 老库迁移：补充 收件人/联系方式/邮寄地址 三列（报错则说明已存在，忽略）
+    for _col in ('receiver_name', 'receiver_phone', 'receiver_address'):
+        try:
+            c.execute(f"ALTER TABLE procurement_contract ADD COLUMN {_col} TEXT DEFAULT ''")
+        except Exception:
+            pass
 
     # 初始化 4 条示例合同
     c.execute("SELECT COUNT(*) FROM procurement_contract")
     if c.fetchone()[0] == 0:
         seed_contracts = [
-            ('IDZB2607070A', '示范项目A期-IT基础设施扩容合同',  '张启明', 'rich-miles@163.com'),
-            ('CSZB2512210A', '运维节点B期扩容-服务器配件采购合同','李慧敏', 'biquanzhi3@163.com'),
-            ('CGZB2605112B', '核心机房光模块集中采购框架合同',  '王大伟',  'biquanzhi2@163.com'),
-            ('QTZB2603080C', '园区交换机备件及年度维保合同',     '周晓峰',  'biquanzhi@163.com'),
+            ('IDZB2607070A', '示范项目A期-IT基础设施扩容合同',  '张启明', 'rich-miles@163.com',
+             '张启明', '13800001111', '北京市朝阳区望京街10号 望京SOHO塔1-1902'),
+            ('CSZB2512210A', '运维节点B期扩容-服务器配件采购合同','李慧敏', 'biquanzhi3@163.com',
+             '李慧敏', '13800002222', '上海市浦东新区张江高科技园区祖冲之路887弄 中心大厦B座'),
+            ('CGZB2605112B', '核心机房光模块集中采购框架合同',  '王大伟',  'biquanzhi2@163.com',
+             '王大伟', '13800003333', '广州市天河区体育西路103号 维多利广场A塔'),
+            ('QTZB2603080C', '园区交换机备件及年度维保合同',     '周晓峰',  'biquanzhi@163.com',
+             '周晓峰', '13800004444', '深圳市南山区科技园南区 深湾科技园T2栋'),
         ]
         c.executemany("""
-            INSERT INTO procurement_contract(contract_no, contract_name, pm_name, pm_email)
-            VALUES (?,?,?,?)
+            INSERT INTO procurement_contract(contract_no, contract_name, pm_name, pm_email,
+                                             receiver_name, receiver_phone, receiver_address)
+            VALUES (?,?,?,?,?,?,?)
         """, seed_contracts)
 
     # 6. 全局邮件抄送配置：所有发给供应商的邮件自动抄送这些人
@@ -212,28 +226,34 @@ def init_procurement_db():
             brand        TEXT DEFAULT '',
             unit         TEXT DEFAULT '个',
             category     TEXT DEFAULT '通用',
+            condition    TEXT DEFAULT '',
             remark       TEXT DEFAULT '',
             created_at   TEXT DEFAULT (datetime('now','localtime')),
             updated_at   TEXT DEFAULT (datetime('now','localtime'))
         )
     """)
     c.execute("CREATE INDEX IF NOT EXISTS idx_proc_sparepart_code ON procurement_spare_part(part_code)")
+    # 老库迁移：补充「成色」列（报错则说明已存在，忽略）
+    try:
+        c.execute("ALTER TABLE procurement_spare_part ADD COLUMN condition TEXT DEFAULT ''")
+    except Exception:
+        pass
 
     # 初始化几条示例备件
     c.execute("SELECT COUNT(*) FROM procurement_spare_part")
     if c.fetchone()[0] == 0:
         c.executemany("""
-            INSERT INTO procurement_spare_part(part_code, part_name, spec_model, brand, unit, category, remark)
-            VALUES (?,?,?,?,?,?,?)
+            INSERT INTO procurement_spare_part(part_code, part_name, spec_model, brand, unit, category, condition, remark)
+            VALUES (?,?,?,?,?,?,?,?)
         """, [
-            ('SP-0001', '内存条', 'DDR4 32GB 3200MHz', '三星/Samsung', '条', '服务器配件', 'Dell R740/R760 通用'),
-            ('SP-0002', '固态硬盘', '2.5寸 960GB SATA', '希捷/Seagate', '块', '存储配件', '服务器通用'),
-            ('SP-0003', '电源模块', '铂金 800W 80PLUS', '台达/Delta', '个', '电源配件', 'Dell R740 原装'),
-            ('SP-0004', '光模块', '10G SFP+ 多模 850nm', '华为/Huawei', '个', '网络配件', '交换机通用'),
-            ('SP-0005', '服务器风扇', '120mm 20000RPM', '建准/Sunon', '个', '散热配件', 'Dell R740/R760'),
-            ('SP-0006', '网线', 'CAT6A 10米', '安普/AMP', '根', '网络配件', '机房布线常用'),
-            ('SP-0007', '磁盘阵列卡缓存', '2GB NVMe', 'LSI/Broadcom', '个', '存储配件', '9361-8i 通用'),
-            ('SP-0008', '电池模块', 'UPS 铅酸 12V 9Ah', '施耐德/Schneider', '块', '电源配件', 'UPS 备用电源'),
+            ('SP-0001', '内存条', 'DDR4 32GB 3200MHz', '三星/Samsung', '条', '服务器配件', '全新', 'Dell R740/R760 通用'),
+            ('SP-0002', '固态硬盘', '2.5寸 960GB SATA', '希捷/Seagate', '块', '存储配件', '全新', '服务器通用'),
+            ('SP-0003', '电源模块', '铂金 800W 80PLUS', '台达/Delta', '个', '电源配件', '全新', 'Dell R740 原装'),
+            ('SP-0004', '光模块', '10G SFP+ 多模 850nm', '华为/Huawei', '个', '网络配件', '全新', '交换机通用'),
+            ('SP-0005', '服务器风扇', '120mm 20000RPM', '建准/Sunon', '个', '散热配件', '九成新', 'Dell R740/R760'),
+            ('SP-0006', '网线', 'CAT6A 10米', '安普/AMP', '根', '网络配件', '全新', '机房布线常用'),
+            ('SP-0007', '磁盘阵列卡缓存', '2GB NVMe', 'LSI/Broadcom', '个', '存储配件', '全新', '9361-8i 通用'),
+            ('SP-0008', '电池模块', 'UPS 铅酸 12V 9Ah', '施耐德/Schneider', '块', '电源配件', '九成新', 'UPS 备用电源'),
         ])
 
     # ---- 老 schema 迁移：DROP 已废弃的表 + ALTER DROP 老字段（失败不阻断主流程）----
@@ -291,6 +311,25 @@ def create_task(*, contract_no, spare_part_model,
             {'id': s['id'], 'name': s['name'], 'email': s['email']}
             for s in all_sup
         ]
+    # 【修复 2026-08-24】兜底：对显式传入的 inquiry_supplier_list，按 email 反查资源池补 id。
+    # 场景：前端正确传了 poolId，但后端 SupplierItem 缺少 id 声明（已修）、或其他调用方（API/Agent）
+    # 只传了 name+email。保证最终落库的 JSON 里，资源池供应商一定带 id，flow-02 才能正确标记
+    # _is_temp=False（资源池） vs True（临时）。
+    try:
+        sup_all = list_suppliers()
+        sup_by_email = {str(s.get('email', '')).lower().strip(): s for s in sup_all if s.get('email')}
+    except Exception:
+        sup_by_email = {}
+    if inquiry_supplier_list and sup_by_email:
+        for s in inquiry_supplier_list:
+            if not isinstance(s, dict):
+                continue
+            if s.get('id'):
+                continue  # 已有 id，跳过
+            em = str(s.get('email', '')).lower().strip()
+            hit = sup_by_email.get(em)
+            if hit and hit.get('id'):
+                s['id'] = hit['id']
     suppliers_json = json.dumps(inquiry_supplier_list, ensure_ascii=False)
     no_reply_json = json.dumps(inquiry_supplier_list, ensure_ascii=False)
     conn = get_db()
@@ -766,7 +805,8 @@ def get_contract(contract_id=None, contract_no=None):
     return dict(r) if r else None
 
 
-def create_contract(*, contract_no, contract_name='', pm_name='', pm_email=''):
+def create_contract(*, contract_no, contract_name='', pm_name='', pm_email='',
+                    receiver_name='', receiver_phone='', receiver_address=''):
     """新增合同：contract_no 唯一，重复抛 ValueError"""
     if not contract_no:
         raise ValueError("合同编号必填")
@@ -777,9 +817,11 @@ def create_contract(*, contract_no, contract_name='', pm_name='', pm_email=''):
         conn.close()
         raise ValueError(f"合同编号 {contract_no} 已存在，不允许重复")
     c.execute("""
-        INSERT INTO procurement_contract(contract_no, contract_name, pm_name, pm_email)
-        VALUES (?,?,?,?)
-    """, (contract_no.strip(), contract_name.strip(), (pm_name or '').strip(), (pm_email or '').strip()))
+        INSERT INTO procurement_contract(contract_no, contract_name, pm_name, pm_email,
+                                         receiver_name, receiver_phone, receiver_address)
+        VALUES (?,?,?,?,?,?,?)
+    """, (contract_no.strip(), contract_name.strip(), (pm_name or '').strip(), (pm_email or '').strip(),
+          (receiver_name or '').strip(), (receiver_phone or '').strip(), (receiver_address or '').strip()))
     new_id = c.lastrowid
     conn.commit()
     conn.close()
@@ -787,7 +829,8 @@ def create_contract(*, contract_no, contract_name='', pm_name='', pm_email=''):
 
 
 def update_contract(*, contract_id, contract_no=None, contract_name=None,
-                    pm_name=None, pm_email=None):
+                    pm_name=None, pm_email=None,
+                    receiver_name=None, receiver_phone=None, receiver_address=None):
     """编辑合同"""
     conn = get_db()
     c = conn.cursor()
@@ -820,6 +863,12 @@ def update_contract(*, contract_id, contract_no=None, contract_name=None,
         sets.append("pm_name=?"); params.append((pm_name or '').strip())
     if pm_email is not None:
         sets.append("pm_email=?"); params.append((pm_email or '').strip())
+    if receiver_name is not None:
+        sets.append("receiver_name=?"); params.append((receiver_name or '').strip())
+    if receiver_phone is not None:
+        sets.append("receiver_phone=?"); params.append((receiver_phone or '').strip())
+    if receiver_address is not None:
+        sets.append("receiver_address=?"); params.append((receiver_address or '').strip())
     if not sets:
         conn.close(); return get_contract(contract_id=contract_id)
     sets.append("updated_at=datetime('now','localtime')")
@@ -946,14 +995,14 @@ def get_spare_part(part_id):
 
 
 def create_spare_part(*, part_code, part_name, spec_model='', brand='',
-                      unit='个', category='通用', remark=''):
+                      unit='个', category='通用', condition='', remark=''):
     conn = get_db()
     try:
         c = conn.cursor()
         c.execute("""
-            INSERT INTO procurement_spare_part(part_code, part_name, spec_model, brand, unit, category, remark)
-            VALUES (?,?,?,?,?,?,?)
-        """, (part_code.strip(), part_name.strip(), spec_model, brand, unit, category, remark))
+            INSERT INTO procurement_spare_part(part_code, part_name, spec_model, brand, unit, category, condition, remark)
+            VALUES (?,?,?,?,?,?,?,?)
+        """, (part_code.strip(), part_name.strip(), spec_model, brand, unit, category, condition, remark))
         new_id = c.lastrowid
         conn.commit()
         return get_spare_part(new_id)
@@ -969,7 +1018,7 @@ def create_spare_part(*, part_code, part_name, spec_model='', brand='',
 
 def update_spare_part(part_id, **fields):
     """更新备件信息"""
-    allowed = ('part_code', 'part_name', 'spec_model', 'brand', 'unit', 'category', 'remark')
+    allowed = ('part_code', 'part_name', 'spec_model', 'brand', 'unit', 'category', 'condition', 'remark')
     sets, params = [], []
     for k in allowed:
         if k in fields and fields[k] is not None:
@@ -987,7 +1036,7 @@ def update_spare_part(part_id, **fields):
         return get_spare_part(part_id)
     except Exception as e:
         if 'UNIQUE' in str(e):
-            raise ValueError(f"备件编码已被其他记录占用")
+            raise ValueError("备件编码已被其他记录占用")
         raise
     finally:
         conn.close()
