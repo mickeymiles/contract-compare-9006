@@ -29,6 +29,7 @@ from domains.foundation.routes_datasource import router as foundation_ds_router
 from domains.foundation.routes_ontology import router as foundation_ontology_router
 from domains.finance.routes_gross import router as finance_gross_router
 from domains.foundation.routes_etl import router as foundation_etl_router
+from domains.lifecycle.routes_plm import router as lifecycle_plm_router
 from domains.ops.routes_ops import router as ops_router
 from domains.finance.routes_payment import router as finance_payment_router
 from domains.procurement.routes_contrast import router as procurement_contrast_router
@@ -36,6 +37,7 @@ app.include_router(foundation_ds_router)
 app.include_router(foundation_ontology_router)
 app.include_router(finance_gross_router)
 app.include_router(foundation_etl_router)
+app.include_router(lifecycle_plm_router)
 app.include_router(ops_router)
 app.include_router(finance_payment_router)
 app.include_router(procurement_contrast_router)
@@ -2622,437 +2624,163 @@ def plm_app_js():
 
 
 # ---- 总览 / 配置 / 字典 / 日志 ----
-@app.get("/api/plm/overview")
-def api_plm_overview():
-    return _plm_ret(plm.overview())
 
 
-@app.get("/api/plm/dict")
-def api_plm_dict(category: Optional[str] = None):
-    return _plm_ret(plm.list_dict(category))
 
 
-@app.post("/api/plm/dict")
-def api_plm_dict_create(payload: Dict[str, Any]):
-    return _plm_ret(plm.create_dict(payload.get('category', ''), payload.get('key', ''),
-                                    payload.get('label', ''), payload.get('sort', 0),
-                                    payload.get('remark', ''), _plm_op(payload)))
 
 
-@app.delete("/api/plm/dict/{dict_id}")
-def api_plm_dict_delete(dict_id: int, operator: str = Query('admin')):
-    return _plm_ret(plm.delete_dict(dict_id, operator))
 
 
-@app.get("/api/plm/config")
-def api_plm_config():
-    return _plm_ret(plm.list_config())
 
 
-@app.put("/api/plm/config")
-def api_plm_config_update(payload: Dict[str, Any]):
-    key = payload.get('key')
-    if not key:
-        return {'success': False, 'error': 'key 必填'}
-    return _plm_ret({'key': key,
-                     'value': plm.set_config(key, payload.get('value', ''),
-                                             payload.get('description', ''), _plm_op(payload))})
 
 
-@app.get("/api/plm/logs")
-def api_plm_logs(target_type: Optional[str] = None, target_id: Optional[str] = None,
-                 limit: int = Query(200, le=1000)):
-    return _plm_ret(plm.list_logs(target_type, target_id, limit))
 
 
 # ---- 模块一：商机与投标概算 ----
-@app.get("/api/plm/opportunities")
-def api_plm_opp_list(keyword: Optional[str] = None, status: Optional[str] = None):
-    return _plm_ret(plm.list_opportunities(keyword, status))
 
 
-@app.post("/api/plm/opportunities")
-def api_plm_opp_create(payload: Dict[str, Any]):
-    return _plm_ret(plm.create_opportunity(payload, _plm_op(payload)))
 
 
-@app.get("/api/plm/opportunities/{opp_id}")
-def api_plm_opp_get(opp_id: int):
-    r = plm.get_opportunity(opp_id)
-    if not r:
-        return JSONResponse({'success': False, 'error': '商机不存在'}, status_code=404)
-    return _plm_ret(r)
 
 
-@app.put("/api/plm/opportunities/{opp_id}")
-def api_plm_opp_update(opp_id: int, payload: Dict[str, Any]):
-    return _plm_ret(plm.update_opportunity(opp_id, payload, _plm_op(payload)))
 
 
-@app.delete("/api/plm/opportunities/{opp_id}")
-def api_plm_opp_delete(opp_id: int, operator: str = Query('admin')):
-    return _plm_ret(plm.delete_opportunity(opp_id, operator))
 
 
-@app.post("/api/plm/opportunities/{opp_id}/follow")
-def api_plm_opp_follow(opp_id: int, payload: Dict[str, Any]):
-    return _plm_ret(plm.add_follow_record(opp_id, payload.get('content', ''),
-                                          _plm_op(payload), payload.get('time')))
 
 
-@app.get("/api/plm/opportunities/{opp_id}/estimate")
-def api_plm_opp_estimate(opp_id: int):
-    return _plm_ret(plm.get_opportunity_estimate(opp_id))
 
 
-@app.post("/api/plm/opportunities/{opp_id}/estimate")
-def api_plm_opp_estimate_save(opp_id: int, payload: Dict[str, Any]):
-    return _plm_ret(plm.save_opportunity_estimate(opp_id, payload, _plm_op(payload)))
 
 
-@app.get("/api/plm/opportunities/{opp_id}/docs")
-def api_plm_opp_docs(opp_id: int):
-    return _plm_ret(plm.list_presale_docs(opp_id))
 
 
-@app.post("/api/plm/opportunities/{opp_id}/docs")
-def api_plm_opp_doc_create(opp_id: int, payload: Dict[str, Any]):
-    p = dict(payload)
-    p['opportunity_id'] = opp_id
-    return _plm_ret(plm.create_presale_doc(p, _plm_op(payload)))
 
 
-@app.delete("/api/plm/presale-docs/{doc_id}")
-def api_plm_opp_doc_delete(doc_id: int, operator: str = Query('admin')):
-    return _plm_ret(plm.delete_presale_doc(doc_id, operator))
 
 
 # ---- 模块二：中标商机联动立项 ----
-@app.post("/api/plm/opportunities/convert")
-def api_plm_convert(payload: Dict[str, Any]):
-    return _plm_ret(plm.convert_opportunity(payload, _plm_op(payload)))
 
 
 # ---- 模块二：合同 ----
-@app.get("/api/plm/contracts")
-def api_plm_ct_list(keyword: Optional[str] = None):
-    return _plm_ret(plm.list_contracts(keyword))
 
 
-@app.post("/api/plm/contracts")
-def api_plm_ct_create(payload: Dict[str, Any]):
-    return _plm_ret(plm.create_contract(payload, _plm_op(payload)))
 
 
-@app.get("/api/plm/contracts/{contract_id}")
-def api_plm_ct_get(contract_id: int):
-    r = plm.get_contract(contract_id)
-    if not r:
-        return JSONResponse({'success': False, 'error': '合同不存在'}, status_code=404)
-    return _plm_ret(r)
 
 
-@app.put("/api/plm/contracts/{contract_id}")
-def api_plm_ct_update(contract_id: int, payload: Dict[str, Any]):
-    return _plm_ret(plm.update_contract(contract_id, payload, _plm_op(payload)))
 
 
-@app.delete("/api/plm/contracts/{contract_id}")
-def api_plm_ct_delete(contract_id: int, operator: str = Query('admin')):
-    return _plm_ret(plm.delete_contract(contract_id, operator))
 
 
 # ---- 项目：列表 / 详情 / 全景 / 进度 / 财务 ----
-@app.get("/api/plm/projects")
-def api_plm_proj_list(keyword: Optional[str] = None, status: Optional[str] = None):
-    return _plm_ret(plm.list_projects(keyword, status))
 
 
-@app.post("/api/plm/projects")
-def api_plm_proj_create(payload: Dict[str, Any]):
-    return _plm_ret(plm.create_project(payload, _plm_op(payload)))
 
 
-@app.get("/api/plm/projects/{project_id}")
-def api_plm_proj_get(project_id: int):
-    r = plm.get_project(project_id)
-    if not r:
-        return JSONResponse({'success': False, 'error': '项目不存在'}, status_code=404)
-    return _plm_ret(r)
 
 
-@app.put("/api/plm/projects/{project_id}")
-def api_plm_proj_update(project_id: int, payload: Dict[str, Any]):
-    return _plm_ret(plm.update_project(project_id, payload, _plm_op(payload)))
 
 
-@app.delete("/api/plm/projects/{project_id}")
-def api_plm_proj_delete(project_id: int, operator: str = Query('admin')):
-    return _plm_ret(plm.delete_project(project_id, operator))
 
 
-@app.get("/api/plm/projects/{project_id}/panorama")
-def api_plm_proj_panorama(project_id: int):
-    r = plm.project_panorama(project_id)
-    if not r:
-        return JSONResponse({'success': False, 'error': '项目不存在'}, status_code=404)
-    return _plm_ret(r)
 
 
-@app.get("/api/plm/projects/{project_id}/progress")
-def api_plm_proj_progress(project_id: int):
-    return _plm_ret(plm.project_progress(project_id))
 
 
-@app.get("/api/plm/projects/{project_id}/finance")
-def api_plm_proj_finance(project_id: int):
-    return _plm_ret(plm.project_finance(project_id))
 
 
 # ---- 模块二/三：四算基线 ----
-@app.get("/api/plm/projects/{project_id}/baselines")
-def api_plm_baseline_list(project_id: int):
-    return _plm_ret(plm.list_baselines(project_id=project_id))
 
 
-@app.get("/api/plm/projects/{project_id}/baseline-compare")
-def api_plm_baseline_compare(project_id: int):
-    return _plm_ret(plm.compare_baselines(project_id))
 
 
-@app.post("/api/plm/projects/{project_id}/baselines")
-def api_plm_baseline_save(project_id: int, payload: Dict[str, Any]):
-    p = dict(payload)
-    p.setdefault('project_id', project_id)
-    p.setdefault('scope_type', 'project')
-    p.setdefault('scope_id', project_id)
-    return _plm_ret(plm.save_baseline(p, _plm_op(payload)))
 
 
-@app.get("/api/plm/baselines/{baseline_id}")
-def api_plm_baseline_get(baseline_id: int):
-    r = plm.get_baseline(baseline_id)
-    if not r:
-        return JSONResponse({'success': False, 'error': '基线不存在'}, status_code=404)
-    return _plm_ret(r)
 
 
-@app.put("/api/plm/baselines/{baseline_id}")
-def api_plm_baseline_update(baseline_id: int, payload: Dict[str, Any]):
-    p = dict(payload)
-    p['id'] = baseline_id
-    return _plm_ret(plm.save_baseline(p, _plm_op(payload)))
 
 
-@app.post("/api/plm/baselines/{baseline_id}/confirm")
-def api_plm_baseline_confirm(baseline_id: int, payload: Dict[str, Any] = None):
-    return _plm_ret(plm.confirm_baseline(baseline_id, _plm_op(payload)))
 
 
-@app.post("/api/plm/baselines/{baseline_id}/lock")
-def api_plm_baseline_lock(baseline_id: int, payload: Dict[str, Any] = None):
-    return _plm_ret(plm.lock_baseline(baseline_id, _plm_op(payload)))
 
 
-@app.delete("/api/plm/baselines/{baseline_id}")
-def api_plm_baseline_delete(baseline_id: int, operator: str = Query('admin')):
-    return _plm_ret(plm.delete_baseline(baseline_id, operator))
 
 
 # ---- 模块三：里程碑与任务 ----
-@app.get("/api/plm/projects/{project_id}/milestones")
-def api_plm_ms_list(project_id: int):
-    return _plm_ret(plm.list_milestones(project_id))
 
 
-@app.post("/api/plm/projects/{project_id}/milestones")
-def api_plm_ms_create(project_id: int, payload: Dict[str, Any]):
-    p = dict(payload)
-    p.setdefault('project_id', project_id)
-    return _plm_ret(plm.create_milestone(p, _plm_op(payload)))
 
 
-@app.put("/api/plm/milestones/{milestone_id}")
-def api_plm_ms_update(milestone_id: int, payload: Dict[str, Any]):
-    return _plm_ret(plm.update_milestone(milestone_id, payload, _plm_op(payload)))
 
 
-@app.delete("/api/plm/milestones/{milestone_id}")
-def api_plm_ms_delete(milestone_id: int, operator: str = Query('admin')):
-    return _plm_ret(plm.delete_milestone(milestone_id, operator))
 
 
-@app.get("/api/plm/projects/{project_id}/tasks")
-def api_plm_task_list(project_id: int, milestone_id: Optional[int] = None):
-    return _plm_ret(plm.list_tasks(project_id, milestone_id))
 
 
-@app.post("/api/plm/tasks")
-def api_plm_task_create(payload: Dict[str, Any]):
-    return _plm_ret(plm.create_task(payload, _plm_op(payload)))
 
 
-@app.get("/api/plm/tasks/{task_id}")
-def api_plm_task_get(task_id: int):
-    r = plm.get_task(task_id)
-    if not r:
-        return JSONResponse({'success': False, 'error': '任务不存在'}, status_code=404)
-    return _plm_ret(r)
 
 
-@app.put("/api/plm/tasks/{task_id}")
-def api_plm_task_update(task_id: int, payload: Dict[str, Any]):
-    return _plm_ret(plm.update_task(task_id, payload, _plm_op(payload)))
 
 
-@app.delete("/api/plm/tasks/{task_id}")
-def api_plm_task_delete(task_id: int, operator: str = Query('admin')):
-    return _plm_ret(plm.delete_task(task_id, operator))
 
 
 # ---- 模块四：人力池 / 分配 / 工时 ----
-@app.get("/api/plm/staff")
-def api_plm_staff_list(keyword: Optional[str] = None, status: Optional[str] = None):
-    return _plm_ret(plm.list_staff(keyword, status))
 
 
 # 必须先于 /staff/{staff_id} 注册，否则 'load' 会被当作整型 id 解析
-@app.get("/api/plm/staff/load")
-def api_plm_staff_load():
-    return _plm_ret(plm.staff_load())
 
 
-@app.post("/api/plm/staff")
-def api_plm_staff_create(payload: Dict[str, Any]):
-    return _plm_ret(plm.create_staff(payload, _plm_op(payload)))
 
 
-@app.get("/api/plm/staff/{staff_id}")
-def api_plm_staff_get(staff_id: int):
-    r = plm.get_staff(staff_id)
-    if not r:
-        return JSONResponse({'success': False, 'error': '人员不存在'}, status_code=404)
-    return _plm_ret(r)
 
 
-@app.put("/api/plm/staff/{staff_id}")
-def api_plm_staff_update(staff_id: int, payload: Dict[str, Any]):
-    return _plm_ret(plm.update_staff(staff_id, payload, _plm_op(payload)))
 
 
-@app.delete("/api/plm/staff/{staff_id}")
-def api_plm_staff_delete(staff_id: int, operator: str = Query('admin')):
-    return _plm_ret(plm.delete_staff(staff_id, operator))
 
 
-@app.get("/api/plm/assignments")
-def api_plm_asg_list(project_id: Optional[int] = None, staff_id: Optional[int] = None,
-                     status: Optional[str] = None):
-    return _plm_ret(plm.list_assignments(project_id, staff_id, status))
 
 
-@app.post("/api/plm/assignments")
-def api_plm_asg_create(payload: Dict[str, Any]):
-    return _plm_ret(plm.create_assignment(payload, _plm_op(payload)))
 
 
-@app.put("/api/plm/assignments/{assign_id}")
-def api_plm_asg_update(assign_id: int, payload: Dict[str, Any]):
-    return _plm_ret(plm.update_assignment(assign_id, payload, _plm_op(payload)))
 
 
-@app.delete("/api/plm/assignments/{assign_id}")
-def api_plm_asg_delete(assign_id: int, operator: str = Query('admin')):
-    return _plm_ret(plm.delete_assignment(assign_id, operator))
 
 
-@app.get("/api/plm/timesheets")
-def api_plm_ts_list(project_id: Optional[int] = None, staff_id: Optional[int] = None):
-    return _plm_ret(plm.list_timesheets(project_id, staff_id))
 
 
-@app.post("/api/plm/timesheets")
-def api_plm_ts_create(payload: Dict[str, Any]):
-    return _plm_ret(plm.create_timesheet(payload, _plm_op(payload)))
 
 
-@app.put("/api/plm/timesheets/{ts_id}")
-def api_plm_ts_update(ts_id: int, payload: Dict[str, Any]):
-    return _plm_ret(plm.update_timesheet(ts_id, payload, _plm_op(payload)))
 
 
-@app.delete("/api/plm/timesheets/{ts_id}")
-def api_plm_ts_delete(ts_id: int, operator: str = Query('admin')):
-    return _plm_ret(plm.delete_timesheet(ts_id, operator))
 
 
-@app.post("/api/plm/timesheets/sync")
-def api_plm_ts_sync(payload: Dict[str, Any] = None):
-    p = payload or {}
-    return _plm_ret(plm.sync_labor_cost(p.get('project_id'), p.get('staff_id')))
 
 
 # ---- 模块五：收支台账 ----
-@app.get("/api/plm/ledger")
-def api_plm_ledger_list(project_id: Optional[int] = None, kind: Optional[str] = None,
-                        category: Optional[str] = None, source: Optional[str] = None):
-    return _plm_ret(plm.list_ledger(project_id, kind, category, source))
 
 
-@app.post("/api/plm/ledger")
-def api_plm_ledger_create(payload: Dict[str, Any]):
-    return _plm_ret(plm.create_ledger(payload, _plm_op(payload)))
 
 
-@app.put("/api/plm/ledger/{ledger_id}")
-def api_plm_ledger_update(ledger_id: int, payload: Dict[str, Any]):
-    return _plm_ret(plm.update_ledger(ledger_id, payload, _plm_op(payload)))
 
 
-@app.delete("/api/plm/ledger/{ledger_id}")
-def api_plm_ledger_delete(ledger_id: int, operator: str = Query('admin')):
-    return _plm_ret(plm.delete_ledger(ledger_id, operator))
 
 
 # ---- 模块七：预警 ----
-@app.get("/api/plm/alert-rules")
-def api_plm_rule_list():
-    return _plm_ret(plm.list_alert_rules())
 
 
-@app.put("/api/plm/alert-rules/{rule_key}")
-def api_plm_rule_update(rule_key: str, payload: Dict[str, Any]):
-    return _plm_ret(plm.update_alert_rule(rule_key, payload, _plm_op(payload)))
 
 
-@app.get("/api/plm/alerts")
-def api_plm_alert_list(project_id: Optional[int] = None, dim: Optional[str] = None,
-                       status: Optional[str] = None, level: Optional[str] = None):
-    return _plm_ret(plm.list_alerts(project_id, dim, status, level))
 
 
-@app.post("/api/plm/alerts/scan")
-def api_plm_alert_scan(payload: Dict[str, Any] = None):
-    return _plm_ret(plm.scan_alerts(_plm_op(payload)))
 
 
-@app.put("/api/plm/alerts/{alert_id}/handle")
-def api_plm_alert_handle(alert_id: int, payload: Dict[str, Any]):
-    return _plm_ret(plm.handle_alert(alert_id, payload, _plm_op(payload)))
 
 
 # ---- 模块八：报表导出 ----
-@app.get("/api/plm/export/{report}")
-def api_plm_export(report: str, project_id: Optional[int] = None):
-    try:
-        filename, data = plm.export_report(report, project_id)
-    except ValueError as e:
-        return JSONResponse({'success': False, 'error': str(e)}, status_code=400)
-    return _RawResponse(
-        content=data,
-        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        headers={'Content-Disposition': "attachment; filename*=UTF-8''%s"
-                                        % urllib.parse.quote(filename)})
 
 
 if __name__ == '__main__':
