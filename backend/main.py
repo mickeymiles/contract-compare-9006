@@ -18,6 +18,7 @@ from models import init_db, get_db, create_contract, delete_contract, update_con
 from compare_engine import run_comparison
 from excel_handler import import_contract_excel, import_supplier_excel, export_report, reapply_column_mapping
 from procurement_models import init_procurement_db, seed_procurement_master
+from common.neuops import NEUOPS_BASE, trigger_neuops
 from services.etl import ETL_JOB_DEFS, _register_etl_jobs, run_etl_gross_margin, run_etl_fund_multidim, run_etl_payment_cycle
 app = FastAPI(title="合同比对系统（多合同版）", version="2.0")
 from fastapi.middleware.cors import CORSMiddleware
@@ -86,24 +87,6 @@ async def no_cache_static_assets(request: Request, call_next):
             headers['Last-Modified'] = response.headers['last-modified']
         return Response(status_code=304, headers=headers)
     return response
-
-# ── neuops 智能体网关（emp-008 采购询比价）──
-NEUOPS_BASE = os.getenv("NEUOPS_BASE", "http://127.0.0.1:9007")
-
-
-def trigger_neuops(path: str, payload: dict, timeout: float = 15.0) -> dict:
-    """调用 neuops 智能体 trigger API。失败不阻断主流程，返回 trigger 结果。"""
-    import copy
-    p = copy.deepcopy(payload)
-    # 清理空 dict 字段（neuops Pydantic Optional[Model] 遇到 {} 会报 required）
-    if isinstance(p, dict) and isinstance(p.get("selected_supplier"), dict) and not p["selected_supplier"]:
-        p["selected_supplier"] = None
-    try:
-        r = httpx.post(f"{NEUOPS_BASE}/api/procurement-agent/{path}",
-                       json=p, timeout=timeout)
-        return r.json()
-    except Exception as e:
-        return {"success": False, "error": f"neuops trigger 失败: {type(e).__name__}: {e}"}
 
 # ─────────────────────────────────────────────────────────────
 # 客户/项目敏感信息：一律丢弃，不导入数据库、不展示（只保留合同编号）
