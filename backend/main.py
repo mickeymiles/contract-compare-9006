@@ -914,7 +914,12 @@ from procurement_models import (
     # ---- 台账增强查询 ----
     list_ledger_advanced,
     # ---- 合同主数据表 CRUD（5 个）----
-    list_contracts, get_contract, create_contract, update_contract, delete_contract,
+    # create_contract / delete_contract 与 models.py 同名，必须别名导入：
+    # 此前它们遮蔽了 models 的版本，导致 POST/DELETE /api/contracts 只能靠
+    # `import contract_models`（该模块不存在）兜底，前端「新建合同」直接 500。
+    list_contracts, get_contract,
+    create_contract as proc_create_contract, update_contract,
+    delete_contract as proc_delete_contract,
     # ---- 全局邮件抄送配置（list/create/delete + 给 neuops 拿 CC 列表）----
     list_mail_cc, create_mail_cc, delete_mail_cc, get_all_cc_emails,
     # ---- 前端人工修改报价 ----
@@ -1240,7 +1245,7 @@ def api_proc_contracts_get(contract_id: int):
 @app.post("/api/procurement/contracts")
 def api_proc_contracts_create(body: ProcContractBody):
     try:
-        c = create_contract(
+        c = proc_create_contract(
             contract_no=body.contract_no,
             contract_name=body.contract_name or '',
             pm_name=body.pm_name or '',
@@ -1272,7 +1277,7 @@ def api_proc_contracts_update(contract_id: int, body: ProcContractUpdateBody):
 @app.delete("/api/procurement/contracts/{contract_id}")
 def api_proc_contracts_delete(contract_id: int):
     try:
-        r = delete_contract(contract_id)
+        r = proc_delete_contract(contract_id)
         return {"success": True, **r}
     except ValueError as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=400)
@@ -1424,11 +1429,10 @@ def list_contracts_legacy(keyword: str = Query(None), status: str = Query(None))
 
 @app.post("/api/contracts")
 async def create_new_contract(name: str = Query(...), no: str = Query(''), sign_date: str = Query('')):
-    # 【注意】这里 create_contract 是 models.py 老合同创建（不是 procurement_models.create_contract）
-    # 因为 main.py 顶部 904 行开始的 import 已经覆盖了名字，所以调用 contract_models.create_contract
-    # 这里为了不打乱原有 import 顺序，用 globals 从另一个域取，避免破坏
-    import contract_models as _cm
-    cid = _cm.create_contract(name, no, sign_date)
+    """CC-001 FR-1 新建合同（合同比对域）。create_contract 现为 models.py 的实现。"""
+    if not (name or '').strip():
+        return JSONResponse({'success': False, 'error': '合同名称不能为空'}, status_code=400)
+    cid = create_contract(name.strip(), no or '', sign_date or '')
     return JSONResponse({'success': True, 'contract_id': cid})
 
 
@@ -1441,9 +1445,8 @@ async def update_contract_legacy(contract_id: int):
 
 @app.delete("/api/contracts/{contract_id}")
 def remove_contract(contract_id: int):
-    # delete_contract 已经被 procurement_models 导入覆盖
-    import contract_models as _cm
-    _cm.delete_contract(contract_id)
+    """CC-001 FR-3 删除合同并级联清理（合同比对域）。"""
+    delete_contract(contract_id)
     return JSONResponse({'success': True})
 
 

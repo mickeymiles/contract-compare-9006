@@ -41,6 +41,7 @@
 - 测试命令：`cd contract-compare && pytest -q`
 - 比对规则细节以 `docs/compare-rules.md` 为准（规格 CC-003 与其保持一致）
 - **新增业务域必须命名空间导入**（`import xxx_models as xxx`）：历史上 `from procurement_models import create_contract` 覆盖了 `models.py` 同名函数，迫使 `/api/contracts` 走 `import contract_models` 兜底
+- 若既有代码无法整体命名空间化（如 `procurement_models` 的 40+ 符号导入），**至少对跨域同名函数做前缀别名**（`create_contract as proc_create_contract`），并在导入处写明原因；`/api/contracts` 曾因遮蔽引用不存在的 `contract_models` 而长期 500
 - 门户新增卡片按职责归入「经营管理」或「运维管理」分区；分区卡片数由 `initZoneCounts()` 自动统计，勿写死
 - 页面内子功能导航统一使用**左侧菜单树**（一级模块 + 二级叶子，手风琴展开），不使用横向 Tab 页
 

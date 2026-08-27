@@ -15,6 +15,7 @@
 | 2026-08-18 | 20260818-fund-table-yoy | 资金占用表格同比：新增上年占用与变化率两列 | CC-006 FR-13 |
 | 2026-08-20 | 2026-08-20-gross-heatmap | 签单毛利率部门 × 区域二维热力图（ETL `dept_region` 聚合 + 8 档配色 + 小计行列） | CC-008 |
 | 2026-08-27 | 2026-08-27-portal-zones | 工作台首页拆分「经营管理 / 运维管理」双分区；`ALL_PAGES` + `showPage()` 收敛页切换 | CC-009 |
+| 2026-08-27 | 2026-08-27-fix-contract-symbol-shadowing | 修复采购域同名导入遮蔽 `models.create_contract/delete_contract`，导致前端「新建合同」`POST /api/contracts` 稳定 500（兜底引用的 `contract_models` 模块并不存在）；改为 `proc_` 别名并补 7 条回归 | CC-001 FR-1/FR-2/FR-3 |
 | 2026-08-27 | 2026-08-27-ci-httpx-dep | 补齐 `httpx` 测试依赖：CI 的 Run tests 因 TestClient 缺依赖连续 3 次红、deploy 从未执行；修复后恢复 push→自动部署 | —（工程维护） |
 | 2026-08-27 | 2026-08-27-project-lifecycle | 新增项目全生命周期管理大模块（四算基线 / 联动立项 / PMO 双进度 / 人力工时 / 成本毛利 / 7 板块全景 / 多维预警 / 5 类报表 / 左侧菜单树） | CC-010 |
 
