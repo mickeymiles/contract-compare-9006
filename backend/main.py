@@ -29,6 +29,51 @@ DATASOURCE_DIR = os.path.join(BASE_DIR, '..', 'datasource')
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(DATASOURCE_DIR, exist_ok=True)
 
+
+# ─────────────────────────────────────────────────────────────
+# CC-011 前端资源缓存策略
+# 页面与静态资源此前是裸引用（/common.css、/plm.app.js …），既无版本位也无
+# Cache-Control，浏览器会按启发式新鲜度直接复用旧副本、根本不回访 —— 导致
+# 每次前端发版都要用户强制刷新，且 HTML 与 CSS 新旧不同步时出现"结构对、
+# 样式没套上"的半新状态。
+# 这里用 no-cache（每次再校验）而不是 no-store（禁用缓存、每次全量重传）：
+# FileResponse 本就输出 ETag / Last-Modified，未变更时浏览器拿 304（数百字节）。
+# 命中范围 = 显式清单 + 后缀兜底，后续新增 .css/.js 无需再改这里。
+# ─────────────────────────────────────────────────────────────
+NO_CACHE_PATHS = frozenset((
+    '/', '/gross', '/plm', '/procurement',
+    '/common.css', '/plm.app.js', '/procurement.app.js', '/china.json',
+))
+NO_CACHE_SUFFIXES = ('.css', '.js')
+
+
+def _etag_match(header_value, etag):
+    """按 RFC 7232 语义比对 If-None-Match：支持 `*`、逗号列表与 W/ 弱标记。"""
+    if header_value.strip() == '*':
+        return True
+    want = etag.removeprefix('W/').strip()
+    return any(tag.strip().removeprefix('W/') == want for tag in header_value.split(','))
+
+
+@app.middleware("http")
+async def no_cache_static_assets(request: Request, call_next):
+    """页面与静态资源每次再校验；命中指纹则回 304，避免全量重传。动态接口原样透传。"""
+    response = await call_next(request)
+    path = request.url.path
+    if not (path in NO_CACHE_PATHS or path.endswith(NO_CACHE_SUFFIXES)):
+        return response
+    response.headers['Cache-Control'] = 'no-cache'
+    # FileResponse 只发 ETag、不处理 If-None-Match（只有 StaticFiles 会），
+    # 所以这里自己短路，否则 no-cache 会让每次导航都全量重下 170KB 的 index.html。
+    etag = response.headers.get('etag')
+    inm = request.headers.get('if-none-match')
+    if etag and inm and response.status_code == 200 and _etag_match(inm, etag):
+        headers = {'Cache-Control': 'no-cache', 'ETag': etag}
+        if response.headers.get('last-modified'):
+            headers['Last-Modified'] = response.headers['last-modified']
+        return Response(status_code=304, headers=headers)
+    return response
+
 # ── neuops 智能体网关（emp-008 采购询比价）──
 NEUOPS_BASE = os.getenv("NEUOPS_BASE", "http://127.0.0.1:9007")
 
