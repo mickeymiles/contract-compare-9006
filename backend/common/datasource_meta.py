@@ -24,3 +24,17 @@ def _ensure_table(meta, table_name):
     if table_name not in meta:
         meta[table_name] = {'versions': [], 'next_id': 1}
     return meta[table_name]
+
+
+def _ds_latest_path(table_name):
+    """获取数据源某表最新版本的文件路径（共享）。"""
+    try:
+        meta = _load_ds_meta()
+        vers = meta.get(table_name, {}).get('versions', [])
+        if vers:
+            p = os.path.join(DATASOURCE_DIR, vers[0]['file'])
+            if os.path.exists(p):
+                return p
+    except Exception:
+        pass
+    return None
