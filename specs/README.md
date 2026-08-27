@@ -15,6 +15,9 @@
 | CC-005 | 回款周期分析 | 生效 | 2026-08-17 | `/api/analysis/payment-cycle*`、`/api/payment-cycle/metrics` |
 | CC-006 | 资金占用分析 | 生效 | 2026-08-17 | `/api/fund/*` |
 | CC-007 | ETL 调度 | 生效 | 2026-08-17 | `/api/etl/*`、`/api/mcp/ontology/*` |
+| CC-008 | 签单毛利率二维热力图 | 生效 | 2026-08-20 | `/api/gross/metrics`、`frontend/gross.html` |
+| CC-009 | 门户双分区导航 | 生效 | 2026-08-27 | `frontend/index.html`（门户）、`frontend/common.css` |
+| CC-010 | 项目全生命周期管理 | 生效 | 2026-08-27 | `backend/plm_models.py`、`/api/plm/*`、`frontend/plm.html` |
 
 ## 状态定义
 
