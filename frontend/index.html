@@ -235,8 +235,9 @@ tr:hover td{background:rgba(0,229,255,.03)}
 
 <!-- 门户首页 -->
 <div id="page-portal" class="portal active">
-  <div class="subtitle">运营管理 · 一站式工作台</div>
-  <!-- 数据源面板 -->
+  <div class="subtitle">经营管理 · 运维管理 · 一站式工作台</div>
+  <div class="portal-wrap">
+  <!-- 数据源面板（全局共享入口） -->
   <div class="ds-panel" id="dsPanel" onclick="openDatasourcePage()" style="cursor:pointer">
     <div class="ds-header">
       <div class="ds-icon">📁</div>
@@ -249,53 +250,99 @@ tr:hover td{background:rgba(0,229,255,.03)}
       </div>
     </div>
   </div>
-  <div class="portal-grid">
-    <div class="portal-card" onclick="openPaymentCycle()">
-      <div class="pc-num">01</div>
-      <div class="pc-icon">💰</div>
-      <div class="pc-title">回款周期分析</div>
-      <div class="pc-desc">合同回款全链路周期追踪，逾期预警与催收管理</div>
-      <div class="pc-tag" style="background:rgba(52,211,153,.15);color:var(--green)">已上线</div>
+
+  <!-- 经营管理分区 -->
+  <section class="zone zone-biz">
+    <header class="zone-head">
+      <span class="zh-bar"></span>
+      <span class="zh-title">经营管理</span>
+      <span class="zh-sub">财经视角 · 四算基线与经营质量量化</span>
+      <span class="zh-count" id="zoneBizCount">6</span>
+    </header>
+    <div class="portal-grid">
+      <div class="portal-card" onclick="openPaymentCycle()">
+        <div class="pc-num">01</div>
+        <div class="pc-icon">💰</div>
+        <div class="pc-title">回款周期分析</div>
+        <div class="pc-desc">合同回款全链路周期追踪，逾期预警与催收管理</div>
+        <div class="pc-tag" style="background:rgba(52,211,153,.15);color:var(--green)">已上线</div>
+      </div>
+      <div class="portal-card" onclick="openFundOccupancy()">
+        <div class="pc-num">02</div>
+        <div class="pc-icon">📊</div>
+        <div class="pc-title">资金占用 · 周转率</div>
+        <div class="pc-desc">资金占用分析、周转效率评估、现金流健康度监控</div>
+        <div class="pc-tag" style="background:rgba(52,211,153,.15);color:var(--green)">已上线</div>
+      </div>
+      <div class="portal-card" onclick="location.href='/gross'">
+        <div class="pc-num">03</div>
+        <div class="pc-icon">📈</div>
+        <div class="pc-title">签单毛利率统计</div>
+        <div class="pc-desc">按项目/客户/时间段多维度毛利率分析与趋势对比</div>
+        <div class="pc-tag" style="background:rgba(52,211,153,.15);color:var(--green)">已上线</div>
+      </div>
+      <div class="portal-card" onclick="alert('项目决算报告 — 即将上线')">
+        <div class="pc-num">04</div>
+        <div class="pc-icon">📋</div>
+        <div class="pc-title">项目决算报告</div>
+        <div class="pc-desc">项目收支决算、成本归集、利润核算与报告自动生成</div>
+        <div class="pc-tag">即将上线</div>
+      </div>
+      <div class="portal-card" onclick="enterFromPortal()">
+        <div class="pc-num">05</div>
+        <div class="pc-icon">🔍</div>
+        <div class="pc-title">采购合同比对</div>
+        <div class="pc-desc">合同基准与供应商报价智能比对，差异识别、整改追踪闭环</div>
+        <div class="pc-tag" style="background:rgba(52,211,153,.15);color:var(--green)">已上线</div>
+      </div>
+      <div class="portal-card feature" onclick="location.href='/plm'" title="四算为纲 · 财经为尺 · PMO为缰 · 人力为本">
+        <div class="pcf-main">
+          <div class="pc-num">06</div>
+          <div class="pc-icon">🧭</div>
+          <div class="pc-title">项目全生命周期管理</div>
+          <div class="pc-desc">售前商机 → 投标概算 → 合同立项 → 执行预算 → PMO 双进度 → 人力工时 → 成本毛利 → 全景视图 → 风险预警，一页看透项目全貌</div>
+          <div class="pc-tag" style="background:rgba(167,139,250,.15);color:var(--purple);border-color:rgba(167,139,250,.35)">大模块 · 10 子模块</div>
+        </div>
+        <div class="pcf-chips">
+          <span class="pc-chip">🎯 售前商机与概算</span>
+          <span class="pc-chip">📑 合同与项目立项</span>
+          <span class="pc-chip">🧱 四算基线管控</span>
+          <span class="pc-chip">🚩 PMO 双维度进度</span>
+          <span class="pc-chip">👥 人力池与工时</span>
+          <span class="pc-chip">💹 成本与毛利</span>
+          <span class="pc-chip">🔭 项目全景视图</span>
+          <span class="pc-chip">⚠️ 多维风险预警</span>
+        </div>
+      </div>
+      <div class="portal-card add">
+        <div class="pc-plus">＋</div>
+        <div class="pc-plus-text">更多经营功能即将上线</div>
+      </div>
     </div>
-    <div class="portal-card" onclick="openFundOccupancy()">
-      <div class="pc-num">02</div>
-      <div class="pc-icon">📊</div>
-      <div class="pc-title">资金占用 · 周转率</div>
-      <div class="pc-desc">资金占用分析、周转效率评估、现金流健康度监控</div>
-      <div class="pc-tag" style="background:rgba(52,211,153,.15);color:var(--green)">已上线</div>
+  </section>
+
+  <!-- 运维管理分区 -->
+  <section class="zone zone-ops">
+    <header class="zone-head">
+      <span class="zh-bar"></span>
+      <span class="zh-title">运维管理</span>
+      <span class="zh-sub">执行视角 · 备件采购与运维流程闭环</span>
+      <span class="zh-count" id="zoneOpsCount">1</span>
+    </header>
+    <div class="portal-grid">
+      <div class="portal-card" onclick="location.href='/procurement'">
+        <div class="pc-num">01</div>
+        <div class="pc-icon">🛒</div>
+        <div class="pc-title">备品备件采购询比价</div>
+        <div class="pc-desc">备件缺口发起询价、供应商报价解析、选型确认、发货物流追踪、测试台账闭环</div>
+        <div class="pc-tag" style="background:rgba(0,229,255,.15);color:var(--cyan)">已上线</div>
+      </div>
+      <div class="portal-card add">
+        <div class="pc-plus">＋</div>
+        <div class="pc-plus-text">更多运维功能即将上线</div>
+      </div>
     </div>
-    <div class="portal-card" onclick="location.href='/gross'">
-      <div class="pc-num">03</div>
-      <div class="pc-icon">📈</div>
-      <div class="pc-title">签单毛利率统计</div>
-      <div class="pc-desc">按项目/客户/时间段多维度毛利率分析与趋势对比</div>
-      <div class="pc-tag" style="background:rgba(52,211,153,.15);color:var(--green)">已上线</div>
-    </div>
-    <div class="portal-card" onclick="alert('项目决算报告 — 即将上线')">
-      <div class="pc-num">04</div>
-      <div class="pc-icon">📋</div>
-      <div class="pc-title">项目决算报告</div>
-      <div class="pc-desc">项目收支决算、成本归集、利润核算与报告自动生成</div>
-      <div class="pc-tag">即将上线</div>
-    </div>
-    <div class="portal-card" onclick="enterFromPortal()">
-      <div class="pc-num">05</div>
-      <div class="pc-icon">🔍</div>
-      <div class="pc-title">采购合同比对</div>
-      <div class="pc-desc">合同基准与供应商报价智能比对，差异识别、整改追踪闭环</div>
-      <div class="pc-tag" style="background:rgba(52,211,153,.15);color:var(--green)">已上线</div>
-    </div>
-    <div class="portal-card" onclick="location.href='/procurement'">
-      <div class="pc-num">06</div>
-      <div class="pc-icon">🛒</div>
-      <div class="pc-title">备品备件采购询比价</div>
-      <div class="pc-desc">备件缺口发起询价、供应商报价解析、选型确认、发货物流追踪、测试台账闭环</div>
-      <div class="pc-tag" style="background:rgba(0,229,255,.15);color:var(--cyan)">智能体</div>
-    </div>
-    <div class="portal-card add">
-      <div class="pc-plus">＋</div>
-      <div class="pc-plus-text">更多功能即将上线</div>
-    </div>
+  </section>
   </div>
 </div>
 
@@ -486,18 +533,20 @@ tr:hover td{background:rgba(0,229,255,.03)}
 <div class="help-doc">
 <button class="help-close" onclick="toggleHelp()">✕</button>
 <h1>📊 运营管理工作台 — 用户手册</h1>
-<p>最后更新：2026-08-14 | 暗色主题 B端运维风格</p>
+<p>最后更新：2026-08-27 | 暗色主题 B端运维风格</p>
 
 <h2>一、系统概述</h2>
-<p>本工作台是经营业务运营管理的一站式入口，覆盖合同、回款、资金、毛利等核心经营数据分析。顶部左侧为<b>渐进式面包屑导航</b>（运营管理 › 当前模块），点击「运营管理」随时返回门户首页。</p>
+<p>本工作台是经营业务运营管理的一站式入口。门户首页按职责分为两个分区：<b>经营管理</b>（财经视角，回款、资金、毛利、项目全生命周期等经营数据量化）与<b>运维管理</b>（执行视角，备品备件采购询比价等流程闭环）。顶部左侧为<b>渐进式面包屑导航</b>（运营管理 › 当前模块），点击「运营管理」随时返回门户首页。</p>
 <table>
-  <tr><th>模块</th><th>用途</th><th>数据来源</th></tr>
-  <tr><td>📁 数据源管理</td><td>上传维护各业务数据表，多版本管理</td><td>总合同表 / 项目里程碑表 / 付款明细表 / 收款明细表</td></tr>
-  <tr><td>💰 回款周期分析</td><td>合同回款全链路周期追踪、逾期预警</td><td>总合同表 + 项目里程碑表</td></tr>
+  <tr><th>分区</th><th>模块</th><th>用途</th><th>数据来源</th></tr>
+  <tr><td>公共</td><td>📁 数据源管理</td><td>上传维护各业务数据表，多版本管理</td><td>总合同表 / 项目里程碑表 / 付款明细表 / 收款明细表</td></tr>
+  <tr><td rowspan="6">经营管理</td><td>💰 回款周期分析</td><td>合同回款全链路周期追踪、逾期预警</td><td>总合同表 + 项目里程碑表</td></tr>
   <tr><td>📊 资金占用 · 周转率</td><td>资金占用分析、周转效率、现金流健康度</td><td>付款明细表 + 收款明细表</td></tr>
   <tr><td>📈 签单毛利率统计</td><td>按项目/客户/时间多维度毛利率分析</td><td>总合同表（签单毛利字段）</td></tr>
   <tr><td>📋 项目决算报告</td><td>项目收支决算、成本归集、利润核算</td><td>即将上线</td></tr>
   <tr><td>🔍 采购合同比对</td><td>合同基准 vs 供应商报价智能比对</td><td>合同基准 Excel + 供应商报价 Excel</td></tr>
+  <tr><td>🧭 项目全生命周期管理</td><td>四算基线（概算/预算）、售前商机联动立项、PMO 双维度进度、人力工时归集、成本毛利、单项目全景视图与多维风险预警</td><td>页面手工录入（商机 / 合同 / 项目 / 预算 / 里程碑 / 人员 / 工时 / 收支台账）</td></tr>
+  <tr><td>运维管理</td><td>🛒 备品备件采购询比价</td><td>询价发起、报价解析、选型确认、物流追踪、测试台账闭环</td><td>供应商资源池 + 邮件解析 + 人工录入报价</td></tr>
 </table>
 
 <h2>二、快速上手（操作总流程）</h2>
@@ -631,7 +680,28 @@ tr:hover td{background:rgba(0,229,255,.03)}
   <tr><td><span class="badge badge-p">供应商增项</span></td><td>供应商多报的设备，合同中无此要求</td><td>确认是否需要增补</td></tr>
 </table>
 
-<h2>八、术语表</h2>
+<h2>八、项目全生命周期管理</h2>
+<p>入口：门户「经营管理」分区的大模块卡片，或直接访问 <code>/plm</code>。该模块把售前、立项、执行、人力、财务五类数据统一到<b>项目</b>这一个主语上，顶层纲领为<b>四算为纲、财经为尺、PMO 为缰、人力为本</b>。</p>
+<h3>操作主线</h3>
+<ol>
+  <li><b>建商机</b>：录入商机档案（客户、跟进人、状态、预估收入），并在其下录入<b>投标概算</b>分项（人力/分包/硬件/软件/服务/其他），系统自动汇总概算总成本、预估毛利与毛利率。</li>
+  <li><b>中标联动立项</b>：商机关联生成合同 → 生成项目（独立项目编号、项目经理、归属部门、执行周期）→ 投标概算自动带入为项目<b>概算基线</b>，人工确认后可「锁定」为顶层基线。商机—合同—项目三级可互相溯源。</li>
+  <li><b>录执行预算</b>：录入预算总额与分项（人力成本 / 其他费用），四算基线区即刻呈现概算、预算、【预留】核算、【预留】决算的对比与差异。</li>
+  <li><b>拆里程碑与任务</b>：立项级粗里程碑拆解为执行级细里程碑，细里程碑下拆任务（负责人、计划工时、交付物）。子级完成度自动向上汇总。</li>
+  <li><b>配人力、填工时</b>：人员池维护岗位与人力成本单价（元/人天）、可用工时（小时/月）；将人员绑定到项目/里程碑/任务；日常填报工时后，系统按「累计工时 ÷ 8 × 人天单价」自动归集实际人力成本，并刷新人员负荷三态（过载 / 正常 / 闲置）。</li>
+  <li><b>记收支、看毛利</b>：录入签单收入、变更收入与实际成本台账，成本毛利页输出签单毛利、预估毛利、实际毛利与毛利率，并做概算-预算-实际三线差异对比。</li>
+  <li><b>看全景、处预警</b>：项目全景页一页聚合 7 个板块；预警中心汇总成本超耗、毛利偏低、进度延期、人员过载四类预警，支持按项目/类型/状态筛选与「待处理 → 处理中 → 已闭环」处置留痕。</li>
+</ol>
+<h3>关键口径</h3>
+<ul>
+  <li><b>按期进度</b>：按时完成率 = 按期完成节点数 ÷ 已完成节点数；整体进度达成率按细里程碑完成百分比分节点数平均（有产值口径时按计划产值加权，结果会标注口径）。</li>
+  <li><b>按预算进度</b>：预算消耗占比 = 累计实际成本 ÷ 预算总额；系统额外输出「消耗进度 − 完成进度」剪刀差，为正表示花钱快于干活。</li>
+  <li><b>预算超概算</b>：默认<b>只提示不拦截</b>。在「系统配置 → 基线管控开关」置为开启后，超概算的预算保存会被拒绝。</li>
+  <li><b>核算 / 决算</b>：本期为<b>预留</b>，仅保留字段与录入入口，不参与计算与校验。</li>
+  <li><b>数据录入</b>：本模块全部为页面手工录入，不从「数据源管理」上传的 Excel 取数；因此项目与客户的真实名称可直接填写展示。若后续接入数据源自动同步，同步进来的名称字段将统一走脱敏处理。</li>
+</ul>
+
+<h2>九、术语表</h2>
 <table>
   <tr><th>术语</th><th>解释</th></tr>
   <tr><td>总合同表（H表）</td><td>合同主数据表，含签约日期、合同金额、签单毛利等字段</td></tr>
@@ -644,7 +714,7 @@ tr:hover td{background:rgba(0,229,255,.03)}
   <tr><td>签单毛利率</td><td>签单毛利 ÷ 合同总金额，反映合同利润水平</td></tr>
 </table>
 
-<h2>九、常见问题</h2>
+<h2>十、常见问题</h2>
 <table>
   <tr><th>问题</th><th>解答</th></tr>
   <tr><td>为什么「≥1T」和「1TB」没匹配？</td><td>检查数据源版本是否为最新。v2.0 引擎已支持单位归一化，如仍有问题可能是 Excel 列名不规范导致指标提取失败。</td></tr>
@@ -656,7 +726,7 @@ tr:hover td{background:rgba(0,229,255,.03)}
   <tr><td>如何修改比对规则？</td><td>比对引擎代码位于 <code>backend/compare_engine.py</code>，修改后重启服务即可。同义词词典、操作符映射表、单位换算表均可直接编辑。</td></tr>
 </table>
 
-<h2>十、技术架构</h2>
+<h2>十一、技术架构</h2>
 <table>
   <tr><th>组件</th><th>技术栈</th><th>位置</th></tr>
   <tr><td>前端</td><td>原生 HTML/CSS/JS (SPA) + ECharts</td><td><code>frontend/index.html</code></td></tr>
@@ -696,10 +766,15 @@ function setCrumb(sub){
   if(sub){sep.style.display='';cur.textContent=sub;}
   else{sep.style.display='none';cur.textContent='';}
 }
-function goPortal(){currentCid=null;currentVer=null;['page-portal','page-home','page-workspace','page-datasource','page-payment-cycle','page-fund-occupancy'].forEach(x=>document.getElementById(x).classList.remove('active'));document.getElementById('page-portal').classList.add('active');document.getElementById('currentContractLabel').textContent='';setCrumb(null);loadDsStatus()}
-function enterFromPortal(){['page-portal','page-home','page-workspace','page-datasource','page-payment-cycle','page-fund-occupancy'].forEach(x=>document.getElementById(x).classList.remove('active'));document.getElementById('page-home').classList.add('active');setCrumb('🔍 采购合同比对');loadContracts()}
+// ===== 页面注册表（CC-009：新增页面只需在此登记一次） =====
+const ALL_PAGES=['page-portal','page-home','page-workspace','page-datasource','page-payment-cycle','page-fund-occupancy'];
+function showPage(id){ALL_PAGES.forEach(x=>{const el=document.getElementById(x);if(el)el.classList.toggle('active',x===id);});}
+// 分区卡片计数自动统计（CC-009 FR-1：新增卡片无需手工维护数字）
+function initZoneCounts(){document.querySelectorAll('.zone').forEach(z=>{const n=z.querySelector('.zh-count');if(n)n.textContent=z.querySelectorAll('.portal-card:not(.add)').length;});}
+function goPortal(){currentCid=null;currentVer=null;showPage('page-portal');document.getElementById('currentContractLabel').textContent='';setCrumb(null);loadDsStatus()}
+function enterFromPortal(){showPage('page-home');setCrumb('🔍 采购合同比对');loadContracts()}
 function goHome(){enterFromPortal()}
-function enterContract(cid,cname){currentCid=cid;currentCname=cname||('合同 #'+cid);['page-portal','page-home','page-workspace','page-datasource','page-payment-cycle','page-fund-occupancy'].forEach(x=>document.getElementById(x).classList.remove('active'));document.getElementById('page-workspace').classList.add('active');document.getElementById('currentContractLabel').textContent='》'+currentCname;setCrumb('🔍 采购合同比对');switchWsTab('dashboard',document.querySelector('#wsNav .nav-btn'))}
+function enterContract(cid,cname){currentCid=cid;currentCname=cname||('合同 #'+cid);showPage('page-workspace');document.getElementById('currentContractLabel').textContent='》'+currentCname;setCrumb('🔍 采购合同比对');switchWsTab('dashboard',document.querySelector('#wsNav .nav-btn'))}
 function switchWsTab(n,btn){document.querySelectorAll('#page-workspace .page').forEach(p=>p.classList.remove('active'));document.querySelectorAll('#wsNav .nav-btn').forEach(b=>b.classList.remove('active'));document.getElementById('ws-'+n).classList.add('active');if(btn)btn.classList.add('active');if(n==='dashboard')loadWsStats();if(n==='contract')loadContract();if(n==='supplier')loadVersions();if(n==='results')loadResults()}
 function toggleHelp(){
   document.getElementById('helpOverlay').classList.toggle('show');
@@ -1106,8 +1181,7 @@ async function loadDsTables(){
 }
 function openDatasourcePage(){
   currentCid=null;currentVer=null;
-  ['page-portal','page-home','page-workspace','page-datasource','page-payment-cycle','page-fund-occupancy'].forEach(x=>document.getElementById(x).classList.remove('active'));
-  document.getElementById('page-datasource').classList.add('active');
+  showPage('page-datasource');
   document.getElementById('currentContractLabel').textContent='';
   setCrumb('📁 数据源管理');
   loadDsTables();
@@ -1151,8 +1225,7 @@ async function deleteTableVersion(tableName,vid){
 // ===== 资金占用分析 =====
 function openFundOccupancy(){
   currentCid=null;currentVer=null;
-  ['page-portal','page-home','page-workspace','page-datasource','page-payment-cycle','page-fund-occupancy'].forEach(x=>document.getElementById(x).classList.remove('active'));
-  document.getElementById('page-fund-occupancy').classList.add('active');
+  showPage('page-fund-occupancy');
   document.getElementById('currentContractLabel').textContent='';
   setCrumb('📊 资金占用 · 周转率');
   loadFundStatus();
@@ -2262,8 +2335,7 @@ function drawCashflowChart(cm){
 // ===== 回款周期分析 =====
 function openPaymentCycle(){
   currentCid=null;currentVer=null;
-  ['page-portal','page-home','page-workspace','page-datasource','page-payment-cycle','page-fund-occupancy'].forEach(x=>document.getElementById(x).classList.remove('active'));
-  document.getElementById('page-payment-cycle').classList.add('active');
+  showPage('page-payment-cycle');
   document.getElementById('currentContractLabel').textContent='';
   setCrumb('💰 回款周期分析');
   // 进入不自动读宽表，重置为初始态，等待用户点击「执行分析」
@@ -2699,7 +2771,7 @@ function renderPaymentAnalysis(d){
   },300);
 }
 
-goPortal();
+goPortal();initZoneCounts();
 </script>
 </body>
 </html>

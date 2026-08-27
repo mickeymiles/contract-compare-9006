@@ -330,3 +330,39 @@ tr:hover td{background:rgba(79,140,255,.04)}
 .heatmap-table .row-total.heat-up-20 { outline:2px solid rgba(255,255,255,.25); }
 .heatmap-table .col-total.heat-down-20,
 .heatmap-table .row-total.heat-down-20 { outline:2px solid rgba(255,255,255,.25); }
+
+/* ================================================================
+   CC-009 门户双分区：经营管理 / 运维管理
+   ================================================================ */
+.portal-wrap{width:100%;max-width:1240px;display:flex;flex-direction:column;gap:32px}
+.portal-wrap .ds-panel{max-width:none}
+.zone{width:100%;animation:fadeIn .4s ease both}
+.zone-head{display:flex;align-items:center;gap:12px;margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid var(--border2)}
+.zone-head .zh-bar{width:4px;height:18px;border-radius:2px;background:linear-gradient(180deg,var(--cyan),var(--cyan2));box-shadow:0 0 12px rgba(79,140,255,.55);flex:0 0 auto}
+.zone-head .zh-title{font-size:16px;font-weight:bold;color:var(--text);letter-spacing:1px;white-space:nowrap}
+.zone-head .zh-sub{font-size:11px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.zone-head .zh-count{margin-left:auto;font-size:11px;color:var(--cyan2);background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.28);padding:2px 10px;border-radius:20px;font-family:var(--mono);flex:0 0 auto}
+.zone-ops .zh-bar{background:linear-gradient(180deg,var(--green),var(--cyan2));box-shadow:0 0 12px rgba(52,211,153,.5)}
+.zone-ops .zh-count{color:var(--green);background:rgba(52,211,153,.1);border-color:rgba(52,211,153,.3)}
+.zone .portal-grid{max-width:none}
+
+/* 大模块卡片（跨列 + 子模块预览） */
+.portal-card.feature{grid-column:span 2;flex-direction:row;align-items:stretch;gap:22px;min-height:172px;
+  background:linear-gradient(150deg,rgba(79,140,255,.12),var(--panel2) 58%)}
+.portal-card.feature::before{opacity:.65;background:linear-gradient(90deg,var(--cyan),var(--purple))}
+.portal-card.feature .pcf-main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
+.portal-card.feature .pc-title{font-size:18px}
+.portal-card.feature .pc-desc{font-size:12px}
+.portal-card.feature .pcf-chips{flex:0 0 300px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;align-content:center}
+.pc-chip{font-size:11px;color:var(--text2);background:rgba(79,140,255,.07);border:1px solid rgba(79,140,255,.22);
+  border-radius:8px;padding:6px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:all .2s}
+.portal-card.feature:hover .pc-chip{border-color:rgba(79,140,255,.42);color:var(--text)}
+@media (max-width:980px){
+  .portal-card.feature{grid-column:span 1;flex-direction:column;gap:14px}
+  .portal-card.feature .pcf-chips{flex:none;width:100%}
+}
+@media (max-width:760px){
+  .portal-grid{grid-template-columns:1fr}
+  .zone-head{flex-wrap:wrap;gap:8px}
+  .zone-head .zh-sub{width:100%;order:3}
+}
