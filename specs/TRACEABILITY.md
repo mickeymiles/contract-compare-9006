@@ -17,11 +17,12 @@
 | CC-008 | 签单毛利率二维热力图 | `backend/main.py`（`run_etl_gross_margin`、`/api/gross/metrics`）、`frontend/gross.html`、`frontend/common.css` | `tests/test_gross.py`（test_api_gross_metrics_includes_dept_region_rows、test_gross_metrics_handles_empty_dept_region） |
 | CC-009 | 门户双分区导航 | `frontend/index.html`（`#page-portal` 双分区、`ALL_PAGES`/`showPage`/`initZoneCounts`）、`frontend/common.css`（`.zone`/`.portal-card.feature`） | `tests/test_portal_layout.py`（test_portal_has_two_zones / test_zone_order_and_datasource_above / test_ops_zone_only_contains_procurement / test_biz_zone_card_count / test_feature_card_links_plm_with_children / test_page_ids_defined_once / test_all_page_switch_paths_use_showpage / test_zone_counts_computed_not_hardcoded） |
 | CC-010 | 项目全生命周期管理 | `backend/plm_models.py`（17 张 `plm_` 表 + CRUD + 四算基线/双维度进度/工时归集/预警扫描/报表导出）、`backend/main.py`（`/plm`、`/api/plm/*`）、`frontend/plm.html`、`frontend/plm.app.js` | `tests/test_plm.py`（FR-1~FR-11 逐条：test_fr1_estimate_rollup_from_items … test_fr11_operation_logs_traceable；路由冒烟 test_routes_crud_flow_via_http / test_route_staff_load_not_swallowed_by_id / test_route_404_for_missing_entities / test_no_legacy_route_regression）+ `tests/test_portal_layout.py`（test_plm_*） |
+| CC-011 | 前端资源缓存策略 | `backend/main.py`（`no_cache_static_assets`、`_etag_match`） | `tests/test_static_cache.py`（test_pages_and_assets_are_no_cache[8 路径] / test_etag_and_last_modified_present_for_revalidation / test_conditional_request_returns_304 / test_stale_etag_refetches_full_body / test_weak_and_list_etag_match / test_suffix_fallback_covers_unlisted_assets / test_api_routes_not_affected / test_middleware_registered_once） |
 
 ## 覆盖情况统计
 
-- 已回填规格：10 个（CC-001 ~ CC-010）
-- 有测试覆盖：10 个（CC-001 ~ CC-010），全部模块均已覆盖
+- 已回填规格：11 个（CC-001 ~ CC-011）
+- 有测试覆盖：11 个（CC-001 ~ CC-011），全部模块均已覆盖
 - 待补测试：无（CC-009 / CC-010 的视觉与交互另由 Playwright 截图人工验收）
 
 ## 变更登记
@@ -37,6 +38,7 @@
 | 2026-08-20 | 2026-08-20-gross-heatmap | 签单毛利率部门 × 区域二维热力图：ETL 新增 `dim_type='dept_region'` 聚合、`/api/gross/metrics` 新增 `dept_region_rows`、`gross.html` 热力图与 8 档配色；CC-008 新增 |
 | 2026-08-27 | 2026-08-27-portal-zones | 工作台首页拆分「经营管理 / 运维管理」双分区（备件采购归运维，其余归经营）；新增 `ALL_PAGES` 注册表与 `showPage()` 收敛 6 处重复页 ID 字面量；分区卡片数改为 DOM 自动统计；CC-009 新增 |
 | 2026-08-27 | 2026-08-27-project-lifecycle | 新增「项目全生命周期管理」大模块（CC-010）：17 张 `plm_` 表、`/api/plm/*` 60+ 接口、概算+预算双基线与基线管控开关、中标商机联动立项三级溯源、PMO 双维度进度、工时折算人力成本归集与人员负荷三态、四类预警扫描与闭环、5 类 Excel 报表、字典/参数/操作日志；前端 `/plm` 采用左侧菜单树（10 一级 + 14 二级）与元数据驱动 CRUD；本期全部手工录入，核算/决算预留 |
+| 2026-08-27 | 2026-08-27-static-asset-cache | 前端资源缓存策略（CC-011）：页面与 CSS/JS 注入 `Cache-Control: no-cache` 并补条件请求短路回 304。起因是门户双分区上生产后浏览器复用旧 CSS，出现「结构对、样式没套上」，需强刷才正常。命中范围 = 显式清单 + `.css/.js` 后缀兜底；`/api/*` 不受影响 |
 | 2026-08-27 | 2026-08-27-fix-contract-symbol-shadowing | 缺陷修复（恢复 CC-001 既有行为）：`from procurement_models import create_contract, delete_contract` 遮蔽了 `models.py` 同名函数，遗留路由用不存在的 `contract_models` 兜底 ⇒ 前端「新建合同」500。改为 `proc_create_contract` / `proc_delete_contract` 别名导入，遗留路由直调 models；新增 `tests/test_contract_domain.py` 7 条回归（遮蔽守卫 + 创建/查询/删除级联 + 合同比对/备件采购/项目全生命周期三域互不串写） |
 | 2026-08-27 | 2026-08-27-ci-httpx-dep | 工程维护（无规格变更）：`backend/requirements.txt` 补 `httpx>=0.27`。TestClient 依赖它，CI 只装 requirements 导致 Run tests 连续失败、deploy 被 `needs: lint` 跳过，push 到 main 从未真正自动部署 |
 | 2026-08-18 | 20260818-fund-table-yoy | 资金占用表格同比：明细表与客户集合表格新增"上年同期占用"与"同比变化率"两列，变化率按升降着色（占用升红/降绿）；宽表 `fund_metrics` 新增 `prev_occupy` 列（幂等迁移），`/api/fund/metrics`、`/api/fund/dim/aggregate`、`/api/fund/dim/drill` 透出上年占用；CC-006 FR-13 追加表格同比场景 |

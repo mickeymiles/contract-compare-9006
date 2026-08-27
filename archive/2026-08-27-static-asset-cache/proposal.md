@@ -1,7 +1,7 @@
 # 提案：页面与静态资源改为「每次再校验」，消除发版后需强制刷新
 
 > 变更编号：`2026-08-27-static-asset-cache`
-> 作者：AI 编程助手 | 日期：2026-08-27 | 状态：已批准
+> 作者：AI 编程助手 | 日期：2026-08-27 | 状态：已实现并归档（delta 已合并至 `specs/011-static-asset-cache/spec.md`）
 
 ## 背景与问题
 
@@ -65,15 +65,15 @@ Last-Modified: Thu, 27 Aug 2026 03:37:39 GMT   # FileResponse 原有，保持不
 
 ## 验收标准
 
-- [ ] `GET /`、`/gross`、`/plm`、`/procurement`、`/common.css`、`/plm.app.js`、
+- [x] `GET /`、`/gross`、`/plm`、`/procurement`、`/common.css`、`/plm.app.js`、
       `/procurement.app.js`、`/china.json` 响应头含 `Cache-Control: no-cache`。
-- [ ] 任一 `.css` / `.js` 路径同样带 `no-cache`。
-- [ ] `GET /api/plm/overview` 等动态接口**不**被注入 `Cache-Control`。
-- [ ] 带 `If-None-Match`（匹配当前 ETag）请求 `/common.css` 返回 304。
-- [ ] 指纹过期（发版后）请求返回 200 全量内容，不被误判为 304。
-- [ ] `If-None-Match` 的逗号列表与 `W/` 弱标记形式均能命中 304。
-- [ ] `pytest -q` 全绿、ruff（CI 同参数）零错误。
-- [ ] 部署后在生产上复验：首刷即拿到最新样式，无需强制刷新。
+- [x] 任一 `.css` / `.js` 路径同样带 `no-cache`。
+- [x] `GET /api/plm/overview` 等动态接口**不**被注入 `Cache-Control`。
+- [x] 带 `If-None-Match`（匹配当前 ETag）请求 `/common.css` 返回 304。
+- [x] 指纹过期（发版后）请求返回 200 全量内容，不被误判为 304。
+- [x] `If-None-Match` 的逗号列表与 `W/` 弱标记形式均能命中 304。
+- [x] `pytest -q` 全绿、ruff（CI 同参数）零错误。
+- [x] 部署后在生产上复验：首刷即拿到最新样式，无需强制刷新。
 
 ## 风险与兼容性
 

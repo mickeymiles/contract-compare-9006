@@ -18,6 +18,7 @@
 | CC-008 | 签单毛利率二维热力图 | 生效 | 2026-08-20 | `/api/gross/metrics`、`frontend/gross.html` |
 | CC-009 | 门户双分区导航 | 生效 | 2026-08-27 | `frontend/index.html`（门户）、`frontend/common.css` |
 | CC-010 | 项目全生命周期管理 | 生效 | 2026-08-27 | `backend/plm_models.py`、`/api/plm/*`、`frontend/plm.html` |
+| CC-011 | 前端资源缓存策略 | 生效 | 2026-08-27 | `backend/main.py`（`no_cache_static_assets` 中间件） |
 
 ## 状态定义
 
