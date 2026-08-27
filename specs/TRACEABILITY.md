@@ -37,4 +37,5 @@
 | 2026-08-20 | 2026-08-20-gross-heatmap | 签单毛利率部门 × 区域二维热力图：ETL 新增 `dim_type='dept_region'` 聚合、`/api/gross/metrics` 新增 `dept_region_rows`、`gross.html` 热力图与 8 档配色；CC-008 新增 |
 | 2026-08-27 | 2026-08-27-portal-zones | 工作台首页拆分「经营管理 / 运维管理」双分区（备件采购归运维，其余归经营）；新增 `ALL_PAGES` 注册表与 `showPage()` 收敛 6 处重复页 ID 字面量；分区卡片数改为 DOM 自动统计；CC-009 新增 |
 | 2026-08-27 | 2026-08-27-project-lifecycle | 新增「项目全生命周期管理」大模块（CC-010）：17 张 `plm_` 表、`/api/plm/*` 60+ 接口、概算+预算双基线与基线管控开关、中标商机联动立项三级溯源、PMO 双维度进度、工时折算人力成本归集与人员负荷三态、四类预警扫描与闭环、5 类 Excel 报表、字典/参数/操作日志；前端 `/plm` 采用左侧菜单树（10 一级 + 14 二级）与元数据驱动 CRUD；本期全部手工录入，核算/决算预留 |
+| 2026-08-27 | 2026-08-27-ci-httpx-dep | 工程维护（无规格变更）：`backend/requirements.txt` 补 `httpx>=0.27`。TestClient 依赖它，CI 只装 requirements 导致 Run tests 连续失败、deploy 被 `needs: lint` 跳过，push 到 main 从未真正自动部署 |
 | 2026-08-18 | 20260818-fund-table-yoy | 资金占用表格同比：明细表与客户集合表格新增"上年同期占用"与"同比变化率"两列，变化率按升降着色（占用升红/降绿）；宽表 `fund_metrics` 新增 `prev_occupy` 列（幂等迁移），`/api/fund/metrics`、`/api/fund/dim/aggregate`、`/api/fund/dim/drill` 透出上年占用；CC-006 FR-13 追加表格同比场景 |
