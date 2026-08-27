@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>项目全生命周期管理</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<link rel="stylesheet" href="/common.css">
+<style>
+  /* ===== CC-010 PLM 专用样式（沿用 common.css 设计语言） ===== */
+  .plm-shell{display:grid;grid-template-columns:212px 1fr;gap:0;align-items:start;min-height:calc(100vh - 57px)}
+  .plm-side{background:linear-gradient(180deg,#101b31,#0d1526);border-right:1px solid var(--border);padding:14px 0;position:sticky;top:0;align-self:start;height:100vh;overflow-y:auto}
+  .plm-side .ps-title{font-size:11px;color:var(--text2);letter-spacing:1px;padding:0 16px 10px;border-bottom:1px solid var(--border2);margin-bottom:8px}
+  .plm-nav{display:block;width:100%;text-align:left;background:none;border:none;color:var(--text2);padding:10px 16px;font-size:13px;cursor:pointer;border-left:3px solid transparent;transition:all .2s;font-family:inherit}
+  .plm-nav:hover{color:var(--text);background:rgba(79,140,255,.05)}
+  .plm-nav.active{color:var(--cyan2);border-left-color:var(--cyan2);background:rgba(79,140,255,.09);text-shadow:0 0 12px rgba(34,211,238,.4)}
+  .plm-nav .pn-ico{margin-right:7px}
+  /* 一级节点（可展开） */
+  .pn-parent{display:flex;align-items:center;width:100%}
+  .pn-parent .pn-txt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pn-caret{width:14px;flex:0 0 auto;font-size:9px;color:var(--text2);transition:transform .2s;display:inline-block}
+  .plm-nav.open .pn-caret{transform:rotate(90deg)}
+  .plm-nav.has-open{color:var(--text)}
+  .pn-badge{margin-left:6px;font-size:10px;line-height:16px;min-width:18px;text-align:center;padding:0 5px;border-radius:9px;background:rgba(248,113,113,.16);border:1px solid rgba(248,113,113,.4);color:var(--red);font-family:var(--mono)}
+  /* 二级叶子 */
+  .plm-nav-kids{overflow:hidden;max-height:0;transition:max-height .26s ease}
+  .plm-nav-kids.open{max-height:340px}
+  .plm-leaf{display:block;width:100%;text-align:left;background:none;border:none;border-left:3px solid transparent;color:var(--text2);padding:8px 14px 8px 40px;font-size:12px;cursor:pointer;position:relative;transition:all .18s;font-family:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .plm-leaf::before{content:'';position:absolute;left:26px;top:50%;width:7px;height:1px;background:var(--border)}
+  .plm-leaf:hover{color:var(--text);background:rgba(79,140,255,.05)}
+  .plm-leaf.active{color:var(--cyan2);border-left-color:rgba(34,211,238,.55);background:rgba(79,140,255,.07)}
+  .plm-leaf.active::before{background:var(--cyan2)}
+  .plm-side .ps-hint{font-size:10px;color:var(--text2);padding:14px 16px 0;line-height:1.7;border-top:1px solid var(--border2);margin-top:10px}
+  .plm-main{padding:20px 24px 60px;min-width:0}
+  .plm-view{display:none}
+  .plm-view.active{display:block;animation:fadeIn .3s ease}
+  .plm-page-hd{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+  .plm-page-hd h2{font-size:17px;color:var(--text);margin:0}
+  .plm-page-hd .pp-sub{font-size:11px;color:var(--text2)}
+  .plm-page-hd .pp-sp{flex:1}
+  .plm-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;padding:10px 12px;background:var(--panel);border:1px solid var(--border);border-radius:10px}
+  .plm-bar label{font-size:11px;color:var(--text2)}
+  .plm-bar select,.plm-bar input{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:7px;font-size:12px;font-family:inherit}
+  .plm-bar select:focus,.plm-bar input:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 3px rgba(79,140,255,.14)}
+  .plm-bar input[type=search]{min-width:190px}
+  .plm-card{background:linear-gradient(160deg,var(--panel),var(--panel2));border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px;position:relative;overflow:hidden}
+  .plm-card>h3{font-size:13px;color:var(--cyan2);margin-bottom:12px;display:flex;align-items:center;gap:8px;letter-spacing:.5px}
+  .plm-card>h3 .hc-sub{font-size:11px;color:var(--text2);font-weight:normal;margin-left:auto}
+  .plm-card>h3 .hc-act{margin-left:auto;display:flex;gap:6px}
+  .plm-kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:12px;margin-bottom:16px}
+  .plm-kpi .k{background:linear-gradient(160deg,var(--panel),var(--panel2));border:1px solid var(--border);border-radius:12px;padding:13px 14px;position:relative;overflow:hidden;transition:all .25s}
+  .plm-kpi .k::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--cyan),var(--cyan2));opacity:.5}
+  .plm-kpi .k:hover{transform:translateY(-3px);border-color:var(--cyan);box-shadow:0 8px 26px rgba(79,140,255,.15)}
+  .plm-kpi .k .kl{font-size:11px;color:var(--text2);margin-bottom:5px;white-space:nowrap}
+  .plm-kpi .k .kv{font-size:22px;font-weight:bold;font-family:var(--mono);color:var(--cyan);letter-spacing:.5px;white-space:nowrap}
+  .plm-kpi .k .kv.g{color:var(--green)}.plm-kpi .k .kv.r{color:var(--red)}.plm-kpi .k .kv.o{color:var(--orange)}.plm-kpi .k .kv.p{color:var(--purple)}
+  .plm-kpi .k .kn{font-size:10px;color:var(--text2);margin-top:4px}
+  .plm-kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:9px 18px}
+  .plm-kv .r{display:flex;gap:8px;font-size:12px;border-bottom:1px dashed var(--border2);padding-bottom:5px}
+  .plm-kv .r .l{color:var(--text2);flex:0 0 84px}
+  .plm-kv .r .v{color:var(--text);flex:1;word-break:break-all}
+  .plm-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:10px}
+  .plm-wrap table{font-size:12px;min-width:100%}
+  .plm-wrap th{white-space:nowrap;position:sticky;top:0;background:var(--bg3);z-index:2}
+  .plm-wrap td{vertical-align:middle}
+  .plm-wrap td.num,.plm-wrap th.num{text-align:right;font-family:var(--mono);white-space:nowrap}
+  .plm-wrap td.act{white-space:nowrap;text-align:right}
+  .plm-wrap tr.grp td{background:rgba(79,140,255,.07);font-weight:bold;color:var(--cyan2)}
+  .plm-wrap tr.kid td:first-child{padding-left:26px;color:var(--text2)}
+  .row-act{background:none;border:none;color:var(--cyan2);cursor:pointer;font-size:11px;padding:2px 6px;font-family:inherit}
+  .row-act:hover{text-decoration:underline}
+  .row-act.del{color:var(--red)}
+  .plm-empty{text-align:center;padding:44px 18px;color:var(--text2);font-size:13px;line-height:1.9}
+  .plm-empty .e-ico{font-size:34px;display:block;margin-bottom:10px;opacity:.55}
+  .plm-prog{height:7px;background:var(--border);border-radius:4px;overflow:hidden;min-width:64px}
+  .plm-prog i{display:block;height:100%;border-radius:4px;background:linear-gradient(90deg,var(--cyan2),var(--cyan));box-shadow:0 0 8px rgba(79,140,255,.5)}
+  .plm-prog i.warn{background:linear-gradient(90deg,var(--orange),var(--red))}
+  .plm-prog i.ok{background:linear-gradient(90deg,#059669,var(--green))}
+  .plm-prog-cell{display:flex;align-items:center;gap:8px;min-width:120px}
+  .plm-prog-cell span{font-size:11px;font-family:var(--mono);color:var(--text2);width:38px;text-align:right}
+  .plm-chip{display:inline-block;font-size:10px;padding:2px 8px;border-radius:12px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.26);color:var(--cyan2);margin:1px 3px 1px 0;white-space:nowrap}
+  .plm-chip.gray{background:rgba(125,141,176,.1);border-color:rgba(125,141,176,.3);color:var(--text2)}
+  .plm-chip.purple{background:rgba(167,139,250,.12);border-color:rgba(167,139,250,.3);color:var(--purple)}
+  .plm-chip.green{background:rgba(52,211,153,.12);border-color:rgba(52,211,153,.3);color:var(--green)}
+  .plm-chip.red{background:rgba(248,113,113,.12);border-color:rgba(248,113,113,.3);color:var(--red)}
+  .plm-chip.orange{background:rgba(251,191,36,.12);border-color:rgba(251,191,36,.3);color:var(--orange)}
+  .plm-note{font-size:11px;color:var(--text2);line-height:1.8}
+  .plm-note.warn{color:var(--orange)}
+  .plm-tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:14px;flex-wrap:wrap}
+  .plm-tab{padding:9px 16px;background:none;border:none;color:var(--text2);cursor:pointer;font-size:12px;border-bottom:2px solid transparent;transition:all .2s;font-family:inherit}
+  .plm-tab:hover{color:var(--text)}
+  .plm-tab.active{color:var(--cyan2);border-bottom-color:var(--cyan2)}
+  .plm-sub{display:none}.plm-sub.active{display:block;animation:fadeIn .25s ease}
+  .plm-2col{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .plm-pano{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .plm-pano .span2{grid-column:span 2}
+  @media (max-width:1280px){.plm-2col,.plm-pano{grid-template-columns:1fr}.plm-pano .span2{grid-column:span 1}}
+  @media (max-width:900px){.plm-shell{grid-template-columns:1fr}.plm-side{position:static;height:auto;width:100%;border-right:none;border-bottom:1px solid var(--border);display:flex;overflow-x:auto;padding:8px}.plm-nav{white-space:nowrap;border-left:none;border-bottom:2px solid transparent}.plm-nav.active{border-left:none;border-bottom-color:var(--cyan2)}.plm-side .ps-title,.plm-side .ps-hint{display:none}}
+  .plm-gauge{display:flex;align-items:baseline;gap:6px}
+  .plm-gauge .gv{font-size:26px;font-weight:bold;font-family:var(--mono)}
+  .plm-gauge .gu{font-size:11px;color:var(--text2)}
+  .plm-diff{font-family:var(--mono);font-weight:bold}
+  .plm-diff.neg{color:var(--green)}.plm-diff.pos{color:var(--red)}
+  .plm-overlay{position:fixed;inset:0;z-index:1500;background:rgba(4,10,22,.78);backdrop-filter:blur(4px);display:flex;justify-content:center;align-items:flex-start;padding:44px 16px;overflow-y:auto}
+  .plm-dialog{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:22px;width:100%;max-width:720px;box-shadow:0 18px 60px rgba(0,0,0,.5);animation:modalIn .2s ease}
+  .plm-dialog h3{margin:0 0 6px;color:var(--cyan);font-size:15px}
+  .plm-dialog .pd-sub{font-size:11px;color:var(--text2);margin-bottom:16px}
+  .plm-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  .plm-form .fi{display:flex;flex-direction:column;gap:5px}
+  .plm-form .fi.wide{grid-column:span 2}
+  .plm-form .fi label{font-size:11px;color:var(--text2)}
+  .plm-form .fi label em{color:var(--red);font-style:normal;margin-left:3px}
+  .plm-form .fi input,.plm-form .fi select,.plm-form .fi textarea{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:8px;font-size:13px;font-family:inherit;width:100%}
+  .plm-form .fi textarea{min-height:66px;resize:vertical}
+  .plm-form .fi input:focus,.plm-form .fi select:focus,.plm-form .fi textarea:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 3px rgba(79,140,255,.14)}
+  .plm-form .fi .hint{font-size:10px;color:var(--text2)}
+  .plm-dialog .pd-foot{display:flex;gap:10px;justify-content:flex-end;margin-top:20px;padding-top:14px;border-top:1px solid var(--border2)}
+  .plm-items-edit{grid-column:span 2;border:1px solid var(--border2);border-radius:10px;padding:10px;background:rgba(19,28,46,.5)}
+  .plm-items-edit table{font-size:11px}
+  .plm-items-edit input,.plm-items-edit select{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:5px 7px;border-radius:6px;font-size:11px;font-family:inherit;width:100%}
+  .plm-items-edit .ie-hd{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:11px;color:var(--cyan2)}
+  .plm-items-edit .ie-sum{margin-left:auto;font-family:var(--mono);color:var(--text)}
+  .chart-box{height:280px}
+  @keyframes modalIn{from{opacity:0;transform:translateY(-16px)}to{opacity:1;transform:translateY(0)}}
+  .plm-loading{padding:40px;text-align:center;color:var(--text2);font-size:12px}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <nav class="crumb">
+    <span class="crumb-root" onclick="location.href='/'" title="返回运营管理门户">运营管理</span>
+    <span class="crumb-sep">›</span>
+    <span class="crumb-cur">🧭 项目全生命周期管理</span>
+  </nav>
+  <span style="flex:1"></span>
+  <span class="plm-chip purple" title="顶层纲领">四算为纲 · 财经为尺 · PMO为缰 · 人力为本</span>
+  <button class="btn btn-o btn-s" onclick="PLM.scanAlerts()" title="按启用规则重算全部项目预警">⚠️ 重算预警</button>
+</div>
+
+<div class="plm-shell">
+  <!-- 左侧模块导航（菜单树，由 plm.app.js 渲染） -->
+  <aside class="plm-side">
+    <div class="ps-title">模块导航</div>
+    <nav id="plmNav"></nav>
+    <div class="ps-hint">V1.0 落地：概算 + 预算双基线、PMO 双维度进度、人力工时归集、多维预警。<br>核算 / 决算为预留字段，不参与计算。</div>
+  </aside>
+
+  <!-- 右侧内容区 -->
+  <main class="plm-main">
+    <section class="plm-view active" id="v-overview"></section>
+    <section class="plm-view" id="v-opportunity"></section>
+    <section class="plm-view" id="v-project"></section>
+    <section class="plm-view" id="v-baseline"></section>
+    <section class="plm-view" id="v-pmo"></section>
+    <section class="plm-view" id="v-labor"></section>
+    <section class="plm-view" id="v-finance"></section>
+    <section class="plm-view" id="v-panorama"></section>
+    <section class="plm-view" id="v-alert"></section>
+    <section class="plm-view" id="v-config"></section>
+  </main>
+</div>
+
+<div id="plmModalHost"></div>
+<div id="plmToast" class="toast"></div>
+
+<script src="/plm.app.js"></script>
+</body>
+</html>
