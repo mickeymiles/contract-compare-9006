@@ -60,7 +60,7 @@ Project（根）  ◀── 主数据/本体；唯一锚点
 | Purchase | project_id(替代原 contract 关联), inquiry 任务/报价/供应商/对比项 | 采购域映射 |
 | Finance | project_id, cost/income/毛利, 回款/应收, ledger | 财经域 |
 | HR | project_id, staff/assignment/timesheet/人力成本 | 人力域 |
-| Ops | project_id, contact（角色/姓名/电话/收件地址/现场地址）, 服务响应记录 | **运维域**：项目联系人、项目经理/收件人联系方式由运维维护，不作为主数据字段 |
+| Ops（**运维域 = 大块**，持续扩展）| project_id, contact（角色/姓名/电话/收件地址/现场地址）, 服务响应记录; 子域：**备品备件询价**(备件主数据/询价/报价/供应商)、**项目联系人/地址** | **运维域**：目前含「备品备件询价」与「项目联系人/收件人/地址」两类。**联系信息由运维域维护，不作为主数据字段**；备品备件询价归运维；后续在此域下不断增加其它运维功能（子聚合），代码对应 `domains/ops` |
 | Dictionary/Config/AlertRule/OpLog | — | 横切，统一字典 |
 
 ### 3.3 关系

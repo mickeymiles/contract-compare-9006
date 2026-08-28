@@ -9,8 +9,12 @@
 <style>
   /* ===== CC-010 PLM 专用样式（沿用 common.css 设计语言） ===== */
   .plm-shell{display:grid;grid-template-columns:212px 1fr;gap:0;align-items:start;min-height:calc(100vh - 57px)}
-  .plm-side{background:linear-gradient(180deg,#101b31,#0d1526);border-right:1px solid var(--border);padding:14px 0;position:sticky;top:0;align-self:start;height:100vh;overflow-y:auto}
+  .plm-side{background:var(--bg2);border-right:1px solid var(--border);padding:12px;position:sticky;top:0;align-self:start;height:calc(100vh - var(--topbar-h,60px));overflow-y:auto;width:232px;flex:0 0 auto}
   .plm-side .ps-title{font-size:11px;color:var(--text2);letter-spacing:1px;padding:0 16px 10px;border-bottom:1px solid var(--border2);margin-bottom:8px}
+  .plm-side .plm-rail-act{padding:0 0 10px}
+  .plm-side .ps-hint{font-size:10px;color:var(--text2);padding:14px 16px 0;line-height:1.7;border-top:1px solid var(--border2);margin-top:10px}
+  .plm-main{padding:20px 24px 60px;min-width:0;flex:1}
+  .plm-side .accordion .acc-link{padding-left:34px}
   .plm-nav{display:block;width:100%;text-align:left;background:none;border:none;color:var(--text2);padding:10px 16px;font-size:13px;cursor:pointer;border-left:3px solid transparent;transition:all .2s;font-family:inherit}
   .plm-nav:hover{color:var(--text);background:rgba(79,140,255,.05)}
   .plm-nav.active{color:var(--cyan2);border-left-color:var(--cyan2);background:rgba(79,140,255,.09);text-shadow:0 0 12px rgba(34,211,238,.4)}
@@ -126,44 +130,61 @@
 </style>
 </head>
 <body>
+<div id="app" class="app-frame">
+  <!-- 两级导航 · 顶部：左面包屑 + 右主菜单(域) -->
+  <div class="app-topbar">
+    <nav class="breadcrumb" id="breadcrumb"></nav>
+    <nav class="topmenu" id="topMenu"></nav>
+  </div>
 
-<div class="header">
-  <nav class="crumb">
-    <span class="crumb-root" onclick="location.href='/'" title="返回运营管理门户">运营管理</span>
-    <span class="crumb-sep">›</span>
-    <span class="crumb-cur">🧭 项目全生命周期管理</span>
-  </nav>
-  <span style="flex:1"></span>
-  <span class="plm-chip purple" title="顶层纲领">四算为纲 · 财经为尺 · PMO为缰 · 人力为本</span>
-  <button class="btn btn-o btn-s" onclick="PLM.scanAlerts()" title="按启用规则重算全部项目预警">⚠️ 重算预警</button>
-</div>
-
-<div class="plm-shell">
-  <!-- 左侧模块导航（菜单树，由 plm.app.js 渲染） -->
-  <aside class="plm-side">
-    <div class="ps-title">模块导航</div>
-    <nav id="plmNav"></nav>
-    <div class="ps-hint">V1.0 落地：概算 + 预算双基线、PMO 双维度进度、人力工时归集、多维预警。<br>核算 / 决算为预留字段，不参与计算。</div>
-  </aside>
-
-  <!-- 右侧内容区 -->
-  <main class="plm-main">
-    <section class="plm-view active" id="v-overview"></section>
-    <section class="plm-view" id="v-opportunity"></section>
-    <section class="plm-view" id="v-project"></section>
-    <section class="plm-view" id="v-baseline"></section>
-    <section class="plm-view" id="v-pmo"></section>
-    <section class="plm-view" id="v-labor"></section>
-    <section class="plm-view" id="v-finance"></section>
-    <section class="plm-view" id="v-panorama"></section>
-    <section class="plm-view" id="v-alert"></section>
-    <section class="plm-view" id="v-config"></section>
-  </main>
+  <!-- 主体：左=PMO 模块导航（统一手风琴）；右=内容 -->
+  <div class="app-body">
+    <aside class="plm-side" id="plmSidebar"></aside>
+    <main class="plm-main">
+      <section class="plm-view active" id="v-overview"></section>
+      <section class="plm-view" id="v-milestone"></section>
+      <section class="plm-view" id="v-opportunity"></section>
+      <section class="plm-view" id="v-project"></section>
+      <section class="plm-view" id="v-baseline"></section>
+      <section class="plm-view" id="v-pmo"></section>
+      <section class="plm-view" id="v-labor"></section>
+      <section class="plm-view" id="v-finance"></section>
+      <section class="plm-view" id="v-panorama"></section>
+      <section class="plm-view" id="v-alert"></section>
+      <section class="plm-view" id="v-config"></section>
+    </main>
+  </div>
 </div>
 
 <div id="plmModalHost"></div>
 <div id="plmToast" class="toast"></div>
 
+<script src="/nav.config.js"></script>
+<script>
+(function () {
+  var NC = window.NAV_CONFIG;
+  var SECTIONS = [
+    { sub: '项目管理', links: [
+      { key: 'plm-overview', label: '项目概览', icon: 'dashboard', action: "PLM.go('overview')" },
+      { key: 'plm-milestone', label: '里程碑', icon: 'lifecycle', action: "PLM.go('milestone')" },
+      { key: 'plm-project', label: '合同与立项', icon: 'project', action: "PLM.go('project')" }
+    ] },
+    { sub: '进度管理', links: [
+      { key: 'plm-pmo', label: 'PMO 进度', icon: 'chart', action: "PLM.go('pmo','progress')" },
+      { key: 'plm-baseline', label: '四算基线', icon: 'gross', action: "PLM.go('baseline')" }
+    ] },
+    { sub: '人员管理', links: [
+      { key: 'plm-labor', label: '人力与工时', icon: 'contact', action: "PLM.go('labor')" }
+    ] }
+  ];
+  NC.renderBreadcrumb(document.getElementById('breadcrumb'), ['PMO', '项目管理', '项目概览']);
+  NC.renderTopMenu(document.getElementById('topMenu'), { activeKey: 'pmo' });
+  NC.renderAccordion(document.getElementById('plmSidebar'), {
+    activeKey: 'pmo', activeLink: 'plm-overview', sections: SECTIONS
+  });
+  window.PLM_ACCORDION = SECTIONS;
+})();
+</script>
 <script src="/plm.app.js"></script>
 </body>
 </html>

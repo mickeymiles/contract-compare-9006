@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>资金占用 · 周转率 · 财经 · 经营业务工作台</title>
+<link rel="stylesheet" href="/common.css">
+<!-- echarts 同款 CDN（与旧门户 index.html 一致） -->
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+</head>
+<body>
+<div id="app" class="app-frame">
+  <!-- 两级导航 · 顶部：左面包屑 + 右主菜单(域) -->
+  <div class="app-topbar">
+    <nav class="breadcrumb" id="breadcrumb"></nav>
+    <nav class="topmenu" id="topMenu"></nav>
+  </div>
+
+  <!-- 主体：左=护栏手风琴(财经域)；右=页面 -->
+  <div class="app-body">
+    <aside class="nav-rail" id="navRail"></aside>
+
+    <main class="app-main app-content">
+      <!-- 独立工具条：右上角放置操作按钮，不与下方 Tab 页签拥挤 -->
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+        <span style="font-size:11px;color:var(--text2)" id="fundStatus">数据来源：finance_detail 收付款明细，按 project_no 归集（回落 contract_no），FIFO 冲抵（快照，秒级）</span>
+        <div style="display:flex;align-items:center;gap:10px">
+          <button class="btn btn-c" onclick="FinanceFund.run()" id="btnFundRun">▶ 执行分析</button>
+          <button class="btn btn-o" onclick="FinanceFund.exportResult()" id="btnFundExport" style="display:none">📥 导出分析结果</button>
+          <button class="btn btn-o" onclick="FinanceFund.exportRisk()" id="btnFundRiskExport" style="display:none">⚠️ 导出预警清单</button>
+        </div>
+      </div>
+
+      <!-- 结果区：汇总卡 + 多维 tab + 明细（分页） -->
+      <div id="fundContent">
+        <div class="ana-empty"><div class="icon">🏦</div><div>加载中...</div></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- 资金占用详情弹窗（复刻旧门户 #fundDetailModal：垫资片段 / 逐笔流水 / 现金流 三 Tab） -->
+<div id="fundDetailModal" class="modal-overlay" style="display:none" onclick="if(event.target===this)FinanceFund.closeFundDetail()">
+  <div class="modal-box" style="max-width:1000px;max-height:90vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h3 id="fundDetailTitle" style="margin:0">资金占用详情</h3>
+      <button class="btn btn-o" onclick="FinanceFund.closeFundDetail()" style="padding:4px 12px">✕ 关闭</button>
+    </div>
+    <div class="ana-actions" style="margin-bottom:16px">
+      <button class="btn btn-c btn-sm" onclick="FinanceFund.switchFundTab('segments')" id="tabBtnSegments">🟠 垫资片段</button>
+      <button class="btn btn-o btn-sm" onclick="FinanceFund.switchFundTab('flows')" id="tabBtnFlows">📄 流水</button>
+      <button class="btn btn-o btn-sm" onclick="FinanceFund.switchFundTab('cashflow')" id="tabBtnCashflow">💰 现金流</button>
+    </div>
+    <div id="fundDetailContent"></div>
+  </div>
+</div>
+
+<!-- 维度穿透下钻弹窗（复刻旧门户 fundDrill modal） -->
+<div id="fundDrillModal" class="modal-overlay" style="display:none" onclick="if(event.target===this)FinanceFund.closeDrill()"></div>
+
+<script src="/nav.config.js"></script>
+<script src="/finance-fund.app.js"></script>
+</body>
+</html>

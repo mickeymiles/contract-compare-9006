@@ -221,6 +221,36 @@ def api_plm_baseline_delete(baseline_id: int, operator: str = Query('admin')):
 def api_plm_ms_list(project_id: int):
     return _plm_ret(plm.list_milestones(project_id))
 
+@router.get("/api/plm/milestones")
+def api_plm_ms_all(keyword: Optional[str] = None):
+    """跨项目里程碑全量列表（供「项目管理·里程碑」视图）。"""
+    return _plm_ret(plm.list_all_milestones(keyword))
+
+@router.post("/api/plm/milestones/import")
+async def api_plm_ms_import(file: UploadFile = File(...), operator: str = Query('admin')):
+    """上传「项目里程碑表」xlsx，按列映射写入 plm_milestone（项目号/合同号关联）。"""
+    import openpyxl
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(await file.read()), data_only=True)
+    except Exception as e:
+        return {'success': False, 'error': '文件解析失败：%s' % e}
+    ws = wb.active
+    headers = []
+    for cell in ws[1]:
+        headers.append(str(cell.value or '').strip())
+    rows = []
+    for r in ws.iter_rows(min_row=2, values_only=True):
+        if all(v is None or str(v).strip() == '' for v in r):
+            continue
+        d = {}
+        for i, h in enumerate(headers):
+            if h and i < len(r):
+                d[h] = r[i]
+        rows.append(d)
+    res = plm.import_milestones(rows, operator)
+    res['headers'] = headers
+    return _plm_ret(res)
+
 @router.post("/api/plm/projects/{project_id}/milestones")
 def api_plm_ms_create(project_id: int, payload: Dict[str, Any]):
     p = dict(payload)

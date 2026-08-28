@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>开发中</title>
+<link rel="stylesheet" href="/common.css">
+</head>
+<body>
+<div id="app" class="app-frame">
+  <div class="app-topbar">
+    <nav class="breadcrumb" id="breadcrumb"></nav>
+    <nav class="topmenu" id="topMenu"></nav>
+  </div>
+  <div class="app-body">
+    <aside class="nav-rail" id="navRail"></aside>
+    <main class="app-main app-content">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:16px;padding:80px 24px;text-align:center">
+        <span class="icon xl" id="devIcon" style="color:var(--text2)"></span>
+        <h2 id="devTitle" style="font-size:18px;color:var(--text);margin:0">该功能开发中</h2>
+        <p id="devDesc" style="font-size:12px;color:var(--text2);max-width:520px;line-height:1.8"></p>
+        <button class="btn btn-o" onclick="location.href='/'" style="margin-top:8px">← 返回经营工作台</button>
+      </div>
+    </main>
+  </div>
+</div>
+<script src="/nav.config.js"></script>
+<script>
+(function(){
+  var q = new URLSearchParams(location.search);
+  var feature = q.get('feature') || '';
+  var NC = window.NAV_CONFIG;
+  document.getElementById('devTitle').textContent = feature ? (feature + ' · 开发中') : '该功能开发中';
+  document.getElementById('devDesc').textContent = feature
+    ? '「' + feature + '」的功能体验正在开发中，将纳入后续迭代上线。可在菜单中先行体验已上线的其他功能。'
+    : '该功能模块正在开发中，敬请期待。';
+  document.title = (feature ? feature + ' · ' : '') + '开发中';
+
+  /* 按功能映射到一级菜单（域），默认进入"可视化" */
+  var DMAP = [
+    ['经营工作台总览','vis','可视化'],
+    ['合同硬件采购比对','proc','采购'],
+    ['回款周期','fin','财经'],
+    ['资金占用·周转率','fin','财经'],
+    ['回款明细','fin','财经'],
+    ['付款明细','fin','财经'],
+    ['数据源 / 本体 / ETL','sys','系统'],
+    ['商机','sys','系统'],
+    ['合同','sys','系统']
+  ];
+  var dk = 'vis', dl = '可视化';
+  for (var i = 0; i < DMAP.length; i++) {
+    if (feature === DMAP[i][0]) { dk = DMAP[i][1]; dl = DMAP[i][2]; break; }
+  }
+  /* 保留对应域的左侧手风琴（开发中页也能导航），并高亮当前条目 */
+  var actLink = ({ '商机': 'sys-opp', '合同': 'sys-contract' })[feature] || '';
+  NC.renderBreadcrumb(document.getElementById('breadcrumb'), feature ? [dl, feature] : [dl]);
+  NC.renderTopMenu(document.getElementById('topMenu'), { activeKey: dk });
+  NC.renderAccordion(document.getElementById('navRail'), { activeKey: dk, activeLink: actLink });
+})();
+</script>
+</body>
+</html>

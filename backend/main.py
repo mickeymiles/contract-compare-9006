@@ -38,6 +38,8 @@ app.include_router(foundation_ontology_router)
 app.include_router(finance_gross_router)
 app.include_router(foundation_etl_router)
 app.include_router(lifecycle_plm_router)
+from core.routes import router as core_master_router
+app.include_router(core_master_router)
 app.include_router(ops_router)
 app.include_router(finance_payment_router)
 app.include_router(procurement_contrast_router)
@@ -61,8 +63,11 @@ os.makedirs(DATASOURCE_DIR, exist_ok=True)
 # 命中范围 = 显式清单 + 后缀兜底，后续新增 .css/.js 无需再改这里。
 # ─────────────────────────────────────────────────────────────
 NO_CACHE_PATHS = frozenset((
-    '/', '/gross', '/plm', '/procurement',
-    '/common.css', '/plm.app.js', '/procurement.app.js', '/china.json',
+    '/', '/gross', '/plm', '/procurement', '/contrast', '/core', '/dev', '/finance',
+    '/finance-cycle', '/finance-fund', '/finance-cost',
+    '/common.css', '/plm.app.js', '/procurement.app.js', '/contrast.app.js', '/core.app.js', '/finance.app.js',
+    '/gross.app.js',
+    '/finance-cycle.app.js', '/finance-fund.app.js', '/finance-cost.app.js', '/nav.config.js', '/china.json',
 ))
 NO_CACHE_SUFFIXES = ('.css', '.js')
 
@@ -810,6 +815,9 @@ def startup():
     import plm_models as _plm
     _plm.init_plm_db()
     _plm.seed_plm_master()
+    # 主数据域 core（R3）— 建表
+    from core import project as _core
+    _core.init_core_db()
 
 
 # ===================== 供应商列名 =====================
@@ -829,6 +837,55 @@ def common_css():
 @app.get("/gross")
 def gross_page():
     return FileResponse(os.path.join(FRONTEND_DIR, 'gross.html'))
+
+
+@app.get("/gross.app.js")
+def gross_app_js():
+    return FileResponse(os.path.join(FRONTEND_DIR, 'gross.app.js'))
+
+
+@app.get("/finance")
+def finance_page():
+    return FileResponse(os.path.join(FRONTEND_DIR, 'finance.html'))
+
+
+@app.get("/finance.app.js")
+def finance_app_js():
+    return FileResponse(os.path.join(FRONTEND_DIR, 'finance.app.js'))
+
+
+@app.get("/finance-cycle")
+def finance_cycle_page():
+    """财经 · 资金运作 · 回款周期 独立页。"""
+    return FileResponse(os.path.join(FRONTEND_DIR, 'finance-cycle.html'))
+
+
+@app.get("/finance-cycle.app.js")
+def finance_cycle_app_js():
+    return FileResponse(os.path.join(FRONTEND_DIR, 'finance-cycle.app.js'))
+
+
+@app.get("/finance-fund")
+def finance_fund_page():
+    """财经 · 资金运作 · 资金占用·周转率 独立页。"""
+    return FileResponse(os.path.join(FRONTEND_DIR, 'finance-fund.html'))
+
+
+@app.get("/finance-fund.app.js")
+def finance_fund_app_js():
+    return FileResponse(os.path.join(FRONTEND_DIR, 'finance-fund.app.js'))
+
+
+@app.get("/finance-cost")
+def finance_cost_page():
+    """财经 · 资金运作 · 成本预警 独立页。"""
+    return FileResponse(os.path.join(FRONTEND_DIR, 'finance-cost.html'))
+
+
+@app.get("/finance-cost.app.js")
+def finance_cost_app_js():
+    return FileResponse(os.path.join(FRONTEND_DIR, 'finance-cost.app.js'))
+
 
 @app.get("/china.json")
 def china_map_data():
@@ -882,6 +939,17 @@ def procurement_page():
 @app.get("/procurement.app.js")
 def procurement_app_js():
     return FileResponse(os.path.join(FRONTEND_DIR, 'procurement.app.js'))
+
+
+@app.get("/contrast")
+def contrast_page():
+    """采购域 · 合同硬件采购比对（独立页面，壳驱动）"""
+    return FileResponse(os.path.join(FRONTEND_DIR, 'contrast.html'))
+
+
+@app.get("/contrast.app.js")
+def contrast_app_js():
+    return FileResponse(os.path.join(FRONTEND_DIR, 'contrast.app.js'))
 
 
 # ---- 任务 ----
@@ -2621,6 +2689,25 @@ def plm_page():
 @app.get("/plm.app.js")
 def plm_app_js():
     return FileResponse(os.path.join(FRONTEND_DIR, 'plm.app.js'))
+
+
+# ---- 主数据域 core 前端页（R4.2 样板）----
+@app.get("/core")
+def core_page():
+    return FileResponse(os.path.join(FRONTEND_DIR, 'core.html'))
+
+
+@app.get("/core.app.js")
+def core_app_js():
+    return FileResponse(os.path.join(FRONTEND_DIR, 'core.app.js'))
+
+@app.get("/nav.config.js")
+def nav_config_js():
+    return FileResponse(os.path.join(FRONTEND_DIR, 'nav.config.js'))
+
+@app.get("/dev")
+def dev_page(feature: str = ''):
+    return FileResponse(os.path.join(FRONTEND_DIR, 'dev.html'))
 
 
 # ---- 总览 / 配置 / 字典 / 日志 ----

@@ -275,6 +275,10 @@ def init_plm_db():
             status TEXT DEFAULT '未开始',
             is_key INTEGER DEFAULT 0,
             plan_output REAL DEFAULT 0,
+            task_no TEXT DEFAULT '',
+            plan_payback_date TEXT DEFAULT '',
+            payback_date TEXT DEFAULT '',
+            payback_amount REAL DEFAULT 0,
             deliverable TEXT DEFAULT '',
             remark TEXT DEFAULT '',
             created_at TEXT DEFAULT (datetime('now','localtime')),
@@ -454,6 +458,20 @@ def init_plm_db():
               "ON plm_ledger (project_id, kind, plan_or_actual)")
     c.execute("CREATE INDEX IF NOT EXISTS ix_plm_alert_open "
               "ON plm_alert (project_id, rule_key, status)")
+
+    # —— plm_milestone 增量补列（幂等：列已在则跳过）——
+    # 承载导入的「项目里程碑表」回款信息，供 payment_cycle / milestone_payback_point 使用
+    _milestone_add_cols = [
+        ('task_no', 'TEXT DEFAULT ""'),
+        ('plan_payback_date', 'TEXT DEFAULT ""'),
+        ('payback_date', 'TEXT DEFAULT ""'),
+        ('payback_amount', 'REAL DEFAULT 0'),
+    ]
+    _ms_existing = {r[1] for r in c.execute("PRAGMA table_info(plm_milestone)").fetchall()}
+    for _name, _typedef in _milestone_add_cols:
+        if _name in _ms_existing:
+            continue
+        c.execute('ALTER TABLE plm_milestone ADD COLUMN %s %s' % (_name, _typedef))
 
     conn.commit()
     conn.close()
@@ -1609,6 +1627,145 @@ def list_milestones(project_id):
         if kids:
             r['progress_rollup'] = _r(sum(_f(k['progress']) for k in kids) / len(kids), 2)
     return rows
+
+
+def list_all_milestones(keyword=None):
+    """跨项目里程碑全量列表（含项目 / 合同关联），供「里程碑」视图使用。"""
+    conn = get_db()
+    sql = ("SELECT m.*, pp.project_no, pp.project_name, pp.contract_id, pc.contract_no "
+           "FROM plm_milestone m "
+           "LEFT JOIN plm_project pp ON pp.id = m.project_id "
+           "LEFT JOIN plm_contract pc ON pc.id = pp.contract_id")
+    conds, args = [], []
+    if keyword:
+        conds.append("(m.name LIKE ? OR pp.project_no LIKE ? OR pp.project_name LIKE ? "
+                     "OR pc.contract_no LIKE ?)")
+        args += ['%' + keyword + '%'] * 4
+    if conds:
+        sql += " WHERE " + " AND ".join(conds)
+    sql += " ORDER BY COALESCE(pp.project_no,''), m.project_id, m.plan_start, m.id"
+    rows = _rows(conn.execute(sql, args))
+    conn.close()
+    return rows
+
+
+# 「项目里程碑表」列 → plm_milestone 字段映射（按优先级依次尝试候选列名）
+MILESTONE_IMPORT_FIELDS = {
+    'name': ('任务名称', '合同里程碑名称', '任务名称'),
+    'task_no': ('任务编号',),
+    'owner': ('项目经理',),
+    'plan_start': ('任务计划开始日期', '计划开始日期', '计划开始时间'),
+    'plan_end': ('任务计划结束日期', '计划结束日期'),
+    'actual_start': ('任务实际开始日期',),
+    'actual_end': ('任务实际结束日期',),
+    'progress': ('实际完成百分比',),
+    'status': ('任务状态', '项目状态'),
+    'plan_output': ('计划产值(元)', '里程碑产值(元)', '计划产值', '里程碑产值'),
+    'plan_payback_date': ('计划回款时间',),
+    'payback_date': ('回款时间',),
+    'payback_amount': ('回款金额',),
+}
+
+
+def _pick_import(row, candidates):
+    for c in candidates:
+        v = row.get(c)
+        if v is not None and str(v).strip() != '':
+            return str(v).strip()
+    return ''
+
+
+def import_milestones(rows, operator=''):
+    """按「项目里程碑表」行写入 plm_milestone。
+
+    项目关联：用 core 主数据（core_project：project_no/contract_no）把
+    行内「项目编号 / 合同编号」解析成项目号，再落到 plm_project 以取 project_id；
+    无法匹配的项目行跳过并计数。
+    返回 {'success','inserted','skipped','total','matched_columns'}。
+    """
+    from core import project as _core_proj
+    # ① core 主数据索引：project_no 与 contract_no → 项目号（即 plm_project.project_no）
+    core_idx = {}
+    for cp in (_core_proj.list_projects() or []):
+        pno = (cp.get('project_no') or '').strip()
+        cno = (cp.get('contract_no') or '').strip()
+        if pno:
+            core_idx.setdefault(pno, pno)
+        if cno:
+            core_idx.setdefault(cno, pno)
+
+    conn = get_db()
+    try:
+        # ② plm_project 索引：项目号 → id
+        plm_proj = { (p['project_no'] or '').strip(): p['id']
+                     for p in _rows(conn.execute("SELECT id, project_no FROM plm_project")) }
+        inserted, skipped, matched_cols, op_logs = 0, 0, set(), []
+        for rw in rows:
+            if not rw:
+                continue
+            pno = _pick_import(rw, ('项目编号', 'project_no'))
+            cno = _pick_import(rw, ('合同编号', 'contract_no'))
+            matched_no = core_idx.get(pno) or core_idx.get(cno) or core_idx.get(pno or cno)
+            if not matched_no:
+                skipped += 1
+                continue
+            plm_id = plm_proj.get(matched_no)
+            if not plm_id:
+                # 主数据已存在但 plm_project 无该立项 → 自动登记，里程碑才有 project_id 可挂
+                pname = _pick_import(rw, ('项目名称',)) or matched_no
+                cur = conn.execute(
+                    "INSERT INTO plm_project (project_no, project_name) VALUES (?,?)",
+                    (matched_no, pname))
+                plm_id = cur.lastrowid
+                plm_proj[matched_no] = plm_id
+
+            f = {field: _pick_import(rw, cands)
+                 for field, cands in MILESTONE_IMPORT_FIELDS.items()}
+            name = f['name']
+            if not name:
+                skipped += 1
+                continue
+            progress = None
+            if f['progress']:
+                try:
+                    progress = float(f['progress'])
+                    if progress > 1:
+                        progress = progress / 100.0
+                except (ValueError, TypeError):
+                    progress = None
+            amount = None
+            if f['payback_amount']:
+                try:
+                    amount = round(float(str(f['payback_amount']).replace(',', '')), 2)
+                except (ValueError, TypeError):
+                    amount = None
+            plan_output = None
+            if f['plan_output']:
+                plan_output = _f(str(f['plan_output']).replace(',', '')) or None
+
+            cur = conn.execute(
+                """INSERT INTO plm_milestone
+                  (project_id, level, name, owner, task_no, plan_start, plan_end,
+                   actual_start, actual_end, progress, status, plan_output,
+                   plan_payback_date, payback_date, payback_amount, remark)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (plm_id, '细', name, f['owner'], f['task_no'], f['plan_start'],
+                 f['plan_end'], f['actual_start'], f['actual_end'], progress,
+                 f['status'] or '未开始', plan_output,
+                 f['plan_payback_date'], f['payback_date'], amount, ''))
+            inserted += 1
+            matched_cols.update(field for field, v in f.items() if v)
+            op_logs.append((cur.lastrowid, name, f['task_no']))
+        conn.commit()
+        # 操作日志在提交后写入（避免占用写锁）
+        for mid, mname, tno in op_logs:
+            log_op('milestone', mid, mname, '导入项目里程碑表',
+                   {'source': 'xlsx', 'task_no': tno}, operator=operator)
+        return {'success': True, 'inserted': inserted, 'skipped': skipped,
+                'total': len(rows),
+                'matched_columns': sorted(matched_cols)}
+    finally:
+        conn.close()
 
 
 def create_milestone(payload, operator=''):

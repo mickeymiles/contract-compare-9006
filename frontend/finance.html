@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>资金明细 · 经营业务工作台</title>
+<link rel="stylesheet" href="/common.css">
+</head>
+<body>
+<div id="app" class="app-frame">
+  <!-- 两级导航 · 顶部：左面包屑 + 右主菜单(域) -->
+  <div class="app-topbar">
+    <nav class="breadcrumb" id="breadcrumb"></nav>
+    <nav class="topmenu" id="topMenu"></nav>
+  </div>
+
+  <!-- 主体：左=当前域内嵌手风琴；右=页面 -->
+  <div class="app-body">
+    <aside class="nav-rail" id="navRail"></aside>
+
+    <main class="app-main app-content">
+      <!-- 付款明细 -->
+      <section class="finance-sec" id="sec-pay">
+        <div class="section-hdr">
+          <span class="icon lg">💸</span>
+          <h2>付款明细</h2>
+          <span class="hdr-sub" id="status-pay">导入付款表 Excel（合同编号/实际支付时间/实际支付金额）落库 finance_detail</span>
+          <div class="hdr-actions">
+            <button class="btn btn-o btn-s" id="importBtn-pay" onclick="document.getElementById('file-pay').click()">📥 导入付款表</button>
+            <input type="file" id="file-pay" accept=".xlsx,.xls" style="display:none" onchange="Finance.importXls(event,'pay')">
+            <button class="btn btn-o btn-s" onclick="Finance.reload('pay')">🔄 刷新列表</button>
+          </div>
+        </div>
+        <div class="fbar">
+          <input class="in" id="kw-pay" placeholder="搜索 项目号/合同号" style="min-width:220px"
+                 onkeydown="if(event.key==='Enter')Finance.reload('pay')">
+          <span class="hint" id="count-pay"></span>
+        </div>
+        <div class="twrap"><table class="obj-table" id="tbl-pay"></table></div>
+      </section>
+
+      <!-- 收款明细 -->
+      <section class="finance-sec" id="sec-recv">
+        <div class="section-hdr">
+          <span class="icon lg">💰</span>
+          <h2>回款明细</h2>
+          <span class="hdr-sub" id="status-recv">导入回款表 Excel（合同号/回款日期/到款金额）落库 finance_detail</span>
+          <div class="hdr-actions">
+            <button class="btn btn-o btn-s" id="importBtn-recv" onclick="document.getElementById('file-recv').click()">📥 导入回款表</button>
+            <input type="file" id="file-recv" accept=".xlsx,.xls" style="display:none" onchange="Finance.importXls(event,'recv')">
+            <button class="btn btn-o btn-s" onclick="Finance.reload('recv')">🔄 刷新列表</button>
+          </div>
+        </div>
+        <div class="fbar">
+          <input class="in" id="kw-recv" placeholder="搜索 项目号/合同号" style="min-width:220px"
+                 onkeydown="if(event.key==='Enter')Finance.reload('recv')">
+          <span class="hint" id="count-recv"></span>
+        </div>
+        <div class="twrap"><table class="obj-table" id="tbl-recv"></table></div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<script src="/nav.config.js"></script>
+<script src="/finance.app.js"></script>
+</body>
+</html>
