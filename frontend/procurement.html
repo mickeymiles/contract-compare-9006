@@ -40,6 +40,9 @@
   /* 垂直流程条（详情页右侧：上下结构的流程步骤，每步包含说明+操作+结果） */
   .detail-split{display:grid;grid-template-columns:minmax(420px,44%) 1fr;gap:16px;align-items:start}
   @media (max-width: 1100px){.detail-split{grid-template-columns:1fr}}
+  /* 双流双列（内部流/外部流）布局 */
+  .dual-flow{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+  @media (max-width: 1080px){.dual-flow{grid-template-columns:1fr}}
   .step-flow{display:flex;flex-direction:column;gap:14px;counter-reset:step}
   .step-card{background:var(--bg1);border:1px solid var(--border);border-radius:10px;padding:16px 18px 16px 64px;position:relative;transition:all .2s}
   .step-card::before{
@@ -352,36 +355,46 @@
     </div>
   </div>
 
-  <!-- 页面3: 任务详情 -->
+  <!-- 页面3: 任务详情（改造：顶部基础信息 + 双流双列 + 报价与操作日志） -->
   <div id="page-proc-detail" class="page">
     <div class="proc-actions">
       <button class="btn btn-o" onclick="showPage('list')">← 返回列表</button>
       <span style="font-family:var(--mono);color:var(--text2);font-size:13px;margin-left:4px">任务ID：<span id="detailTaskId" style="color:var(--text)"></span></span>
       <span id="detailStatusBadge" style="margin-left:8px"></span>
+      <span id="detailFlowBadge" style="margin-left:8px"></span>
       <span style="flex:1"></span>
       <button class="btn btn-o" onclick="loadDetail()">🔄 刷新详情</button>
       <button class="btn btn-o" style="color:var(--red);border-color:rgba(255,82,82,.4)" onclick="openCancel(currentDetailTaskId)" id="cancelBtn" title="任务取消后不可恢复">❌ 取消任务</button>
     </div>
 
-    <div class="detail-split">
-      <!-- 左侧：采购基础信息（沿用原 Tab1 内容，不做 tab 切换了，直接展示更直观） -->
-      <div class="panel" style="position:sticky;top:8px">
-        <h3>📋 采购基础信息</h3>
-        <div id="detailBaseBody"><div class="empty-tip">加载中...</div></div>
+    <!-- 顶部：采购基础信息 -->
+    <div class="panel">
+      <h3>📋 采购基础信息</h3>
+      <div id="detailBaseBody"><div class="empty-tip">加载中...</div></div>
+    </div>
 
-        <!-- 操作日志折叠在左侧底部（因为原Tab3不需要了，日志放这里更顺手） -->
-        <div style="margin-top:24px">
-          <h3>📜 操作日志</h3>
-          <div id="opLogBody" class="twrap" style="max-height:340px;overflow:auto"><div class="empty-tip">加载中...</div></div>
-        </div>
+    <!-- 中段：双流双列（左=内部流，右=外部流） -->
+    <div class="dual-flow" style="margin-top:16px">
+      <div class="panel">
+        <h3>🔁 内部流 <span style="font-weight:400;font-size:11px;color:var(--text2)">（工程师 ↔ 智能体 ↔ 审批人）</span></h3>
+        <div class="step-flow" id="internalFlowBody"><div class="empty-tip">流程加载中...</div></div>
       </div>
+      <div class="panel">
+        <h3>🌐 外部流 <span style="font-weight:400;font-size:11px;color:var(--text2)">（智能体 ↔ 供应商）</span></h3>
+        <div class="step-flow" id="externalFlowBody"><div class="empty-tip">流程加载中...</div></div>
+      </div>
+    </div>
 
-      <!-- 右侧：5步垂直流程条（每一步到了就告诉你这一步做什么、需要选什么、点什么按钮） -->
-      <div>
-        <div class="step-flow" id="detailStepFlow">
-          <div class="empty-tip">流程加载中...</div>
-        </div>
-      </div>
+    <!-- 供应商报价与选型 -->
+    <div class="panel" style="margin-top:16px">
+      <h3>💰 供应商报价与选型</h3>
+      <div id="quoteSectionBody"><div class="empty-tip">加载中...</div></div>
+    </div>
+
+    <!-- 操作日志 -->
+    <div class="panel" style="margin-top:16px">
+      <h3>📜 操作日志</h3>
+      <div id="opLogBody" class="twrap" style="max-height:340px;overflow:auto"><div class="empty-tip">加载中...</div></div>
     </div>
   </div>
   </div>  <!-- /proc-tab-tasks -->
@@ -639,13 +652,14 @@
              oninput="miTimer && clearTimeout(miTimer); miTimer = setTimeout(loadMailInquiryList, 300)">
       <select id="mailInqStatus" onchange="loadMailInquiryList()" style="max-width:190px">
         <option value="">全部状态</option>
-        <option value="SENDING_B">发起报价中 (SENDING_B)</option>
-        <option value="R_WAIT_QUOTES">报价收集中 (WAIT_QUOTES)</option>
-        <option value="R_DECIDING">最低价已定 (DECIDING)</option>
-        <option value="R_ORDER">订货中 (ORDER)</option>
-        <option value="R_WAIT_SHIPPING">待快递单号 (SHIPPING)</option>
-        <option value="R_CLOSED">已闭环 (CLOSED)</option>
-        <option value="REJECTED">已拒绝 (REJECTED)</option>
+        <option value="询比价进行中">进行中</option>
+        <option value="部分供应商超时">部分超时</option>
+        <option value="全部供应商超时">全部超时</option>
+        <option value="已选型确认">已选型</option>
+        <option value="供应商发货中">发货中</option>
+        <option value="流程闭环">已闭环</option>
+        <option value="收货测试失败">测试失败</option>
+        <option value="任务已取消">已取消</option>
       </select>
       <span style="flex:1"></span>
       <span id="mailInqSummary" style="font-size:11.5px;color:#5ed7ff">共 0 个任务</span>
@@ -655,7 +669,8 @@
     <div class="panel">
       <h3>备件邮件询价任务（只读观察）</h3>
       <p style="font-size:12px;color:var(--text2);margin:4px 0 0;line-height:1.7">
-        数据由 neuops「备件邮件询价」数字员工自动同步，本页<b style="color:var(--cyan)">仅用于查看</b>（含双流步骤、报价、审批、订货、回单与邮件原文）。点击下方任务卡片可查看详情。
+        展示来源为「邮件」的备件询价任务（与询比价主清单同表 <span style="font-family:var(--mono)">procurement_task</span>，
+        按 <span style="font-family:var(--mono)">source=邮件</span> 过滤）。点击卡片跳转到统一双流详情页，查看基础信息 / 内部流 / 外部流 / 报价与操作日志。
       </p>
       <div class="mi-card-grid" id="mailInquiryList" style="margin-top:14px">
         <div class="empty-tip">加载中...</div>

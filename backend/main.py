@@ -1039,8 +1039,12 @@ def procurement_app_js():
 
 # ---- 任务 ----
 @app.get("/api/procurement/tasks")
-def api_proc_task_list(status: Optional[str] = None):
-    return {"success": True, "data": list_tasks(status=status)}
+def api_proc_task_list(status: Optional[str] = None, source: Optional[str] = None, keyword: Optional[str] = None):
+    """列出询比价任务（支持 状态 / 来源 / 关键词 过滤）。
+    source 如 ?source=email（邮件来源）/ page（页面）/ agent（Agent对话）→ 归一为 邮件/页面/Agent对话。
+    2026-08-29 起「备件邮件询价」观察面板改读本端点 source=email。
+    """
+    return {"success": True, "data": list_tasks(status=status, source=source, keyword=keyword)}
 
 
 @app.get("/api/procurement/tasks/{task_id}")

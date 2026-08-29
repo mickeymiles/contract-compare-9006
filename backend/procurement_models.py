@@ -46,6 +46,20 @@ def _ts():
     return int(time.time())
 
 
+def _table_columns(c, table):
+    """返回某表当前的列名集合（用于幂等判断列是否存在）"""
+    rows = c.execute(f"PRAGMA table_info({table})").fetchall()
+    return {r[1] for r in rows}
+
+
+def _ensure_columns(c, table, cols):
+    """幂等补列：列不存在才 ALTER TABLE ADD COLUMN（TEXT DEFAULT ''）"""
+    existing = _table_columns(c, table)
+    for col in cols:
+        if col not in existing:
+            c.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT DEFAULT ''")
+
+
 # ===================== 表 1: 询比价任务 =====================
 
 TASK_STATUS_ENUM = (
@@ -96,6 +110,22 @@ def init_procurement_db():
         )
     """)
     c.execute("CREATE INDEX IF NOT EXISTS idx_proc_task_status ON procurement_task(task_status)")
+
+    # 1b. 幂等补列：为 procurement_task 补上「双流 + 审批 + 备件明细 + 邮件」列（TEXT DEFAULT ''）。
+    #     internal_status / external_status = 双流（内部: R_INIT→R_APPROVAL→R_CLOSED；外部: R_SEND→R_WAIT_QUOTES→R_DECIDING→R_ORDER→R_WAIT_SHIPPING→R_CLOSED）
+    #     source = 任务来源（页面 / Agent对话 / 邮件），供详情页展示
+    _ensure_columns(c, 'procurement_task', [
+        # 双流
+        'internal_status', 'external_status',
+        # 审批
+        'approval_state', 'approval_result', 'approver_email', 'target_supplier',
+        # 备件明细（页面 / 邮件 / 智能体三入口携带）
+        'project_no', 'project_name', 'spec', 'condition', 'pn', 'address',
+        'urgent', 'inquiry_deadline',
+        # 邮件来源
+        'brand', 'latest_ship_time', 'from_email', 'mail_archive_json',
+        'source',
+    ])
 
     # 2. 采购业务台账表（闭环自动写入，结算凭证）
     c.execute("""
@@ -314,11 +344,14 @@ def init_procurement_db():
         except Exception:
             pass
     # 老 SQLite (<3.35) 不支持 DROP COLUMN，用 try/except 兜底；不影响主流程
-    for col in ('project_id', 'project_name'):
+    # 注意：procurement_task 的 project_name 现在是新功能需要的列（备件明细），不能 DROP；
+    #       只对任务表 DROP 废弃的 project_id；台账表两条废弃字段均可 DROP。
+    for col in ('project_id',):
         try:
             c.execute(f"ALTER TABLE procurement_task DROP COLUMN {col}")
         except Exception:
             pass
+    for col in ('project_id', 'project_name'):
         try:
             c.execute(f"ALTER TABLE procurement_ledger DROP COLUMN {col}")
         except Exception:
@@ -335,12 +368,38 @@ def init_procurement_db():
 # ===================== Task CRUD =====================
 
 def create_task(*, contract_no, spare_part_model,
-                purchase_qty, emergency_level, inquiry_supplier_list=None, creator=''):
-    """创建询比价任务实例（Skill-01 调用入口）
+                purchase_qty, emergency_level, inquiry_supplier_list=None, creator='',
+                project_no='', project_name='', brand='', pn='', spec='', condition='',
+                count=None, address='', urgent='', inquiry_deadline='',
+                target_supplier='', approver_email='', approval_result='',
+                from_email='', latest_ship_time='', source='', **kwargs):
+    """创建询比价任务实例（Skill-01 / 页面 / Agent对话 / 工程师邮件 统一入口。
+
+    只要传 business 字段就走标准 create_task，同时支持三入口写同一张 procurement_task：
+      - internal_status 默认 'R_INIT'，external_status 默认 'R_SEND'（双流初始化）
+      - task_status 仍默认 '询比价进行中'（向后兼容旧读方）
+    可选 kwargs（无则用空串）：project_no / project_name / brand / pn / spec / condition /
+    count(数量别名，与 purchase_qty 二选一) / address / urgent / inquiry_deadline /
+    target_supplier / approver_email / from_email / latest_ship_time / source。
+    source 缺省自动推导：有 from_email → '邮件'；creator in ('agent','Agent') → 'Agent对话'；否则 '页面'。
     若未指定 inquiry_supplier_list，自动从供应商资源池全量带出
     """
     if emergency_level not in EMERGENCY_LEVEL_ENUM:
         raise ValueError(f"非法 emergency_level: {emergency_level}")
+    # count 作为数量别名：邮件/页面入口可能只传 count 不传 purchase_qty
+    if purchase_qty in (None, 0) and count not in (None, ''):
+        try:
+            purchase_qty = float(count)
+        except (TypeError, ValueError):
+            purchase_qty = 0
+    purchase_qty = float(purchase_qty or 0)
+    if not source:
+        if from_email:
+            source = '邮件'
+        elif creator in ('agent', 'Agent', 'Agent对话'):
+            source = 'Agent对话'
+        else:
+            source = '页面'
     now = _now_iso()
     deadline_ts = _ts() + EMERGENCY_SECONDS[emergency_level]
     reply_deadline = datetime.fromtimestamp(deadline_ts, CN_TZ).strftime('%Y-%m-%d %H:%M:%S')
@@ -379,11 +438,20 @@ def create_task(*, contract_no, spare_part_model,
         INSERT INTO procurement_task
         (task_id, contract_no, spare_part_model, purchase_qty,
          emergency_level, reply_deadline, inquiry_supplier_list, no_reply_supplier,
-         task_status, creator, create_time, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, '询比价进行中', ?, ?, ?)
+         task_status, creator, create_time, updated_at,
+         internal_status, external_status, source,
+         approval_state, approval_result, approver_email, target_supplier,
+         project_no, project_name, spec, condition, pn, address, urgent, inquiry_deadline,
+         brand, latest_ship_time, from_email, mail_archive_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, '询比价进行中', ?, ?, ?,
+                'R_INIT', 'R_SEND', ?, '', '', '', '',
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]')
     """, (task_id, contract_no, spare_part_model, purchase_qty,
           emergency_level, reply_deadline, suppliers_json, no_reply_json,
-          creator, now, now))
+          creator, now, now,
+          source,
+          project_no, project_name, spec, condition, pn, address, urgent, inquiry_deadline,
+          brand, latest_ship_time, from_email))
     _add_op_log(c, task_id, creator, 'create_inquiry', f'发起询价，紧急等级 {emergency_level}')
     conn.commit()
     conn.close()
@@ -402,8 +470,24 @@ def get_task(task_id):
     return _row_to_task(row)
 
 
-def list_tasks(*, status=None, limit=200):
-    """列出任务（可按状态过滤）"""
+_SOURCE_ALIAS = {
+    # 别名 -> 落库标准值（与 create_task 自动推导一致）
+    'page': '页面', '页面': '页面',
+    'agent': 'Agent对话', 'agent对话': 'Agent对话',
+    'email': '邮件', 'mail': '邮件', '邮件': '邮件',
+}
+
+
+def _normalize_source(source):
+    """把来源参数归一为落库标准值（页面 / Agent对话 / 邮件）；未识别则原样返回"""
+    s = (source or '').strip()
+    if not s:
+        return s
+    return _SOURCE_ALIAS.get(s) or _SOURCE_ALIAS.get(s.lower()) or s
+
+
+def list_tasks(*, status=None, source=None, keyword=None, limit=200):
+    """列出任务（可按 状态 / 来源 / 关键词 过滤，全部默认不过滤）"""
     conn = get_db()
     c = conn.cursor()
     sql = "SELECT * FROM procurement_task"
@@ -411,6 +495,14 @@ def list_tasks(*, status=None, limit=200):
     if status:
         where.append("task_status=?")
         params.append(status)
+    if source:
+        where.append("source=?")
+        params.append(_normalize_source(source))
+    if keyword:
+        like = f"%{keyword}%"
+        where.append("(task_id LIKE ? OR spare_part_model LIKE ? OR project_name LIKE ?"
+                     " OR pn LIKE ? OR spec LIKE ? OR brand LIKE ? OR from_email LIKE ?)")
+        params.extend([like] * 7)
     if where:
         sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY create_time DESC LIMIT ?"
@@ -689,7 +781,7 @@ def _row_to_task(row):
         return None
     d = dict(row)
     # JSON 字段反序列化
-    for k in ('inquiry_supplier_list', 'replied_supplier_quotes', 'no_reply_supplier'):
+    for k in ('inquiry_supplier_list', 'replied_supplier_quotes', 'no_reply_supplier', 'mail_archive_json'):
         try:
             d[k] = json.loads(d.get(k) or '[]')
         except Exception:
