@@ -61,6 +61,23 @@
   .step-card .step-result{margin-top:10px;padding:10px 12px;background:var(--bg3);border-radius:7px;font-size:12px;color:var(--text);line-height:1.7;border:1px dashed var(--border)}
   .step-card.done .step-result{background:rgba(0,230,118,.06);border-color:rgba(0,230,118,.3);color:var(--green)}
   .step-card.current .step-action{margin-top:4px}
+  /* 双流卡片时间线（垂直：左轨道线 + 节点圆点 + 序号，前后用线串起） */
+  .dual-timeline{display:flex;flex-direction:column;position:relative}
+  .dual-step{display:grid;grid-template-columns:26px 1fr;gap:10px;position:relative}
+  .dual-step + .dual-step{margin-top:16px}
+  /* 贯穿节点向下的纵向连接线 */
+  .dual-step::before{content:"";position:absolute;left:12px;top:26px;bottom:-16px;width:2px;background:var(--border);z-index:0}
+  .dual-step:last-child::before{display:none}
+  /* 节点圆点 + 序号 */
+  .dual-node{position:relative;z-index:1;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;border:2px solid var(--border);background:var(--bg1, #131c2e);color:var(--text3);flex-shrink:0;margin-top:1px}
+  .dual-step.done .dual-node{background:rgba(0,230,118,.14);border-color:var(--green);color:var(--green)}
+  .dual-step.done::before{background:var(--green)}
+  .dual-step.current .dual-node{background:rgba(255,193,7,.16);border-color:var(--amber, var(--orange));color:var(--amber, var(--orange));box-shadow:0 0 0 3px rgba(255,193,7,.15);animation:pulse 2s infinite}
+  .dual-step.current::before{background:rgba(255,193,7,.5)}
+  /* 时间线内卡片：隐藏内置左节点/缩进，进行中改琥珀高亮 */
+  .dual-timeline .dual-card .step-card{padding:14px 16px}
+  .dual-timeline .dual-card .step-card::before{display:none}
+  .dual-timeline .step-card.current{border-color:rgba(255,193,7,.5);background:rgba(255,193,7,.04);box-shadow:0 0 0 4px rgba(255,193,7,.07)}
   .supplier-pick-card{background:linear-gradient(135deg,rgba(0,229,255,.08),rgba(179,136,255,.08));border:1px solid rgba(0,229,255,.35);border-radius:9px;padding:12px 14px}
   .supplier-pick-card h4{margin:0 0 8px;color:var(--cyan);font-size:13px}
   .pick-summary{background:linear-gradient(135deg,rgba(0,230,118,.09),rgba(0,229,255,.06));border:1px solid rgba(0,230,118,.45);border-radius:9px;padding:12px 14px;margin-top:12px}

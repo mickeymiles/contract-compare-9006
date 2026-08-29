@@ -488,6 +488,25 @@ function normalizeTask(t0) {
   t.latest_ship_time = t.latest_ship_time || '';
   t.source = t.source || '';
   t.mail_archive_json = Array.isArray(t.mail_archive_json) ? t.mail_archive_json : [];
+  // —— 字段别名归一：引擎（neuops）写 suppliers_json / quotes_json（数组或 JSON 字符串），
+  //    旧页面/旧数据写 inquiry_supplier_list / replied_supplier_quotes。统一成单一可靠来源。
+  const _parseJsonArr = (v) => {
+    if (Array.isArray(v)) return v;
+    if (typeof v === 'string' && v.trim()) {
+      try { const a = JSON.parse(v); return Array.isArray(a) ? a : []; } catch (_) {}
+    }
+    return [];
+  };
+  const _supNew = _parseJsonArr(t.suppliers_json);
+  const _supOld = _parseJsonArr(t.inquiry_supplier_list);
+  const _quoteNew = _parseJsonArr(t.quotes_json);
+  const _quoteOld = _parseJsonArr(t.replied_supplier_quotes);
+  // 询价供应商列表：优先 suppliers_json，fallback 到 inquiry_supplier_list
+  t.suppliers_json = _supNew.length ? _supNew : _supOld;
+  // 报价列表：优先 quotes_json，fallback 到 replied_supplier_quotes
+  t.quotes_json = _quoteNew.length ? _quoteNew : _quoteOld;
+  // 创建人兜底：creator → from_email → '-'
+  t.creator = t.creator || t.from_email || '-';
   return t;
 }
 
@@ -939,8 +958,8 @@ function renderDetailBase() {
     ['报价截止', esc(deadline)],
     ['来源', src],
     ['合同号', esc(t.contract_no || '-')],
-    ['询价供应商', `${t.inquiry_supplier_list.length} 家`],
-    ['已收到报价', `${t.replied_supplier_quotes.length} 家`],
+    ['询价供应商', `${t.suppliers_json.length} 家`],
+    ['已收到报价', `${t.quotes_json.length} 家`],
     ['未回复报价', `${t.no_reply_supplier.length} 家`],
     ['创建人', esc(t.creator || '-')],
     ['创建 / 更新', `${esc(t.create_time || '-')} / ${esc(t.updated_at || '-')}`],
@@ -994,18 +1013,23 @@ function procApproval(t) {
     rejected: ['rejected','declined','all_rejected'].includes(a) || result.includes('reject'),
   };
 }
-// 双流步骤卡片
-function dualStepCard(st) {
+// 双流步骤卡片（垂直时间线样式：左轨道线 + 节点圆点 + 序号，前后卡片用线串起来）
+function dualStepCard(st, i = 0) {
   const cls = { 0:'', 1:'current', 2:'done' }[st.state] || '';
+  const nodeCls = (st.state === 2 ? 'done' : st.state === 1 ? 'current' : '');
   const badge = st.state === 2 ? ' <span class="badge badge-proc-closed">✅ 已完成</span>'
-    : st.state === 1 ? ' <span class="badge badge-o" style="background:rgba(0,229,255,.15);color:var(--cyan)">⏳ 进行中</span>'
+    : st.state === 1 ? ' <span class="badge badge-o" style="background:rgba(255,193,7,.16);color:var(--amber,var(--orange))">⏳ 进行中</span>'
     : ' <span class="badge badge-o">未开始</span>';
   const time = st.time ? `<div style="font-size:11px;color:var(--text2);font-family:var(--mono);margin-bottom:6px">🕒 ${escapeHtml(st.time)}</div>` : '';
-  return `<div class="step-card ${cls}">
+  const card = `<div class="step-card ${cls}">
     <div class="step-title">${st.title} ${badge}</div>
     ${time}
     <div class="step-desc">${st.desc}</div>
     ${st.detail ? `<div class="step-result">${st.detail}</div>` : ''}
+  </div>`;
+  return `<div class="dual-step ${nodeCls}">
+    <div class="dual-node"><span class="dual-num">${i + 1}</span></div>
+    <div class="dual-card">${card}</div>
   </div>`;
 }
 function _kvrows(rows) {
@@ -1038,23 +1062,34 @@ function renderInternalFlow(t) {
         ['闭环时间', esc(_u)],
       ]) },
   ];
-  return steps.map(dualStepCard).join('');
+  return `<div class="dual-timeline">${steps.map((st,i)=>dualStepCard(st,i)).join('')}</div>`;
 }
 // —— 右列：外部流 ——
 function renderExternalFlow(t) {
   const r = procExternalRank(t);
   const esc = escapeHtml;
   const sel = t.selected_supplier || {};
-  const quotes = Array.isArray(t.replied_supplier_quotes) ? t.replied_supplier_quotes : [];
-  const inq = Array.isArray(t.inquiry_supplier_list) ? t.inquiry_supplier_list : [];
+  // 归一后：询价供应商列表 = suppliers_json，报价列表 = quotes_json（引擎字段 supplier / email / unit_price / condition / count / ship_time）
+  const quotes = Array.isArray(t.quotes_json) ? t.quotes_json : [];
+  const inq = Array.isArray(t.suppliers_json) ? t.suppliers_json : [];
   const supList = inq.length
-    ? `<ul style="margin:2px 0 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px">${inq.map(s => `<li style="font-size:12px">· ${esc(s.name||'')} <span style="font-family:var(--mono);color:var(--text2)">&lt;${esc(s.email||'')}&gt;</span></li>`).join('')}</ul>`
+    ? `<ul style="margin:2px 0 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px">${inq.map(s => `<li style="font-size:12px">· ${esc(s.name||s.email||'-')} <span style="font-family:var(--mono);color:var(--text2)">&lt;${esc(s.email||'-')}&gt;</span></li>`).join('')}</ul>`
     : '<span style="color:var(--text2)">（无）</span>';
-  const quoteRows = quotes.map((q,i) =>
-    `<div style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px dashed var(--border);font-size:12px">
-      <span style="font-weight:600;color:var(--text);flex:1">${esc(q.supplier_name||q.name||'-')}</span>
-      <span style="color:var(--green);font-family:var(--mono)">${Number(q.unit_price||q.total_price||0)>0?'¥ '+Number(q.unit_price||q.total_price||0).toFixed(0):'待定'}</span>
-    </div>`).join('');
+  const quoteRows = quotes.map((q) => {
+    const sup = q.supplier || q.supplier_name || q.name || q.email || '-';
+    const price = Number(q.unit_price || q.total_price || 0);
+    const priceStr = price > 0
+      ? '¥ ' + price.toFixed(0)
+      : (q.unit_price != null && q.unit_price !== '') ? '¥ ' + esc(q.unit_price) : '待定';
+    const qty = (q.count != null && q.count !== '') ? `<span style="color:var(--text2)">×${esc(q.count)}</span>` : '';
+    const cond = q.condition ? `<span style="font-size:11px;color:var(--orange)">成色 ${esc(q.condition)}</span>` : '';
+    const ship = q.ship_time ? `<span style="font-size:11px;color:var(--text2)">🚚 ${esc(q.ship_time)}</span>` : '';
+    return `<div style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px dashed var(--border);font-size:12px;flex-wrap:wrap">
+      <span style="font-weight:600;color:var(--text);min-width:120px">${esc(sup)}</span>
+      <span style="color:var(--green);font-family:var(--mono)">${priceStr}</span>
+      ${qty}${cond}${ship}
+    </div>`;
+  }).join('');
   const steps = [
     { title:'R_SEND · 发询价', desc:'向询价供应商发送【备品备件询价】邮件。', state: r>=1 ? 2 : 1,
       detail: _kvrows([['询价供应商 ('+inq.length+')', supList]]) },
@@ -1088,7 +1123,7 @@ function renderExternalFlow(t) {
         ['内部闭环', String(t.internal_status||'').toUpperCase()==='R_CLOSED' ? '<b style="color:var(--cyan)">R_CLOSED · 内部闭环</b>' : esc(String(t.internal_status||'-').toUpperCase())],
       ]) },
   ];
-  return steps.map(dualStepCard).join('');
+  return `<div class="dual-timeline">${steps.map((st,i)=>dualStepCard(st,i)).join('')}</div>`;
 }
 // —— 供应商报价与选型区（复用 FLOW_STEPS 的报价步骤渲染） ——
 function renderQuoteSection(t) {
