@@ -972,14 +972,17 @@ function procInternalRank(t) {
   if (['approved','auto_approved'].includes(String(t.approval_state||'').toLowerCase())) r = Math.max(r, 2);
   return Math.max(r, 1);
 }
-// 外部流进度（R_SEND→R_WAIT_QUOTES→R_DECIDING→R_ORDER→R_WAIT_SHIPPING→R_CLOSED），兼容旧 task_status 推导
+// 外部流进度（P1：R_SEND→R_WAIT_QUOTES→R_DECIDING→R_ORDER→R_WAIT_SHIPPING→R_WAIT_ACCEPTANCE→R_WAIT_SETTLE），兼容旧 task_status 推导
 function procExternalRank(t) {
-  const map = { R_SEND:1, R_WAIT_QUOTES:2, R_DECIDING:3, R_ORDER:4, R_WAIT_SHIPPING:5, R_CLOSED:6 };
+  const map = { R_SEND:1, R_WAIT_QUOTES:2, R_DECIDING:3, R_ORDER:4, R_WAIT_SHIPPING:5, R_WAIT_ACCEPTANCE:6, R_WAIT_SETTLE:7, R_CLOSED:7 };
   let r = _flowRank(map, t.external_status);
   const ts = t.task_status || '';
   if (['已选型确认','供应商发货中','流程闭环','收货测试失败'].includes(ts)) r = Math.max(r, 3);
   if (['供应商发货中','流程闭环'].includes(ts)) r = Math.max(r, 4);
-  if (ts === '流程闭环') r = Math.max(r, 6);
+  // R_WAIT_ACCEPTANCE 覆盖：task_status='供应商发货中' 视为已到收货待测试（to_acceptance 进行中）
+  if (ts === '供应商发货中') r = Math.max(r, 5);
+  // R_WAIT_SETTLE 终态：流程闭环视为结算完成
+  if (ts === '流程闭环') r = Math.max(r, 7);
   return Math.max(r, 1);
 }
 // 审批状态判定
@@ -1072,6 +1075,17 @@ function renderExternalFlow(t) {
         ['发货时间', esc(t.delivery_time || t.latest_ship_time || (r>=5?'待填':'—'))],
         ['物流单号', t.logistics_no ? `<b style="color:#5ed7ff;font-family:var(--mono)">${esc(t.logistics_no)}</b>` : '—'],
         ['测试结果', esc(t.test_result||'待测试')],
+      ]) },
+    { title:'R_WAIT_ACCEPTANCE · 收货待测试', desc:'工程师收货并完成通电/联调验收，采购确认收货合格后推进结算。', state: r>=6 ? 2 : (r===5 ? 1 : 0),
+      detail: _kvrows([
+        ['任务状态', `<b style="color:var(--cyan)">${esc(t.task_status||'-')}</b>`],
+        ['验收结果', r>=6 ? '<b style="color:var(--green)">工程师验收通过</b>' : '待工程师验收'],
+        ['测试结果', esc(t.test_result||'待测试')],
+      ]) },
+    { title:'R_WAIT_SETTLE · 等待结算', desc:'已通知供应商结算，等待最终结算完成（终态）。', state: r>=7 ? 2 : (r===6 ? 1 : 0),
+      detail: _kvrows([
+        ['结算状态', r>=7 ? '<b style="color:var(--green)">等待结算完成</b>' : '已通知供应商结算'],
+        ['内部闭环', String(t.internal_status||'').toUpperCase()==='R_CLOSED' ? '<b style="color:var(--cyan)">R_CLOSED · 内部闭环</b>' : esc(String(t.internal_status||'-').toUpperCase())],
       ]) },
   ];
   return steps.map(dualStepCard).join('');
