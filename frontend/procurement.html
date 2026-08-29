@@ -176,6 +176,62 @@
   .page-loading .pl-text{color:#fff;font-size:14px;letter-spacing:.5px;
     text-shadow:0 1px 4px rgba(0,0,0,.5);min-width:80px;text-align:center}
   .page-loading .pl-sub{color:rgba(255,255,255,.7);font-size:11px;margin-top:-6px}
+
+  /* ========== 备件邮件询价（只读观察） ========== */
+  .mi-menu-icon{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle}
+  .proc-sidebar .menu-item .icon.mi-menu-icon{line-height:0}
+  .mi-card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}
+  .mi-card{background:var(--bg1);border:1px solid var(--border);border-radius:11px;padding:13px 15px;
+    cursor:pointer;transition:all .18s;display:flex;flex-direction:column;gap:8px}
+  .mi-card:hover{border-color:rgba(0,229,255,.45);background:rgba(0,229,255,.04);transform:translateY(-1px)}
+  .mi-card.sel{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(0,229,255,.12)}
+  .mi-card-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .mi-task-id{font-family:var(--mono);font-size:12px;color:var(--cyan);letter-spacing:.3px}
+  .mi-snap{flex:1;font-size:12px;color:var(--text2);line-height:1.5}
+  .mi-snap b{color:var(--cyan)}
+  .mi-card-foot{display:flex;align-items:center;gap:10px;font-size:11px;color:var(--text2);margin-top:2px;flex-wrap:wrap}
+  .mi-card-foot .mi-kv{color:var(--text2)}
+  .mi-card-foot .mi-kv b{color:var(--text);font-weight:500}
+  .mi-kv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px 18px;margin-top:14px}
+  .mi-kv-grid .k{color:var(--text2);font-size:11px;font-weight:500}
+  .mi-kv-grid .v{color:var(--text);font-size:12.5px;line-height:1.6;word-break:break-all;margin-top:2px}
+  .mi-kv-grid .v b{color:#fff}
+  /* 5 步双流步骤条 */
+  .mi-worker{font-size:12px;color:var(--text2);margin:4px 0 2px}
+  .mi-worker b{color:var(--cyan);font-weight:600}
+  .mi-stepper{display:flex;align-items:flex-start;margin:16px 0 4px}
+  .mi-step{flex:1;text-align:center;position:relative;min-width:0}
+  .mi-step .dot{width:30px;height:30px;border-radius:50%;margin:0 auto 6px;display:flex;align-items:center;justify-content:center;
+    background:var(--bg3);border:2px solid var(--border);color:var(--text2);font-size:13px;font-weight:600;position:relative;z-index:1;transition:all .2s}
+  .mi-step.done .dot{background:rgba(0,230,118,.14);border-color:var(--green);color:var(--green)}
+  .mi-step.current .dot{background:rgba(0,229,255,.14);border-color:var(--cyan);color:var(--cyan);box-shadow:0 0 0 4px rgba(0,229,255,.1);animation:pulse 2s infinite}
+  .mi-step.pending .dot{background:var(--bg3);border-color:var(--border);color:var(--text3)}
+  /* 连接线：步与步之间的横线（穿过整个 step，线在点下方） */
+  .mi-step .connector{position:absolute;top:15px;left:-50%;width:100%;height:2px;background:var(--border);z-index:0}
+  .mi-step:first-child .connector{display:none}
+  .mi-step.done .connector{background:var(--green)}
+  .mi-step.current .connector{background:var(--cyan)}
+  .mi-step-title{font-size:12.5px;font-weight:600;color:var(--text);line-height:1.35}
+  .mi-step .mi-flow2{font-size:10px;color:var(--text2);margin-top:2px;line-height:1.3}
+  .mi-step .mi-flow2 .f-in{color:var(--purple)}
+  .mi-step .mi-flow2 .f-ex{color:var(--cyan2)}
+  /* 邮件原文列表 */
+  .mi-mails{margin-top:14px;display:flex;flex-direction:column;gap:10px}
+  .mi-mails-title{font-size:13px;font-weight:600;color:var(--cyan);margin-top:18px}
+  .mi-mail-item{background:var(--bg3);border:1px solid var(--border);border-radius:9px;padding:11px 13px}
+  .mi-mail-item .mh{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;margin-bottom:6px}
+  .mi-mail-item .msub{font-weight:600;color:var(--text);flex:1;min-width:160px}
+  .mi-mail-item .mmeta{font-size:11px;color:var(--text2)}
+  .mi-mail-item pre{background:#0c1526;border:1px dashed rgba(255,255,255,.1);border-radius:7px;padding:9px 11px;
+    font-size:12px;color:#cfdcf5;white-space:pre-wrap;word-break:break-word;line-height:1.6;margin:4px 0 0;max-height:240px;overflow:auto}
+  .mi-quote-row{display:flex;align-items:center;gap:10px;font-size:12px;padding:5px 0;border-bottom:1px dashed var(--border);flex-wrap:wrap}
+  .mi-quote-supp{font-weight:600;color:var(--text)}
+  .mi-quote-price{font-family:var(--mono);color:var(--green)}
+  .mi-legend{display:flex;gap:16px;align-items:center;font-size:11px;color:var(--text2);margin:10px 0 2px;flex-wrap:wrap}
+  .mi-legend i{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:-1px}
+  .mi-legend .lg-done i{background:var(--green)}
+  .mi-legend .lg-cur i{background:var(--cyan)}
+  .mi-legend .lg-pen i{background:var(--text3)}
 </style>
 </head>
 <body>
@@ -195,6 +251,7 @@
     <div class="menu-group">业务中心</div>
     <div class="menu-item active" data-menu="tasks" onclick="switchSidebar('tasks')"><span class="icon">📋</span>询价任务</div>
     <div class="menu-item" data-menu="ledger" onclick="switchSidebar('ledger')"><span class="icon">📊</span>采购台账</div>
+    <div class="menu-item" data-menu="mailinquiry" onclick="switchSidebar('mailinquiry')"><span class="icon mi-menu-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg></span>备件邮件询价</div>
 
     <div class="menu-group">基础数据</div>
     <div class="menu-item" data-menu="sparepart" onclick="switchSidebar('sparepart')"><span class="icon">🔧</span>备品备件</div>
@@ -571,6 +628,48 @@
       </div>
     </div>
   </div>  <!-- /proc-tab-mailcc -->
+
+  <!-- ================================================== -->
+  <!-- 备件邮件询价（只读观察）：neuops 引擎写入 mail_inquiry_task，本页仅查看 -->
+  <!-- ================================================== -->
+  <div id="proc-tab-mailinquiry" class="proc-top-panel">
+    <div class="proc-toolbar">
+      <input type="text" id="mailInqKeyword" placeholder="搜索：项目名 / 料号 / 品牌 / 供应商"
+             style="min-width:300px"
+             oninput="miTimer && clearTimeout(miTimer); miTimer = setTimeout(loadMailInquiryList, 300)">
+      <select id="mailInqStatus" onchange="loadMailInquiryList()" style="max-width:190px">
+        <option value="">全部状态</option>
+        <option value="SENDING_B">发起报价中 (SENDING_B)</option>
+        <option value="R_WAIT_QUOTES">报价收集中 (WAIT_QUOTES)</option>
+        <option value="R_DECIDING">最低价已定 (DECIDING)</option>
+        <option value="R_ORDER">订货中 (ORDER)</option>
+        <option value="R_WAIT_SHIPPING">待快递单号 (SHIPPING)</option>
+        <option value="R_CLOSED">已闭环 (CLOSED)</option>
+        <option value="REJECTED">已拒绝 (REJECTED)</option>
+      </select>
+      <span style="flex:1"></span>
+      <span id="mailInqSummary" style="font-size:11.5px;color:#5ed7ff">共 0 个任务</span>
+      <button class="btn btn-o btn-s" onclick="loadMailInquiryList()">刷新</button>
+    </div>
+
+    <div class="panel">
+      <h3>备件邮件询价任务（只读观察）</h3>
+      <p style="font-size:12px;color:var(--text2);margin:4px 0 0;line-height:1.7">
+        数据由 neuops「备件邮件询价」数字员工自动同步，本页<b style="color:var(--cyan)">仅用于查看</b>（含双流步骤、报价、审批、订货、回单与邮件原文）。点击下方任务卡片可查看详情。
+      </p>
+      <div class="mi-card-grid" id="mailInquiryList" style="margin-top:14px">
+        <div class="empty-tip">加载中...</div>
+      </div>
+    </div>
+
+    <div class="panel" id="mailInquiryDetailPanel" style="display:none">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:2px">
+        <h3 style="margin:0" id="mailInqDetailTitle">任务详情</h3>
+        <span id="mailInqDetailBadges"></span>
+      </div>
+      <div id="mailInqDetailBody"></div>
+    </div>
+  </div>  <!-- /proc-tab-mailinquiry -->
 
   </div>  <!-- /proc-content -->
 </div>  <!-- /proc-layout -->

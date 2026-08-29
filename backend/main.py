@@ -972,6 +972,8 @@ from procurement_models import (
     # ---- 备品备件主数据 CRUD ----
     list_spare_parts, get_spare_part, create_spare_part, update_spare_part,
     delete_spare_part, list_spare_part_categories,
+    # ---- 备件邮件询价（只读观察：数据由 neuops 引擎 upsert 到 mail_inquiry_task）----
+    list_mail_inquiry_tasks, get_mail_inquiry_task,
 )
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any  # Any：CC-010 /api/plm/* 路由体使用
@@ -1432,6 +1434,22 @@ def api_proc_spare_part_delete(part_id: int):
         return {"success": True, **r}
     except ValueError as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+
+
+# ===================== 备件邮件询价（只读观察） =====================
+# 数据由 neuops 引擎 upsert 到 mail_inquiry_task 表，9006 仅提供只读查询，无写入口
+@app.get("/api/procurement/mail-inquiry/tasks")
+def api_mail_inquiry_task_list(status: Optional[str] = None, keyword: Optional[str] = None):
+    return {"success": True,
+            "data": list_mail_inquiry_tasks({"status": status, "keyword": keyword})}
+
+
+@app.get("/api/procurement/mail-inquiry/tasks/{task_id}")
+def api_mail_inquiry_task_get(task_id: str):
+    t = get_mail_inquiry_task(task_id)
+    if not t:
+        return JSONResponse({"success": False, "error": "任务不存在"}, status_code=404)
+    return {"success": True, "data": t}
 
 
 # ===================== 合同管理 =====================

@@ -256,6 +256,47 @@ def init_procurement_db():
             ('SP-0008', '电池模块', 'UPS 铅酸 12V 9Ah', '施耐德/Schneider', '块', '电源配件', '九成新', 'UPS 备用电源'),
         ])
 
+    # 8. 备件邮件询价（mail_inquiry_task）——只读观察表。
+    #    该表由 neuops 引擎（neuops-agent-demo/app/db/contract_mail.py）upsert 写入，
+    #    9006 仅初始化（幂等）+ 只读查询，不在此写入任何数据。
+    #    DDL 与 neuops 侧保持一致。
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS mail_inquiry_task (
+            task_id TEXT PRIMARY KEY,
+            project_no TEXT DEFAULT '',
+            project_name TEXT DEFAULT '',
+            part_type TEXT DEFAULT '',
+            brand TEXT DEFAULT '',
+            pn TEXT DEFAULT '',
+            spec TEXT DEFAULT '',
+            `condition` TEXT DEFAULT '',
+            `count` TEXT DEFAULT '',
+            address TEXT DEFAULT '',
+            urgent TEXT DEFAULT '',
+            inquiry_deadline TEXT DEFAULT '',
+            suppliers_json TEXT DEFAULT '[]',
+            quotes_json TEXT DEFAULT '[]',
+            lowest_supplier TEXT DEFAULT '',
+            lowest_quote TEXT DEFAULT '',
+            approval_state TEXT DEFAULT '',
+            approval_result TEXT DEFAULT '',
+            approver_email TEXT DEFAULT '',
+            target_supplier TEXT DEFAULT '',
+            internal_status TEXT DEFAULT '',
+            external_status TEXT DEFAULT '',
+            status TEXT DEFAULT '',
+            shipped_no TEXT DEFAULT '',
+            latest_step TEXT DEFAULT '',
+            thread_msg_id TEXT DEFAULT '',
+            from_email TEXT DEFAULT '',
+            mail_archive_json TEXT DEFAULT '[]',
+            created_at TEXT DEFAULT '',
+            updated_at TEXT DEFAULT ''
+        )
+    """)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_mail_inq_status ON mail_inquiry_task(status)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_mail_inq_updated ON mail_inquiry_task(updated_at)")
+
     # ---- 老 schema 迁移：DROP 已废弃的表 + ALTER DROP 老字段（失败不阻断主流程）----
     # 废弃表：procurement_master_data / procurement_project / procurement_contract_supplier / procurement_contract_spare_part
     # 废弃字段：procurement_task.project_id、procurement_contract.project_id
@@ -1061,8 +1102,66 @@ def list_spare_part_categories():
     c = conn.cursor()
     c.execute("SELECT DISTINCT category FROM procurement_spare_part WHERE category IS NOT NULL AND category != '' ORDER BY category")
     rows = [r[0] for r in c.fetchall()]
+    conn.commit()
     conn.close()
-    return rows
+
+
+# ============================================================
+# 备件邮件询价（mail_inquiry_task）——只读观察
+# 数据由 neuops 引擎 upsert 写入，本模块只读查询，不做任何写操作
+# ============================================================
+
+# JSON 序列化字段（下钻时反序列化为 list）
+_MAIL_TASK_JSON_COLS = ('suppliers_json', 'quotes_json', 'mail_archive_json')
+
+
+def _row_to_mail_task(row):
+    """mail_inquiry_task 行 → dict，JSON 字段反序列化"""
+    if row is None:
+        return None
+    d = dict(row)
+    for k in _MAIL_TASK_JSON_COLS:
+        try:
+            d[k] = json.loads(d.get(k) or '[]')
+        except Exception:
+            d[k] = []
+    return d
+
+
+def get_mail_inquiry_task(task_id):
+    """按 task_id 查询单个备件邮件询价任务（只读）"""
+    conn = get_db()
+    r = conn.execute("SELECT * FROM mail_inquiry_task WHERE task_id=?", (task_id,)).fetchone()
+    conn.close()
+    return _row_to_mail_task(r)
+
+
+def list_mail_inquiry_tasks(filter=None, page_size=200):
+    """备件邮件询价任务列表（只读）。
+    filter 支持 status / keyword；keyword 会对 项目名/料号/备件类型/品牌/最低报价供应商/目标供应商
+    做模糊匹配。默认按更新时间倒序。
+    """
+    filter = filter or {}
+    conn = get_db()
+    c = conn.cursor()
+    sql = "SELECT * FROM mail_inquiry_task WHERE 1=1"
+    params = []
+    st = (filter.get('status') or '').strip()
+    if st:
+        sql += " AND status=?"
+        params.append(st)
+    kw = (filter.get('keyword') or '').strip()
+    if kw:
+        like = f"%{kw}%"
+        sql += (" AND (project_name LIKE ? OR pn LIKE ? OR part_type LIKE ? OR brand LIKE ?"
+                " OR lowest_supplier LIKE ? OR target_supplier LIKE ?)")
+        params.extend([like, like, like, like, like, like])
+    sql += " ORDER BY updated_at DESC LIMIT ?"
+    params.append(max(1, int(page_size or 200)))
+    c.execute(sql, params)
+    rows = c.fetchall()
+    conn.close()
+    return [_row_to_mail_task(r) for r in rows]
 
 
 # ============================================================

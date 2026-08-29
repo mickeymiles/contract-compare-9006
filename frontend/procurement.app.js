@@ -104,7 +104,7 @@ function fmtStatus(s) {
 }
 
 // ============ 页面切换（左侧菜单导航，单入口 + 唯一性校验） ============
-const _SIDE_MENU_KEYS = ['tasks', 'sparepart', 'ledger', 'supplier', 'contract', 'mailcc'];
+const _SIDE_MENU_KEYS = ['tasks', 'ledger', 'mailinquiry', 'sparepart', 'supplier', 'contract', 'mailcc'];
 
 function __assertUniqueActive(selector, label) {
   const actives = document.querySelectorAll(selector);
@@ -165,6 +165,8 @@ function switchSidebar(name) {
     try { initSparePartCategoryFilter(); loadSparePartList(); } catch (e) { console.error(e); }
   } else if (name === 'ledger') {
     try { initLedgerContractFilter(); loadLedger(); } catch (e) { console.error(e); }
+  } else if (name === 'mailinquiry') {
+    try { loadMailInquiryList(); } catch (e) { console.error(e); }
   } else if (name === 'supplier') {
     try { loadSupplierList(); } catch (e) { console.error(e); }
   } else if (name === 'contract') {
@@ -1870,6 +1872,249 @@ function __copyQuoteOrig() {
     document.body.removeChild(ta);
     done(ok);
   } catch (e) { done(false); }
+}
+
+
+// ============ 备件邮件询价（只读观察，neuops 引擎写入 mail_inquiry_task） ============
+let miTimer = null;              // 搜索防抖
+let currentMailTaskId = null;    // 当前选中的邮件询价任务
+let currentMailTask = null;      // 当前详情数据
+
+function mailInqLevelBadge(v, label) {
+  const s = String(v || '');
+  if (!s) return '';
+  const L = s.toUpperCase();
+  let cls = 'badge-o';
+  if (L === 'SENDING_B' || L === 'R_SEND') cls = 'badge-proc-running';
+  else if (L === 'R_WAIT_QUOTES' || L === 'R_DECIDING' || L === 'DECIDING_LOWEST' || L === 'DECIDING') cls = 'badge-proc-timeout-p';
+  else if (L === 'R_ORDER' || L === 'ORDERING') cls = 'badge-proc-confirm';
+  else if (L === 'R_WAIT_SHIPPING' || L === 'SHIPPING') cls = 'badge-proc-shipping';
+  else if (L === 'DONE' || L.includes('CLOSED')) cls = 'badge-proc-closed';
+  else if (L.includes('REJECT') || L.includes('ABORT')) cls = 'badge-proc-canceled';
+  return `<span class="badge ${cls}">${escapeHtml(s)}${label ? ' · ' + escapeHtml(label) : ''}</span>`;
+}
+
+// 5 步双流状态判定：返回值 2=已完成 / 1=进行中 / 0=未开始
+// 依据 external_status（外部供应商流）线性推进 + internal_status（内部审批/结算流）+ approval_state
+function mailStepStates(t) {
+  const extUp = String(t.external_status || '').toUpperCase();
+  const intUp = String(t.internal_status || '').toUpperCase();
+  const appr = String(t.approval_state || '').toLowerCase();
+  const status = String(t.status || '').toUpperCase();
+  const EX = {
+    R_SEND:1, SENDING_B:1,
+    R_WAIT_QUOTES:2, WAITING_QUOTES:2, COLLECTING_QUOTES:2,
+    R_DECIDING:3, DECIDING_LOWEST:3, DECIDING:3,
+    R_ORDER:4, ORDERING:4,
+    R_WAIT_SHIPPING:5, SHIPPING:5,
+    R_CLOSED:6, DONE:6,
+  };
+  let extRank = EX[extUp] || (extUp ? 3 : 0); // 未知外部状态保守按『报价已收集』
+  const closedFinal = extRank >= 6 || status === 'DONE' || extUp.includes('CLOSED');
+  const approved = ['approved', 'auto_approved'].includes(appr);
+  const rejected = ['rejected', 'declined', 'all_rejected'].includes(appr)
+    || String(t.approval_result || '').toLowerCase().includes('reject');
+  return {
+    ar: [
+      extRank >= 1 ? 2 : 1,                                                      // 1 发起报价
+      extRank >= 3 ? 2 : (extRank >= 2 ? 1 : 0),                                 // 2 报价
+      (approved || rejected) ? 2 : (extRank >= 3 || intUp.includes('APPROVAL') ? 1 : 0), // 3 审批
+      extRank >= 5 ? 2 : (extRank === 4 ? 1 : 0),                                // 4 订货
+      (closedFinal && intUp.includes('CLOSED')) ? 2 : (extRank >= 5 ? 1 : 0),    // 5 回单/结算
+    ],
+    closedFinal, approved, rejected, extRank, intUp, extUp,
+  };
+}
+
+function renderMailStepper(t, st) {
+  const clsMap = { 2: 'done', 1: 'current', 0: 'pending' };
+  const DEFS = [
+    { title: '发起报价', in: '内部：接收询价请求', ex: '外部：R_SEND 发询价邮件' },
+    { title: '报价',     in: '',                   ex: '外部：WAIT_QUOTES→DECIDING 收集并算最低价' },
+    { title: '审批',     in: '内部：R_APPROVAL 审批', ex: '外部：目标供应商待定' },
+    { title: '订货',     in: '内部：审批通过定目标', ex: '外部：R_ORDER 发订货单' },
+    { title: '回单/结算', in: '内部：R_CLOSED 确认·结算', ex: '外部：WAIT_SHIPPING→CLOSED 收单号' },
+  ];
+  return st.ar.map((s, i) => {
+    const def = DEFS[i];
+    const dot = s === 2 ? '&#10003;' : String(i + 1);
+    const inRow = def.in ? `<div class="f-in">${def.in}</div>` : '';
+    const exRow = `<div class="f-ex">${def.ex}</div>`;
+    return `<div class="mi-step ${clsMap[s] || 'pending'}">
+      ${i > 0 ? '<div class="connector"></div>' : ''}
+      <div class="dot">${dot}</div>
+      <div class="mi-step-title">${def.title}</div>
+      <div class="mi-flow2">${inRow}${exRow}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderMailInqCard(t) {
+  const sel = t.task_id === currentMailTaskId ? ' sel' : '';
+  const proj = (t.project_name || '') + (t.project_no ? ' (' + t.project_no + ')' : '');
+  const lowest = t.lowest_supplier
+    ? `<span class="mi-snap"><b>最低价</b> ${escapeHtml(t.lowest_supplier)} · ${escapeHtml(t.lowest_quote || '-')}</span>`
+    : '';
+  return `<div class="mi-card${sel}" onclick="openMailInquiryDetail('${escapeHtml(t.task_id)}')">
+    <div class="mi-card-head">
+      <span class="mi-task-id">${escapeHtml(t.task_id)}</span>
+      ${mailInqLevelBadge(t.status)}
+    </div>
+    <div class="mi-snap" style="font-size:13px"><b>${escapeHtml(t.pn || '-')}</b> · ${escapeHtml(t.brand || '-')} ${escapeHtml(t.spec || '')} ×${escapeHtml(t.count || '-')}</div>
+    <div class="mi-snap">${escapeHtml(proj) || '<span style="color:var(--text3)">未命名项目</span>'}</div>
+    <div class="mi-card-foot">
+      <span class="mi-kv"><b>外部</b> ${escapeHtml(t.external_status || '-')}</span>
+      <span class="mi-kv"><b>内部</b> ${escapeHtml(t.internal_status || '-')}</span>
+      <span class="mi-kv"><b>审批</b> ${escapeHtml(t.approval_state || '-')}</span>
+    </div>
+    <div class="mi-card-foot">
+      ${lowest}
+      <span style="flex:1"></span>
+      <span>更新 ${escapeHtml(String(t.updated_at || t.created_at || '').slice(5, 16) || '-')}</span>
+    </div>
+  </div>`;
+}
+
+async function loadMailInquiryList() {
+  showPageLoading('加载备件邮件询价...');
+  try {
+    const kw = ($('mailInqKeyword') || {}).value || '';
+    const st = ($('mailInqStatus') || {}).value || '';
+    const qs = new URLSearchParams();
+    if (kw) qs.set('keyword', kw);
+    if (st) qs.set('status', st);
+    const qstr = qs.toString();
+    const d = await api(`/mail-inquiry/tasks${qstr ? '?' + qstr : ''}`);
+    const arr = Array.isArray(d && d.data) ? d.data : [];
+    setText('mailInqSummary', `共 ${arr.length} 个任务`);
+    if (!arr.length) {
+      setHTML('mailInquiryList', '<div class="empty-tip">暂无备件邮件询价任务（等 neuops 引擎写入后自动出现）</div>');
+      setHTML('mailInqDetailBody', '');
+      $('mailInquiryDetailPanel').style.display = 'none';
+      return;
+    }
+    setHTML('mailInquiryList', arr.map(renderMailInqCard).join(''));
+    if (currentMailTaskId && arr.some(x => x.task_id === currentMailTaskId)) {
+      openMailInquiryDetail(currentMailTaskId);
+    } else {
+      openMailInquiryDetail(arr[0].task_id);
+    }
+  } finally {
+    hidePageLoading();
+  }
+}
+
+async function openMailInquiryDetail(taskId) {
+  showPageLoading('加载邮件询价详情...');
+  try {
+    currentMailTaskId = taskId;
+    document.querySelectorAll('.mi-card').forEach(c => c.classList.remove('sel'));
+    const card = [...document.querySelectorAll('.mi-card')]
+      .find(c => String(c.getAttribute('onclick') || '').includes(taskId));
+    if (card) card.classList.add('sel');
+    const d = await api(`/mail-inquiry/tasks/${encodeURIComponent(taskId)}`);
+    const t = d && d.data;
+    if (!t) { toast('任务不存在或已删除', 'err'); return; }
+    currentMailTask = t;
+    $('mailInquiryDetailPanel').style.display = '';
+    setText('mailInqDetailTitle', `任务详情 · ${t.task_id}`);
+    setHTML('mailInqDetailBadges',
+      `${mailInqLevelBadge(t.status)} ${mailInqLevelBadge(t.internal_status, '内部')} ${mailInqLevelBadge(t.external_status, '外部')}`);
+    setHTML('mailInqDetailBody', renderMailInquiryDetail(t));
+  } finally {
+    hidePageLoading();
+  }
+}
+
+function mailCvGrid(rows) {
+  return rows.map(([k, v]) => `<div><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+}
+
+function mailApprovalHtml(t) {
+  const as = t.approval_state || '';
+  const ar = t.approval_result || '';
+  const ae = t.approver_email || '';
+  const a = String(as).toLowerCase();
+  let color = 'var(--amber)';
+  if (['approved', 'auto_approved'].includes(a)) color = 'var(--green)';
+  else if (a.includes('reject') || a.includes('decline')) color = 'var(--red)';
+  let html = `<span style="color:${color}">${escapeHtml(as || '-')}</span>`;
+  if (ar) html += ` <span style="color:var(--text2)">(${escapeHtml(ar)})</span>`;
+  if (ae) html += ` <span style="color:var(--text2)">${escapeHtml(ae)}</span>`;
+  return html;
+}
+
+function renderMailQuotes(t) {
+  const qs = Array.isArray(t.quotes_json) ? t.quotes_json : [];
+  if (!qs.length) return '';
+  const rows = qs.map(q => {
+    const name = q.supplier || q.email || q.name || '-';
+    const price = (q.unit_price != null && q.unit_price !== '') ? `¥${q.unit_price}` : '';
+    return `<div class="mi-quote-row">
+      <span class="mi-quote-supp">${escapeHtml(name)}</span>
+      ${price ? `<span class="mi-quote-price">${escapeHtml(price)}</span>` : ''}
+      ${q.ship_time ? `<span class="mmeta">发货 ${escapeHtml(q.ship_time)}</span>` : ''}
+      ${q.is_late ? '<span class="tag tag-red">超时</span>' : ''}
+    </div>`;
+  }).join('');
+  return `<div class="mi-mails-title">供应商报价 (${qs.length})</div><div class="mi-mails">${rows}</div>`;
+}
+
+function renderMailArchives(mails) {
+  const arr = Array.isArray(mails) ? mails : [];
+  if (!arr.length) {
+    return `<div class="mi-mails-title">邮件原文 (0)</div>
+      <div class="mi-worker" style="margin:6px 0 0">暂无邮件原文归档（引擎将在关键邮件往来后自动追加）。</div>`;
+  }
+  const items = arr.map((m, i) => {
+    const sub = m.subject || m.subject_text || `（第 ${i + 1} 封邮件）`;
+    const from = m.from_email || m.from || m.sender || '-';
+    const to = ([]).concat(m.to || m.to_email || []).filter(Boolean).join(', ') || '-';
+    const cc = ([]).concat(m.cc || []).filter(Boolean).join(', ');
+    const date = m.date || m.sent_at || m.time || '';
+    const body = m.body_text || m.body || m.content || m.raw_text || '';
+    const meta = [`发件 ${escapeHtml(from)}`, `收件 ${escapeHtml(to)}`, cc ? `抄送 ${escapeHtml(cc)}` : '', date ? escapeHtml(date) : ''].filter(Boolean);
+    return `<div class="mi-mail-item">
+      <div class="mh"><span class="msub">${escapeHtml(sub)}</span>
+        <span class="mmeta">${meta.join(' · ')}</span>
+      </div>
+      ${body ? `<pre>${escapeHtml(body)}</pre>` : ''}
+    </div>`;
+  }).join('');
+  return `<div class="mi-mails-title">邮件原文 (${arr.length})</div><div class="mi-mails">${items}</div>`;
+}
+
+function renderMailInquiryDetail(t) {
+  const st = mailStepStates(t);
+  const stepper = renderMailStepper(t, st);
+  const latestStep = t.latest_step
+    ? `<div class="mi-worker">引擎步骤（latest_step）：<b>${escapeHtml(t.latest_step)}</b></div>` : '';
+  const kv = mailCvGrid([
+    ['项目', [t.project_name, t.project_no ? '(' + t.project_no + ')' : ''].filter(Boolean).join(' ').trim() || '-'],
+    ['备件', [t.part_type, t.brand, t.spec].filter(Boolean).join(' · ').trim() || '-'],
+    ['料号 / 数量 / 成色', `${t.pn || '-'} × ${t.count || '-'}（${t.condition || '-'}）`],
+    ['收货地址', t.address || '-'],
+    ['紧急 / 报价截止', [t.urgent, t.inquiry_deadline].filter(Boolean).join(' / ') || '-'],
+    ['最低报价供应商', t.lowest_supplier ? `<b style="color:var(--green)">${escapeHtml(t.lowest_supplier)} · ${escapeHtml(t.lowest_quote || '-')}</b>` : '-'],
+    ['目标供应商', escapeHtml(t.target_supplier || '-')],
+    ['审批状态', mailApprovalHtml(t)],
+    ['快递单号', t.shipped_no ? `<b style="color:#5ed7ff">${escapeHtml(t.shipped_no)}</b>` : '-'],
+    ['发起人邮箱', t.from_email || '-'],
+    ['线程 Message-ID', t.thread_msg_id ? `<span style="font-family:var(--mono);font-size:11px">${escapeHtml(t.thread_msg_id)}</span>` : '-'],
+    ['创建 / 更新', `${t.created_at || '-'} / ${t.updated_at || '-'}`],
+  ]);
+  return `
+    ${latestStep}
+    <div class="mi-legend">
+      <span class="lg-done"><i></i>已完成</span>
+      <span class="lg-cur"><i></i>进行中</span>
+      <span class="lg-pen"><i></i>未开始</span>
+    </div>
+    <div class="mi-stepper">${stepper}</div>
+    <div class="mi-kv-grid">${kv}</div>
+    ${renderMailQuotes(t)}
+    ${renderMailArchives(t.mail_archive_json)}
+  `;
 }
 
 
