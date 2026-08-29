@@ -390,15 +390,11 @@
       <div id="detailBaseBody"><div class="empty-tip">加载中...</div></div>
     </div>
 
-    <!-- 中段：双流双列（左=内部流，右=外部流） -->
-    <div class="dual-flow" style="margin-top:16px">
+    <!-- 中段：整体流程（由内部邮件流 + 外部供应商流交错合并的一条纵向流程） -->
+    <div style="margin-top:16px">
       <div class="panel">
-        <h3>🔁 内部流 <span style="font-weight:400;font-size:11px;color:var(--text2)">（工程师 ↔ 智能体 ↔ 审批人）</span></h3>
-        <div class="step-flow" id="internalFlowBody"><div class="empty-tip">流程加载中...</div></div>
-      </div>
-      <div class="panel">
-        <h3>🌐 外部流 <span style="font-weight:400;font-size:11px;color:var(--text2)">（智能体 ↔ 供应商）</span></h3>
-        <div class="step-flow" id="externalFlowBody"><div class="empty-tip">流程加载中...</div></div>
+        <h3>⏳ 整体流程 <span style="font-weight:400;font-size:11px;color:var(--text2)">（工程师 ↔ 智能体 ↔ 审批人 ↔ 供应商，单一路径）</span></h3>
+        <div class="step-flow" id="unifiedFlowBody" style="padding-top:4px"><div class="empty-tip">流程加载中...</div></div>
       </div>
     </div>
 

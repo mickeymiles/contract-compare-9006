@@ -488,6 +488,14 @@ function normalizeTask(t0) {
   t.latest_ship_time = t.latest_ship_time || '';
   t.source = t.source || '';
   t.mail_archive_json = Array.isArray(t.mail_archive_json) ? t.mail_archive_json : [];
+  // 工程师询价邮件的原始收件/抄送人（外部流 E/G 抄送口径用）
+  const _parseJsonArr2 = (v) => {
+    if (Array.isArray(v)) return v;
+    if (typeof v === 'string' && v.trim()) { try { const a = JSON.parse(v); return Array.isArray(a) ? a : []; } catch (_) {} }
+    return [];
+  };
+  t.inquiry_to_list = _parseJsonArr2(t.inquiry_to_json);
+  t.inquiry_cc_list = _parseJsonArr2(t.inquiry_cc_json);
   // —— 字段别名归一：引擎（neuops）写 suppliers_json / quotes_json（数组或 JSON 字符串），
   //    旧页面/旧数据写 inquiry_supplier_list / replied_supplier_quotes。统一成单一可靠来源。
   const _parseJsonArr = (v) => {
@@ -882,8 +890,7 @@ async function openDetail(taskId) {
       setText('detailTaskId', taskId);
       // 先占个位，防止渲染慢时显示错误区域
       setHTML('detailBaseBody', `<div class="empty-tip">加载中…</div>`);
-      setHTML('internalFlowBody', `<div class="empty-tip">流程加载中…</div>`);
-      setHTML('externalFlowBody', `<div class="empty-tip">流程加载中…</div>`);
+      setHTML('unifiedFlowBody', `<div class="empty-tip">流程加载中…</div>`);
       setHTML('quoteSectionBody', `<div class="empty-tip">加载中…</div>`);
       setHTML('opLogBody', `<div class="empty-tip">加载中…</div>`);
       await loadDetail();
@@ -902,7 +909,12 @@ async function loadDetail() {
         try { setHTML('detailStatusBadge', fmtStatus(t.task_status)); } catch (_) {}
         try {
           const fb = $('detailFlowBadge');
-          if (fb) fb.innerHTML = `内部 <b class="badge badge-o" style="background:rgba(179,136,255,.16);color:var(--purple)">${escapeHtml(t.internal_status||'R_INIT')}</b>　外部 <b class="badge badge-o" style="background:rgba(0,229,255,.13);color:var(--cyan)">${escapeHtml(t.external_status||'R_SEND')}</b>`;
+          if (fb) {
+            const _badge = (label, color, bg) => `<b class="badge badge-o" style="background:${bg};color:${color}">${escapeHtml(label)}</b>`;
+            fb.innerHTML = `当前节点 <b style="color:var(--amber)">${escapeHtml(_unifiedCurrentLabel(t))}</b>　`
+              + _badge('内部 '+ (t.internal_status||'R_INIT'), 'var(--purple)', 'rgba(179,136,255,.16)')
+              + `　` + _badge('外部 '+ (t.external_status||'R_SEND'), 'var(--cyan)', 'rgba(0,229,255,.13)');
+          }
         } catch (_) {}
         try { const btn = $('cancelBtn'); if (btn) btn.style.display = isUnclosed(t.task_status) ? '' : 'none'; } catch (_) {}
         renderDetailBase();
@@ -916,8 +928,7 @@ async function loadDetail() {
                        ${stack ? `<details style="margin-top:6px;color:var(--text2);"><summary>展开错误堆栈（发给我定位）</summary>${stack}</details>`:''}
                      </div>`;
         try { setHTML('detailBaseBody', msg); } catch (__) {}
-        try { setHTML('internalFlowBody', msg); } catch (__) {}
-        try { setHTML('externalFlowBody', msg); } catch (__) {}
+        try { setHTML('unifiedFlowBody', msg); } catch (__) {}
         try { setHTML('quoteSectionBody', msg); } catch (__) {}
       }
   } finally {
@@ -1015,10 +1026,11 @@ function procApproval(t) {
 }
 // 双流步骤卡片（垂直时间线样式：左轨道线 + 节点圆点 + 序号，前后卡片用线串起来）
 function dualStepCard(st, i = 0) {
-  const cls = { 0:'', 1:'current', 2:'done' }[st.state] || '';
-  const nodeCls = (st.state === 2 ? 'done' : st.state === 1 ? 'current' : '');
+  const cls = { 0:'', 1:'current', 2:'done', 3:'failed' }[st.state] || '';
+  const nodeCls = (st.state === 2 ? 'done' : st.state === 1 ? 'current' : st.state === 3 ? 'failed' : '');
   const badge = st.state === 2 ? ' <span class="badge badge-proc-closed">✅ 已完成</span>'
     : st.state === 1 ? ' <span class="badge badge-o" style="background:rgba(255,193,7,.16);color:var(--amber,var(--orange))">⏳ 进行中</span>'
+    : st.state === 3 ? ' <span class="badge badge-proc-failed">⛔ 已终止</span>'
     : ' <span class="badge badge-o">未开始</span>';
   const time = st.time ? `<div style="font-size:11px;color:var(--text2);font-family:var(--mono);margin-bottom:6px">🕒 ${escapeHtml(st.time)}</div>` : '';
   const card = `<div class="step-card ${cls}">
@@ -1039,92 +1051,112 @@ function _kvrows(rows) {
       <span style="color:#e6f0ff;flex:1;font-size:12.5px">${v}</span>
     </div>`).join('')}</div>`;
 }
-// —— 左列：内部流 ——
-function renderInternalFlow(t) {
-  const r = procInternalRank(t);
-  const { approved, rejected } = procApproval(t);
-  const closed = t.task_status === '流程闭环' || String(t.internal_status||'').toUpperCase() === 'R_CLOSED';
-  const esc = escapeHtml;
-  const apprHtml = _kvrows([
-    ['审批状态', `<b style="color:${approved?'var(--green)':rejected?'var(--red)':'var(--amber)'}">${esc(t.approval_state||(r>=2?'待审批/审批中':'未发起'))}</b>${t.approval_result?` <span style="color:var(--text2)">(${esc(t.approval_result)})</span>`:''}`],
-    ['审批人', esc(t.approver_email||'-')],
-    ['目标供应商', esc(t.target_supplier||'-')],
-  ]);
-  const _u = t.updated_at || t.create_time || '';
-  const steps = [
-    { title:'R_INIT · 发起询价', desc:'工程师 / 页面 / 邮件任一入口创建任务，内部流程启动。', state: r>=1 ? 2 : 1,
-      detail: _kvrows([['创建时间', esc(t.create_time||'-')], ['创建人', esc(t.creator||'-')], ['来源', esc(t.source||'-')]]) },
-    { title:'R_APPROVAL · 内部审批', desc:'智能体汇总报价后提交内部审批（自动通过或审批人确认），确定目标供应商。', state: (approved||rejected) ? 2 : (r>=2 ? 1 : 0), detail: apprHtml },
-    { title:'R_CLOSED · 内部闭环', desc:'审批通过 + 供货回单后，内部流程正式闭环（可写台账）。', state: closed ? 2 : (approved ? 1 : 0),
-      detail: _kvrows([
-        ['任务状态', `<b style="color:var(--cyan)">${esc(t.task_status||'-')}</b>`],
-        ['台账写入', t.ledger_written ? '✅ 已写入' : '—'],
-        ['闭环时间', esc(_u)],
-      ]) },
-  ];
-  return `<div class="dual-timeline">${steps.map((st,i)=>dualStepCard(st,i)).join('')}</div>`;
+// —— 整体流程：把 内部邮件流 + 外部供应商流 交错合并为"一条纵向流程" ——
+// 角色：工程师 / 智能体 / 审批人 / 供应商；每个节点注明"谁做什么 + 发给/抄送谁"
+function procTerminated(t) {
+  const e = String(t.external_status || '').toUpperCase();
+  return e === 'R_ABORT' || String(t.task_status || '') === '任务已取消';
 }
-// —— 右列：外部流 ——
-function renderExternalFlow(t) {
-  const r = procExternalRank(t);
+function _unifiedCurrentLabel(t) {
+  const i = String(t.internal_status || '').toUpperCase();
+  const e = String(t.external_status || '').toUpperCase();
+  const map = {
+    R_SEND:'发询价函', R_WAIT_QUOTES:'供应商报价', R_DECIDING:'比价定标',
+    R_ORDER:'下达订货', R_WAIT_SHIPPING:'发货回执', R_WAIT_ACCEPTANCE:'收货验收',
+    R_WAIT_SETTLE:'结算通知', R_CLOSED:'结算通知',
+  };
+  if (procTerminated(t)) return '已终止';
+  if (i === 'R_CLOSED') return '结算通知 · 已闭环';
+  return map[e] || '发起询价';
+}
+function renderUnifiedFlow(t) {
   const esc = escapeHtml;
-  const sel = t.selected_supplier || {};
-  // 归一后：询价供应商列表 = suppliers_json，报价列表 = quotes_json（引擎字段 supplier / email / unit_price / condition / count / ship_time）
-  const quotes = Array.isArray(t.quotes_json) ? t.quotes_json : [];
+  const ts = String(t.task_status || '');
+  const intI = String(t.internal_status || '').toUpperCase();
+  const extI = String(t.external_status || '').toUpperCase();
+  const { approved, rejected } = procApproval(t);
+  const isClosed = intI === 'R_CLOSED' || ts === '流程闭环';
+  const isSettle = isClosed && (extI === 'R_WAIT_SETTLE' || extI === 'R_CLOSED');
+  const aborted = procTerminated(t);
+  // 外部供应商流推进度基准
+  const extRank = {R_SEND:1,R_WAIT_QUOTES:2,R_DECIDING:3,R_ORDER:4,R_WAIT_SHIPPING:5,R_WAIT_ACCEPTANCE:6,R_WAIT_SETTLE:7,R_CLOSED:7}[extI] || 1;
   const inq = Array.isArray(t.suppliers_json) ? t.suppliers_json : [];
-  const supList = inq.length
-    ? `<ul style="margin:2px 0 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px">${inq.map(s => `<li style="font-size:12px">· ${esc(s.name||s.email||'-')} <span style="font-family:var(--mono);color:var(--text2)">&lt;${esc(s.email||'-')}&gt;</span></li>`).join('')}</ul>`
-    : '<span style="color:var(--text2)">（无）</span>';
+  const quotes = Array.isArray(t.quotes_json) ? t.quotes_json : [];
+  const sel = t.selected_supplier || {};
+  const lowestName = t.lowest_supplier || (sel && sel.name) || '';
+  const shipped = !!t.shipped_no;
+  const engList = esc((t.inquiry_to_list||[]).join('、')) || '—';
+
+  // 逐节点状态：0=未开始 1=当前 2=已完成
+  const st = [2,0,0,0,0,0,0,0,0];
+  st[1] = extRank >= 2 ? 2 : 1;                                                  // 发询价函
+  st[2] = (extRank >= 3 || quotes.length) ? 2 : (extRank === 2 ? 1 : 0);         // 供应商报价
+  st[3] = (extRank >= 4 || lowestName) ? 2 : (extRank === 3 ? 1 : 0);            // 比价定标
+  st[4] = (approved || rejected) ? 2 : (extRank >= 4 || intI === 'R_APPROVAL' ? 1 : 0); // 内部审批
+  st[5] = (extRank >= 5 || t.e_mail_msg_id) ? 2 : (extRank === 4 ? 1 : 0);       // 下达订货
+  st[6] = (shipped || extRank >= 6) ? 2 : (extRank === 5 ? 1 : 0);               // 发货回执
+  st[7] = isClosed ? 2 : (extRank >= 6 ? 1 : 0);                                 // 收货验收
+  st[8] = isSettle ? 2 : (isClosed ? 1 : 0);                                     // 结算通知
+
+  const role = (who, color) => `<span style="font-size:11px;color:${color};font-weight:600;margin-left:6px">● ${esc(who)}</span>`;
+  const detailOf = (rows) => `<div style="display:flex;flex-direction:column;gap:2px">${rows.map(([k,v]) => `
+    <div style="display:flex;gap:8px;padding:3px 0;border-bottom:1px dashed var(--border)">
+      <span style="color:var(--text2);width:88px;flex-shrink:0;font-size:11px">${k}</span>
+      <span style="color:#e6f0ff;flex:1;font-size:12px">${v}</span>
+    </div>`).join('')}</div>`;
+
   const quoteRows = quotes.map((q) => {
     const sup = q.supplier || q.supplier_name || q.name || q.email || '-';
-    const price = Number(q.unit_price || q.total_price || 0);
-    const priceStr = price > 0
-      ? '¥ ' + price.toFixed(0)
-      : (q.unit_price != null && q.unit_price !== '') ? '¥ ' + esc(q.unit_price) : '待定';
-    const qty = (q.count != null && q.count !== '') ? `<span style="color:var(--text2)">×${esc(q.count)}</span>` : '';
-    const cond = q.condition ? `<span style="font-size:11px;color:var(--orange)">成色 ${esc(q.condition)}</span>` : '';
-    const ship = q.ship_time ? `<span style="font-size:11px;color:var(--text2)">🚚 ${esc(q.ship_time)}</span>` : '';
-    return `<div style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px dashed var(--border);font-size:12px;flex-wrap:wrap">
-      <span style="font-weight:600;color:var(--text);min-width:120px">${esc(sup)}</span>
-      <span style="color:var(--green);font-family:var(--mono)">${priceStr}</span>
-      ${qty}${cond}${ship}
-    </div>`;
-  }).join('');
-  const steps = [
-    { title:'R_SEND · 发询价', desc:'向询价供应商发送【备品备件询价】邮件。', state: r>=1 ? 2 : 1,
-      detail: _kvrows([['询价供应商 ('+inq.length+')', supList]]) },
-    { title:'R_WAIT_QUOTES · 收集报价', desc:'等待供应商回邮报价，系统自动解析报价单。', state: r>=2 ? 2 : (r>=1 ? 1 : 0),
-      detail: _kvrows([
-        ['已收到报价', `${quotes.length} 家`],
-        ['未回复', `${(Array.isArray(t.no_reply_supplier)?t.no_reply_supplier:[]).length} 家`],
-        ['报价截止', esc(t.inquiry_deadline || t.reply_deadline || '-')],
-        ['报价明细', quotes.length ? `<div style="display:flex;flex-direction:column">${quoteRows}</div>` : '<span style="color:var(--text2)">暂无</span>'],
-      ]) },
-    { title:'R_DECIDING · 比价选型', desc:'对比各供应商报价，确定成交供应商与成交价。', state: r>=3 ? 2 : (r===2 ? 1 : 0),
-      detail: _kvrows([['选中供应商', sel && sel.name ? `<b style="color:var(--green)">${esc(sel.name)}</b> <span style="font-family:var(--mono);color:var(--text2)">&lt;${esc(sel.email||'')}&gt;</span>` : '—'],
-        ['成交单价', t.deal_unit_price ? `¥ ${Number(t.deal_unit_price).toFixed(2)}` : '—']]) },
-    { title:'R_ORDER · 下单', desc:'向选中供应商发送采购确认 / 订单。', state: r>=4 ? 2 : (r===3 ? 1 : 0),
-      detail: _kvrows([['订单 / 合同', esc(t.contract_no||'-')], ['下单时间', esc((t.updated_at||'').slice(0,16))||'-']]) },
-    { title:'R_WAIT_SHIPPING · 待发货 / 收货', desc:'供应商发货后回填发货时间与物流单号。', state: r>=5 ? 2 : (r===4 ? 1 : 0),
-      detail: _kvrows([
-        ['发货时间', esc(t.delivery_time || t.latest_ship_time || (r>=5?'待填':'—'))],
-        ['物流单号', t.logistics_no ? `<b style="color:#5ed7ff;font-family:var(--mono)">${esc(t.logistics_no)}</b>` : '—'],
-        ['测试结果', esc(t.test_result||'待测试')],
-      ]) },
-    { title:'R_WAIT_ACCEPTANCE · 收货待测试', desc:'工程师收货并完成通电/联调验收，采购确认收货合格后推进结算。', state: r>=6 ? 2 : (r===5 ? 1 : 0),
-      detail: _kvrows([
-        ['任务状态', `<b style="color:var(--cyan)">${esc(t.task_status||'-')}</b>`],
-        ['验收结果', r>=6 ? '<b style="color:var(--green)">工程师验收通过</b>' : '待工程师验收'],
-        ['测试结果', esc(t.test_result||'待测试')],
-      ]) },
-    { title:'R_WAIT_SETTLE · 等待结算', desc:'已通知供应商结算，等待最终结算完成（终态）。', state: r>=7 ? 2 : (r===6 ? 1 : 0),
-      detail: _kvrows([
-        ['结算状态', r>=7 ? '<b style="color:var(--green)">等待结算完成</b>' : '已通知供应商结算'],
-        ['内部闭环', String(t.internal_status||'').toUpperCase()==='R_CLOSED' ? '<b style="color:var(--cyan)">R_CLOSED · 内部闭环</b>' : esc(String(t.internal_status||'-').toUpperCase())],
-      ]) },
+    const p = Number(q.unit_price||0);
+    return `${esc(sup)} <b style="color:var(--green);font-family:var(--mono)">¥${p>0?p.toFixed(0):(q.unit_price!=''&&q.unit_price!=null?' '+esc(q.unit_price):'待定')}</b>`;
+  }).join('<br>');
+
+  const nodes = [
+    { title:'发起询价', who:'工程师', color:'var(--green)',
+      desc:'工程师向智能体发送采购申请邮件（A），任务由此建立。这是唯一不带任务号的入口。',
+      detail: detailOf([['创建时间', esc(t.create_time||'-')], ['创建人', esc(t.creator||'-')], ['来源', esc(t.source||'-')]]) },
+    { title:'发询价函', who:'智能体', color:'var(--purple)',
+      desc:'智能体生成询价函（B）并发送给各询价供应商，正文含任务号。',
+      detail: detailOf([['发询价函 →', inq.length ? inq.map(s=>'· '+esc(s.name||s.email||'-')+' <span style="font-family:var(--mono);color:var(--text2)">&lt;'+esc(s.email||'-')+'&gt;</span>').join('<br>') : '（无）']]),
+    },
+    { title:'供应商报价', who:'供应商', color:'var(--orange)',
+      desc:'各供应商在原询价线程回邮报价（C），智能体自动解析 单价/成色/数量/货期。',
+      detail: detailOf([['已收到报价', quotes.length?`${quotes.length} 家<br>${quoteRows}`:'暂无'], ['报价截止', esc(t.inquiry_deadline||t.reply_deadline||'-')]]) },
+    { title:'比价定标', who:'智能体', color:'var(--purple)',
+      desc:'智能体对比各供应商报价，确定最低价/候选供应商，并连同报价汇总进入内部审批。',
+      detail: detailOf([['最低价供应商', esc(lowestName||'—')], ['报价汇总', `${quotes.length} 家`]]) },
+    { title:'内部审批', who:'审批人', color:'var(--cyan)',
+      desc:'智能体在工程师询价线程回复报价汇总（D），发审批人 + 系统抄送（含工程师确认保留在收件人）。审批人确认或全部拒绝。',
+      detail: detailOf([['审批状态', approved?'<b style="color:var(--green)">已通过</b>':rejected?'<b style="color:var(--red)">已拒绝</b>':'<b style="color:var(--amber)">待审批</b>'], ['审批人', esc(t.approver_email||'-')]]) },
+    { title:'下达订货', who:'智能体', color:'var(--purple)',
+      desc:'智能体在选中供应商报价线程追加确认采购内容，发订货确认（E）给选中供应商。',
+      detail: detailOf([['发给', esc((sel&&sel.email)||'-')], ['抄送', engList || '工程师+审批人+抄送'], ['目标供应商', esc(t.target_supplier||lowestName||'-')]]) },
+    { title:'发货回执', who:'供应商', color:'var(--orange)',
+      desc:'选中供应商在订货线程回执快递单号，智能体登记物流信息。',
+      detail: detailOf([['物流单号', t.shipped_no?'<b style="font-family:var(--mono);color:#5ed7ff">'+esc(t.shipped_no)+'</b>':'—']]) },
+    { title:'收货验收', who:'工程师', color:'var(--green)',
+      desc:'工程师收货并完成通电/联调验收，回执"备件更换完成"，作为验收通过依据。',
+      detail: detailOf([['验收状态', isClosed?'<b style="color:var(--green)">工程师验收通过</b>':'待工程师验收'], ['测试结果', esc(t.test_result||'待测试')]]) },
+    { title:'结算通知', who:'智能体', color:'var(--purple)',
+      desc:'验收通过后，智能体在订货线程向供应商追加结算通知（G），并抄送内部，流程正式闭环。',
+      detail: detailOf([['结算状态', isSettle?'<b style="color:var(--green)">已闭环 · 等待结算完成</b>':'进行中'], ['闭环时间', esc(t.updated_at||'-')]]) },
   ];
-  return `<div class="dual-timeline">${steps.map((st,i)=>dualStepCard(st,i)).join('')}</div>`;
+
+  let html = `<div class="dual-timeline">${nodes.map((n,i)=> dualStepCard({
+      title: n.title + role(n.who, n.color), desc: n.desc, state: aborted ? (i < _firstUnreachedIdx(st) ? 2 : 0) : st[i], detail: n.detail }, i)).join('')}`;
+  // 异常分支：已终止（全部拒绝 / 无报价中止 / 取消）
+  if (aborted) {
+    html += dualStepCard({
+      title:'已终止', who:'系统', color:'var(--red)',
+      desc:'无可行报价 / 审批全部拒绝 / 任务取消，流程在此中止，不再推进结算。',
+      state: 3,
+      detail: detailOf([['终止说明', ts==='任务已取消' ? esc(t.cancel_reason||'-') : (intI==='R_CLOSED'?'审批全部拒绝':'无报价中止')], ['终止时间', esc(t.updated_at||'-')]]),
+    }, nodes.length);
+  }
+  html += `</div>`;
+  return html;
 }
+function _firstUnreachedIdx(st){ for(let i=0;i<st.length;i++){ if(st[i]!==2) return i;} return st.length; }
 // —— 供应商报价与选型区（复用 FLOW_STEPS 的报价步骤渲染） ——
 function renderQuoteSection(t) {
   const ts = t.task_status || '';
@@ -1154,12 +1186,11 @@ function renderQuoteSection(t) {
   }
   return html;
 }
-// —— 详情双流总渲染 ——
+// —— 详情：整体流程总渲染（单一纵向路径） ——
 function renderDualFlow() {
   const t = currentDetailTask;
   if (!t) return;
-  try { setHTML('internalFlowBody', renderInternalFlow(t)); } catch(e) { setHTML('internalFlowBody', '<div class="empty-tip">内部流渲染失败</div>'); }
-  try { setHTML('externalFlowBody', renderExternalFlow(t)); } catch(e) { setHTML('externalFlowBody', '<div class="empty-tip">外部流渲染失败</div>'); }
+  try { setHTML('unifiedFlowBody', renderUnifiedFlow(t)); } catch(e) { setHTML('unifiedFlowBody', '<div class="empty-tip">整体流程渲染失败</div>'); }
   try { setHTML('quoteSectionBody', renderQuoteSection(t)); } catch(e) { setHTML('quoteSectionBody', '<div class="empty-tip">报价区渲染失败</div>'); }
 }
 
