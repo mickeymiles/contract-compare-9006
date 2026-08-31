@@ -1,0 +1,24 @@
+# 合同比对 / 经营管理平台 系统服务单元（9006）
+# 说明：此文件为模板，部署脚本 remote_deploy.sh 会自动把 __DEPLOY_DIR__ / __PYTHON_BIN__
+#       替换为服务器真实路径后安装到 /etc/systemd/system/neuops-9006.service。
+# 手动使用时把两处占位符改成真实路径，再：
+#   sudo install -m 0644 scripts/neuops-9006.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now neuops-9006
+[Unit]
+Description=Contract Compare Platform (9006)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=__DEPLOY_DIR__
+User=ubuntu
+Environment=PYTHONPATH=__DEPLOY_DIR__
+ExecStart=__PYTHON_BIN__ backend/main.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/neuops-9006.log
+StandardError=append:/var/log/neuops-9006.log
+
+[Install]
+WantedBy=multi-user.target
