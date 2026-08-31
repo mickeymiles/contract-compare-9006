@@ -68,5 +68,33 @@
 - **并发依赖**：R2 依赖新文件结构；R3 依赖 master-data；R4 依赖 common；按序推进，但各阶段产物相互独立可暂停。
 
 ## 当前进度
-- R1：主要文档已 DRAFT（011/012/README），待正式定稿。
-- R2~R5：未启动，按上述里程碑逐步推进。
+
+> 更新 2026-08-30。此前本节写着「R2~R5：未启动」，与实际提交严重脱节。
+> **判断进度请以 `git log` 为准**，本节可能再次滞后。
+
+### 重构线（feature/refactor-r2，同事在推进）
+
+已推进到 R4。按 git log 的实际提交：
+
+- R2.6　ETL 计算服务（`run_etl_*`）→ `services/etl.py`
+- R2.7　合同硬件比对 contrast（`/api/contract*`、`/api/compare`）→ `procurement/`
+- R2.8　neuops 智能体网关（`trigger_neuops`）→ `common/neuops.py`
+- R2.9　备件询价 ops（`/api/procurement/tasks|suppliers|contracts|mail-cc|spare-parts|ledger`）→ `ops/`
+- R2.10 ETL 调度（`/api/etl*`）→ `foundation/routes_etl.py`
+- R2.11 PLM 路由（`/api/plm*` 74 条）→ `lifecycle/routes_plm.py`
+- R2.11b `routes_plm` 补 urllib 导入（fr10 导出文件名引号）
+- R4　　前端统一壳 + 主数据 + 财经指标迁移
+
+剩余：`backend/core/` 仍平铺（`project.py` / `routes.py` / `migrate.py` 等），
+`backend/main.py` 未完成瘦身。
+
+**分叉状态**：r2 领先 main 13 个提交，main 领先 r2 5 个（采购 / 运维域业务改动）。
+合入前需解决 `routes_plm.py` 与采购 / 运维改动的冲突。
+
+### 主线（main，2026-08-30）
+
+本轮未做结构重构，只做「保证能用」的止血与跨工程契约固化，
+清单见 `neuops-agent-demo/docs/cross-project-contract.md` 第四、五节。
+
+**重构前必须先固化契约**：两个工程之间的隐式约定（trigger payload、共享 DB 字段所有权、
+状态机两份推导、邮件关键词）目前分散在代码里，见该文档第四节 10 项待办。

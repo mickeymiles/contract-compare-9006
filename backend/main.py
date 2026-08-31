@@ -18,6 +18,7 @@ from models import init_db, get_db, create_contract, delete_contract, update_con
 from compare_engine import run_comparison
 from excel_handler import import_contract_excel, import_supplier_excel, export_report, reapply_column_mapping
 from procurement_models import init_procurement_db, seed_procurement_master
+import ontology_gateway as ont
 app = FastAPI(title="合同比对系统（多合同版）", version="2.0")
 from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -76,11 +77,18 @@ async def no_cache_static_assets(request: Request, call_next):
 
 # ── neuops 智能体网关（emp-008 采购询比价）──
 NEUOPS_BASE = os.getenv("NEUOPS_BASE", "http://127.0.0.1:9007")
+# 一次 trigger 在 9007 侧可能包含「LLM 组邮件 + SMTP 发送 + IMAP 线程查询」，
+# 原硬编码 15 秒在选型确认（flow-05）等较重的流程上必然超时：
+# 表现为 9006 每次调用都要干等 15 秒，且确认邮件发不出、target_supplier 等字段回写不到。
+# 默认放宽到 45 秒，可用环境变量 NEUOPS_TRIGGER_TIMEOUT 覆盖。
+NEUOPS_TRIGGER_TIMEOUT = float(os.getenv("NEUOPS_TRIGGER_TIMEOUT", "45"))
 
 
-def trigger_neuops(path: str, payload: dict, timeout: float = 15.0) -> dict:
+def trigger_neuops(path: str, payload: dict, timeout: float = None) -> dict:
     """调用 neuops 智能体 trigger API。失败不阻断主流程，返回 trigger 结果。"""
     import copy
+    if timeout is None:
+        timeout = NEUOPS_TRIGGER_TIMEOUT
     p = copy.deepcopy(payload)
     # 清理空 dict 字段（neuops Pydantic Optional[Model] 遇到 {} 会报 required）
     if isinstance(p, dict) and isinstance(p.get("selected_supplier"), dict) and not p["selected_supplier"]:
@@ -991,12 +999,32 @@ class SupplierItem(BaseModel):
 
 
 class NewTaskBody(BaseModel):
-    """新建询价任务（页面入口）：合同号 + 备件 + 数量 + 紧急等级 + 询价供应商（空则自动带池子）"""
+    """新建询价任务（页面入口）：合同号 + 备件 + 数量 + 紧急等级 + 询价供应商（空则自动带池子）
+
+    备件属性全部可选，但**建议传全**：智能体按模板 B 组询价邮件时，标题与正文
+    依赖 brand / pn / spec / condition / address 等变量。缺失时 LLM 只能凭合同号
+    与备件型号自由发挥，出现过「SMOKE-20260830-01（）-电池模块型号备件询价邮件」
+    这类失控标题（模板要求的变量为空，渲染成空括号）。
+
+    字段命名与邮件入口的解析字段（9007 `_extract_inquiry_fields`）保持一致，
+    便于「页面 / Agent对话 / 邮件」三入口后续统一。
+    """
     contract_no: str
     spare_part_model: str
     purchase_qty: float
     emergency_level: str
     inquiry_supplier_list: List[SupplierItem] = []
+    # ── 备件属性（可选，建议传全）──
+    project_no: str = ''
+    project_name: str = ''
+    part_type: str = ''
+    brand: str = ''
+    pn: str = ''
+    spec: str = ''
+    condition: str = ''
+    address: str = ''
+    latest_ship_time: str = ''
+    urgent: str = ''
 
 
 class AgentNewTaskBody(BaseModel):
@@ -1067,6 +1095,14 @@ def api_proc_task_create(body: NewTaskBody):
             purchase_qty=body.purchase_qty, emergency_level=body.emergency_level,
             inquiry_supplier_list=[s.dict() for s in body.inquiry_supplier_list] if body.inquiry_supplier_list else None,
             creator='pm',
+            # 备件属性：前端建议传全。缺失时智能体按模板 B 组询价邮件会缺变量，
+            # 标题/正文由 LLM 自由发挥（历史上出现过渲染成空括号的失控标题）。
+            # urgent 缺省用 emergency_level 兜底，保证询价时限始终有值。
+            project_no=body.project_no, project_name=body.project_name,
+            part_type=body.part_type, brand=body.brand, pn=body.pn,
+            spec=body.spec, condition=body.condition, address=body.address,
+            latest_ship_time=body.latest_ship_time,
+            urgent=body.urgent or body.emergency_level,
         )
         # 触发 neuops emp-008：flow-proc-01(已落库) + flow-proc-02(发询价邮件+飞书通知)
         agent_r = trigger_neuops("trigger/task-created", t)
@@ -1454,6 +1490,112 @@ def api_mail_inquiry_task_get(task_id: str):
     if not t:
         return JSONResponse({"success": False, "error": "任务不存在"}, status_code=404)
     return {"success": True, "data": t}
+
+
+# ===================== 本体可观测（Ontology，只读） =====================
+# 数据来源：neuops-agent-demo(9007) 的本体轨 —— 实例直读 neuops_ontology.db，
+# 本体定义(CONCEPTS/ACTIONS/RULES…)走 9007 /spec 转发并缓存。详见 ontology_gateway.py。
+@app.get("/api/ontology/overview")
+def api_ontology_overview():
+    """本体轨概览：o_* 各表行数、库文件状态、本体定义来源（http/cache/source）。"""
+    return {"success": True, "data": ont.overview()}
+
+
+@app.get("/api/ontology/claim-state")
+def api_ontology_claim_state():
+    """认领健康度：扫描水位 + 未闭环（pending/failed）邮件，用于发现认领卡单。"""
+    return {"success": True, "data": ont.claim_state()}
+
+
+@app.get("/api/ontology/spec")
+def api_ontology_spec(force: bool = False):
+    """本体定义全集（TBox）：概念 / 关系 / 动作定义 / 全局不变量 / 规则集 / 动作注册表。"""
+    try:
+        data, source = ont.spec(force=force)
+    except Exception as e:
+        return JSONResponse({"success": False,
+                             "error": f"本体定义获取失败: {type(e).__name__}: {e}"}, status_code=502)
+    return {"success": True, "data": data, "source": source}
+
+
+@app.get("/api/ontology/instances")
+def api_ontology_instances(task_limit: int = 50, email_limit: int = 50, quote_limit: int = 100):
+    """ABox 实例：任务 / 人员 / 邮件 / 供应商报价 / 预会话。"""
+    try:
+        return {"success": True, "data": ont.instances(task_limit=task_limit,
+                                                       email_limit=email_limit,
+                                                       quote_limit=quote_limit)}
+    except Exception as e:
+        return JSONResponse({"success": False,
+                             "error": f"本体实例读取失败: {type(e).__name__}: {e}"}, status_code=500)
+
+
+@app.get("/api/ontology/knowledge")
+def api_ontology_knowledge():
+    """知识层：动作定义（条件/效果/不变量）+ 全局不变量 + 声明式规则集 RULES。"""
+    try:
+        return {"success": True, "data": ont.knowledge()}
+    except Exception as e:
+        return JSONResponse({"success": False,
+                             "error": f"知识层获取失败: {type(e).__name__}: {e}"}, status_code=502)
+
+
+@app.get("/api/ontology/actions")
+def api_ontology_actions():
+    """动作注册表 + 各动作在 o_audit_log 中的执行/对照/空转次数。"""
+    try:
+        return {"success": True, "data": ont.actions()}
+    except Exception as e:
+        return JSONResponse({"success": False,
+                             "error": f"动作注册表获取失败: {type(e).__name__}: {e}"}, status_code=500)
+
+
+@app.get("/api/ontology/audit")
+def api_ontology_audit(action: Optional[str] = None, biz_id: Optional[str] = None,
+                       keyword: Optional[str] = None, limit: int = 200):
+    """审计流水（o_audit_log，仅追加）。支持 action / biz_id / 关键词过滤。"""
+    try:
+        return {"success": True,
+                "data": ont.audit(action=action or "", biz_id=biz_id or "",
+                                  keyword=keyword or "", limit=limit)}
+    except Exception as e:
+        return JSONResponse({"success": False,
+                             "error": f"审计流水读取失败: {type(e).__name__}: {e}"}, status_code=500)
+
+
+@app.get("/api/ontology/tasks")
+def api_ontology_tasks(status: Optional[str] = None, keyword: Optional[str] = None,
+                       limit: int = 200):
+    """本体任务列表：状态 + 内部流/外部流双流状态 + 报价截止 + 选中供应商 + 关键里程碑。"""
+    try:
+        return {"success": True,
+                "data": ont.tasks(status=status or "", keyword=keyword or "", limit=limit)}
+    except Exception as e:
+        return JSONResponse({"success": False,
+                             "error": f"本体任务读取失败: {type(e).__name__}: {e}"}, status_code=500)
+
+
+@app.get("/api/ontology/tasks/{task_id}")
+def api_ontology_task_get(task_id: str):
+    """单个本体任务详情：任务 + spare_info + 审计流水 + 邮件 + 报价。"""
+    try:
+        d = ont.task_detail(task_id)
+    except Exception as e:
+        return JSONResponse({"success": False,
+                             "error": f"本体任务读取失败: {type(e).__name__}: {e}"}, status_code=500)
+    if not d:
+        return JSONResponse({"success": False, "error": "本体任务不存在"}, status_code=404)
+    return {"success": True, "data": d}
+
+
+@app.get("/api/ontology/ledger")
+def api_ontology_ledger(limit: int = 200):
+    """本体轨台账：已闭环（CLOSED*）任务的结算记录。"""
+    try:
+        return {"success": True, "data": ont.ledger(limit=limit)}
+    except Exception as e:
+        return JSONResponse({"success": False,
+                             "error": f"本体台账读取失败: {type(e).__name__}: {e}"}, status_code=500)
 
 
 # ===================== 合同管理 =====================

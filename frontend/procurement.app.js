@@ -104,7 +104,14 @@ function fmtStatus(s) {
 }
 
 // ============ 页面切换（左侧菜单导航，单入口 + 唯一性校验） ============
-const _SIDE_MENU_KEYS = ['tasks', 'ledger', 'mailinquiry', 'sparepart', 'supplier', 'contract', 'mailcc'];
+const _SIDE_MENU_KEYS = ['tasks', 'ledger', 'mailinquiry', 'sparepart', 'supplier', 'contract', 'mailcc',
+  'ontEntities', 'ontKnowledge', 'ontActions', 'ontTasks', 'ontLedger'];
+// 「本体可观测」手风琴下的二级子菜单（一级菜单之外）
+const _ONT_MENU_KEYS = ['ontEntities', 'ontKnowledge', 'ontActions', 'ontTasks', 'ontLedger'];
+const _ONT_MENU_LABEL = {
+  ontEntities: '实体与关系', ontKnowledge: '知识', ontActions: '动作',
+  ontTasks: '任务列表', ontLedger: '台账',
+};
 
 function __assertUniqueActive(selector, label) {
   const actives = document.querySelectorAll(selector);
@@ -158,9 +165,17 @@ function switchSidebar(name) {
   });
   __assertUniqueActive('.proc-top-panel.active', 'proc-top-panel');
 
+  // 本体可观测：二级菜单进入时同步展开手风琴，并刷新面包屑
+  if (_ONT_MENU_KEYS.includes(name)) {
+    setOntAccOpen(true);
+    $('procCrumb').textContent = `🛒 备品备件采购询比价 › 本体可观测 › ${_ONT_MENU_LABEL[name]}`;
+  }
+
   // 各面板首次加载
   if (name === 'tasks') {
     showPage('list');
+  } else if (_ONT_MENU_KEYS.includes(name)) {
+    loadOntPanel(name);
   } else if (name === 'sparepart') {
     try { initSparePartCategoryFilter(); loadSparePartList(); } catch (e) { console.error(e); }
   } else if (name === 'ledger') {
@@ -2399,6 +2414,432 @@ function renderMailInquiryDetail(t) {
     ${renderMailQuotes(t)}
     ${renderMailArchives(t.mail_archive_json)}
   `;
+}
+
+
+// ==================================================================
+// 本体可观测（Ontology）— 只读展示 neuops(9007) 本体轨的 TBox / ABox
+// 后端端点 /api/ontology/* 见 backend/ontology_gateway.py
+// ==================================================================
+const ONT_API = '/api/ontology';
+// 概念 -> 可统计的 o_* 表（其余概念为抽象/派生，无独立表，实例数显示 —）
+const ONT_CONCEPT_COUNT = {
+  Person: 'o_person', InquiryTask: 'o_task', InquiryEmail: 'o_email', Quote: 'o_supplier_quote',
+};
+// 状态 -> chip 配色：g 完成 / o 进行中 / r 异常 / m 中性
+const ONT_STATUS_TONE = {
+  INIT: 'o', CLOSED: 'g', CLOSED_ABORT: 'm', CLOSED_MANUAL: 'r',
+  R_INIT: 'o', R_APPROVAL: 'o', R_CLOSED: 'g',
+  R_SEND: 'o', INVITE_QUOTE: 'o', QUOTE_COLLECT_DONE: 'o',
+  ORDER_CONFIRM: 'o', WAIT_ENGINEER_CLOSE: 'o', R_SETTLE: 'g',
+};
+let ontLoaded = {};        // 各面板是否已首载（避免每次切菜单都重拉）
+let ontAuditTimer = null;
+let ontTaskTimer = null;
+
+async function ontApi(path, params = {}) {
+  const qs = Object.entries(params)
+    .filter(([, v]) => v !== '' && v !== null && v !== undefined)
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
+  const r = await fetch(`${ONT_API}${path}${qs ? '?' + qs : ''}`);
+  const data = await r.json().catch(() => ({ success: false, error: '响应解析失败' }));
+  if (!r.ok || data.success === false) {
+    throw new Error(data.error || `HTTP ${r.status}`);
+  }
+  return data;
+}
+
+/** 面板按需加载入口：切菜单时调用，已加载过的直接跳过（有刷新按钮可强制重载）。 */
+function loadOntPanel(name, force = false) {
+  const fn = {
+    ontEntities: loadOntEntities, ontKnowledge: loadOntKnowledge,
+    ontActions: loadOntActions, ontTasks: loadOntTasks, ontLedger: loadOntLedger,
+  }[name];
+  if (!fn) return;
+  if (ontLoaded[name] && !force) return;
+  ontLoaded[name] = true;
+  fn().catch(e => {
+    ontLoaded[name] = false;   // 失败允许下次重试
+    console.error(`[ontology] ${name} 加载失败`, e);
+    toast(`本体数据加载失败：${e.message}`, 'err');
+  });
+}
+
+function refreshOntPanel(name) {
+  const fn = {
+    ontEntities: loadOntEntities, ontKnowledge: loadOntKnowledge,
+    ontActions: loadOntActions, ontTasks: loadOntTasks, ontLedger: loadOntLedger,
+  }[name];
+  fn && fn().catch(e => {
+    console.error(`[ontology] ${name} 刷新失败`, e);
+    toast(`刷新失败：${e.message}`, 'err');
+  });
+}
+
+/** 手风琴展开/收起（二级菜单被选中时自动保持展开）。 */
+function toggleOntAcc() {
+  setOntAccOpen(!($('ontAccHead').classList.contains('open')));
+}
+
+function setOntAccOpen(open) {
+  $('ontAccHead').classList.toggle('open', open);
+  $('ontAccBody').classList.toggle('open', open);
+}
+
+function ontChip(text, tone = '') {
+  return `<span class="ont-chip ${tone}">${escapeHtml(text)}</span>`;
+}
+
+function ontStatusChip(v) {
+  const s = String(v || '-');
+  return ontChip(s, ONT_STATUS_TONE[s] || 'm');
+}
+
+function ontEmptyRow(cols, text) {
+  return `<tr><td colspan="${cols}" class="ont-empty">${escapeHtml(text)}</td></tr>`;
+}
+
+/** 概览指标条（各面板共用，展示库状态与各表行数）。 */
+function renderOntOverview(o) {
+  const stat = (k, v, tone = '') =>
+    `<div class="ont-stat"><div class="k">${escapeHtml(k)}</div><div class="v ${tone}">${escapeHtml(v)}</div></div>`;
+  const c = o.counts || {};
+  const srcText = { http: 'HTTP 转发', cache: '缓存', source: '源码解析', unavailable: '不可用' }[o.spec_source] || o.spec_source;
+  return [
+    stat('本体库', o.db_ok ? '已连接' : '不可用', o.db_ok ? '' : 'err'),
+    ...Object.keys(c).map(t => stat(t, c[t] == null ? '-' : c[t], c[t] ? '' : 'mute')),
+    stat('本体定义来源', srcText, o.spec_ok ? '' : 'warn'),
+    stat('库更新时间', (o.db_mtime || '-').slice(5), 'mute'),
+  ].join('');
+}
+
+// ---------- 面板 1：实体与关系 ----------
+async function loadOntEntities() {
+  showPageLoading('加载本体实例...');
+  try {
+    const [ov, sp, inst] = await Promise.all([
+      ontApi('/overview'), ontApi('/spec'), ontApi('/instances'),
+    ]);
+    setHTML('ontOverview', renderOntOverview(ov.data));
+
+    // TBox 概念
+    const concepts = sp.data.concepts || {};
+    setHTML('ontConceptsTbody', Object.keys(concepts).length
+      ? Object.entries(concepts).map(([k, v]) => `<tr>
+          <td><span class="ont-code">${escapeHtml(k)}</span></td>
+          <td>${escapeHtml(v)}</td>
+          <td class="num">${ONT_CONCEPT_COUNT[k]
+            ? (inst.data[({ o_task: 'tasks', o_person: 'persons', o_email: 'emails', o_supplier_quote: 'quotes' })[ONT_CONCEPT_COUNT[k]]] || []).length
+            : '<span style="color:var(--text2)">—</span>'}</td>
+        </tr>`).join('')
+      : ontEmptyRow(3, '未获取到概念定义'));
+
+    // TBox 关系
+    const relations = sp.data.relations || {};
+    setHTML('ontRelationsTbody', Object.keys(relations).length
+      ? Object.entries(relations).map(([k, v]) => `<tr>
+          <td><span class="ont-code">${escapeHtml(k)}</span></td>
+          <td>${escapeHtml(v)}</td>
+        </tr>`).join('')
+      : ontEmptyRow(2, '未获取到关系定义'));
+
+    // ABox 任务实例
+    const tasks = inst.data.tasks || [];
+    setHTML('ontInstTasksTbody', tasks.length
+      ? tasks.map(t => {
+        const p = t.spare_info_parsed || {};
+        return `<tr>
+          <td><span class="ont-code">${escapeHtml(t.task_id)}</span></td>
+          <td>${escapeHtml([p.brand, p.pn].filter(Boolean).join(' ') || '-')}
+              <div style="color:var(--text2);font-size:11px">${escapeHtml(p.spec || '')}</div></td>
+          <td class="num">${escapeHtml(p.count || '-')}</td>
+          <td>${ontStatusChip(t.status)}</td>
+          <td>${ontStatusChip(t.internal_status)}</td>
+          <td>${ontStatusChip(t.external_status)}</td>
+          <td>${escapeHtml(t.target_supplier || '-')}</td>
+          <td class="ont-mono">${escapeHtml(t.from_email || '-')}</td>
+          <td>${escapeHtml(t.create_time || '-')}</td>
+        </tr>`;
+      }).join('')
+      : ontEmptyRow(9, '本体轨暂无任务实例'));
+
+    renderOntOtherEntities(inst.data);
+  } finally {
+    hidePageLoading();
+  }
+}
+
+/** ABox 其余实体（人员 / 邮件 / 报价 / 预会话）分块渲染。 */
+function renderOntOtherEntities(d) {
+  const block = (title, tip, cols, rows, render) => {
+    const body = rows.length
+      ? `<div class="twrap"><table><thead><tr>${cols.map(c => `<th>${escapeHtml(c)}</th>`).join('')}</tr></thead>
+         <tbody>${rows.map(render).join('')}</tbody></table></div>`
+      : `<div class="ont-empty">${escapeHtml(tip)}</div>`;
+    return `<div class="ont-sec-title">${escapeHtml(title)}（${rows.length}）</div>${body}`;
+  };
+
+  const persons = d.persons || [];
+  const emails = d.emails || [];
+  const quotes = d.quotes || [];
+  const sessions = d.sessions || [];
+
+  setHTML('ontInstOthers', [
+    block('人员 o_person', '本体轨尚未登记人员实体（Person/Engineer/Approver/Supplier 均由邮箱直接引用）',
+      ['Person ID', '姓名', '邮箱', '角色'],
+      persons, p => `<tr><td class="ont-mono">${escapeHtml(p.person_id)}</td><td>${escapeHtml(p.name || '-')}</td>
+        <td class="ont-mono">${escapeHtml(p.email || '-')}</td><td>${ontChip(p.role || '-')}</td></tr>`),
+    block('邮件 o_email', '本体轨尚未归档邮件（仅 inbound 询价邮件入库）',
+      ['Message-ID', 'Task ID', '标题', '模板', '发件人', '发送时间'],
+      emails, m => `<tr><td class="ont-mono">${escapeHtml(m.email_message_id)}</td>
+        <td class="ont-mono">${escapeHtml(m.task_id || '-')}</td>
+        <td>${escapeHtml(m.title || '-')}</td><td>${ontChip(m.template_type || '-')}</td>
+        <td class="ont-mono">${escapeHtml(m.from_email || '-')}</td>
+        <td>${escapeHtml(m.send_time || '-')}</td></tr>`),
+    block('供应商报价 o_supplier_quote', '暂无独立报价行（当前报价写在 o_task.spare_info.quotes 中）',
+      ['Quote ID', 'Task ID', '供应商', '单价', '接收时间', '有效', '超时'],
+      quotes, q => `<tr><td class="ont-mono">${escapeHtml(q.quote_id)}</td>
+        <td class="ont-mono">${escapeHtml(q.task_id || '-')}</td>
+        <td class="ont-mono">${escapeHtml(q.supplier_person_id || '-')}</td>
+        <td class="num">${escapeHtml(q.unit_price || '-')}</td>
+        <td>${escapeHtml(q.receive_time || '-')}</td>
+        <td>${q.is_valid ? ontChip('有效', 'g') : ontChip('无效', 'r')}</td>
+        <td>${q.is_timeout ? ontChip('超时', 'o') : '<span style="color:var(--text2)">-</span>'}</td></tr>`),
+    block('预会话 o_session', '暂无立项前预会话',
+      ['Session ID', '发起人', '线程 ID', '状态', '创建时间', '放弃原因'],
+      sessions, s => `<tr><td class="ont-mono">${escapeHtml(s.session_id)}</td>
+        <td class="ont-mono">${escapeHtml(s.initiator_person_id || '-')}</td>
+        <td class="ont-mono">${escapeHtml(s.thread_id || '-')}</td>
+        <td>${ontStatusChip(s.status)}</td>
+        <td>${escapeHtml(s.create_time || '-')}</td>
+        <td>${escapeHtml(s.abandon_reason || '-')}</td></tr>`),
+  ].join(''));
+}
+
+// ---------- 面板 2：知识 ----------
+async function loadOntKnowledge() {
+  showPageLoading('加载本体知识...');
+  try {
+    const r = await ontApi('/knowledge');
+    const d = r.data;
+    setText('ontKnowSource', { http: '9007 HTTP 转发', cache: '9006 缓存', source: '9007 源码解析' }[d.source] || d.source || '-');
+
+    // 动作定义卡片
+    const acts = d.actions || {};
+    const ids = Object.keys(acts);
+    setHTML('ontActionDefs', ids.length ? ids.map(id => {
+      const a = acts[id];
+      const conds = a['条件'] || [];
+      const invs = a['不变量'] || [];
+      return `<div class="ont-card">
+        <h4><span class="ont-code">${escapeHtml(id)}</span>
+          ${a['幂等'] ? ontChip('幂等', 'g') : ontChip('非幂等', 'o')}</h4>
+        <div class="def">${escapeHtml(a['定义'] || '-')}</div>
+        <div class="ont-line cond"><span class="tag">条件</span><span class="body">${
+          conds.length ? '<ul>' + conds.map(c => `<li>${escapeHtml(c)}</li>`).join('') + '</ul>'
+                       : '<span style="color:var(--text2)">无前置条件</span>'}</span></div>
+        <div class="ont-line eff"><span class="tag">效果</span><span class="body">${escapeHtml(a['效果'] || '-')}</span></div>
+        <div class="ont-line inv"><span class="tag">不变量</span><span class="body">${
+          invs.length ? '<ul>' + invs.map(c => `<li>${escapeHtml(c)}</li>`).join('') + '</ul>'
+                      : '<span style="color:var(--text2)">无</span>'}</span></div>
+      </div>`;
+    }).join('') : '<div class="ont-empty">未获取到动作定义</div>');
+
+    // 全局不变量
+    const invs = d.invariants || [];
+    setHTML('ontInvariants', invs.length ? invs.map(v => `
+      <div class="ont-line inv" style="margin:6px 0">
+        <span class="tag" style="min-width:150px"><span class="ont-code">${escapeHtml(v.id || '-')}</span></span>
+        <span class="body">${escapeHtml(v.desc || '')}</span>
+      </div>`).join('') : '<div class="ont-empty">未获取到全局不变量</div>');
+
+    // 规则集
+    const rules = d.rules || [];
+    setHTML('ontRulesTbody', rules.length ? rules.map(r => `<tr>
+      <td><span class="ont-code">${escapeHtml(r.id)}</span></td>
+      <td><span class="ont-code">${escapeHtml(r.target)}</span></td>
+      <td><div class="ont-pre">${escapeHtml(ontExpr(r.check))}</div></td>
+      <td>${escapeHtml(r.desc || '-')}</td>
+    </tr>`).join('') : ontEmptyRow(4, '未获取到规则集'));
+  } finally {
+    hidePageLoading();
+  }
+}
+
+/** 规则条件表达式：紧凑 JSON，便于人读。 */
+function ontExpr(node) {
+  try {
+    return JSON.stringify(node);
+  } catch (e) {
+    return String(node);
+  }
+}
+
+// ---------- 面板 3：动作 ----------
+async function loadOntActions() {
+  showPageLoading('加载动作注册表...');
+  try {
+    const r = await ontApi('/actions');
+    const reg = r.data.action_registry || {};
+    const ids = Object.keys(reg);
+    setHTML('ontRegistryTbody', ids.length ? ids.map(id => {
+      const a = reg[id];
+      const st = a._stats || {};
+      const next = [a.next_internal ? `内部 ${a.next_internal}` : '',
+                    a.next_external ? `外部 ${a.next_external}` : ''].filter(Boolean);
+      return `<tr>
+        <td><span class="ont-code">${escapeHtml(id)}</span></td>
+        <td>${ontChip(a.kind || '-')}</td>
+        <td>${escapeHtml(a.desc || '-')}</td>
+        <td>${next.length ? next.map(n => ontChip(n, 'g')).join(' ') : '<span style="color:var(--text2)">-</span>'}</td>
+        <td class="num">${st.exec || 0}</td>
+        <td class="num">${st.align || 0}</td>
+        <td class="num">${st.noop || 0}</td>
+        <td>${escapeHtml(st.last_time || '-')}</td>
+      </tr>`;
+    }).join('') : ontEmptyRow(8, '未获取到动作注册表'));
+    await loadOntAudit();
+  } finally {
+    hidePageLoading();
+  }
+}
+
+async function loadOntAudit() {
+  try {
+    const r = await ontApi('/audit', {
+      action: ($('ontAuditAction') || {}).value || '',
+      biz_id: ($('ontAuditBizId') || {}).value || '',
+      keyword: ($('ontAuditKeyword') || {}).value || '',
+      limit: 200,
+    });
+    const rows = r.data || [];
+    setHTML('ontAuditTbody', rows.length ? rows.map(a => `<tr>
+      <td class="num">${a.audit_log_id}</td>
+      <td>${ontActionChip(a.action)}</td>
+      <td class="ont-mono">${escapeHtml(a.biz_id || '-')}</td>
+      <td>${escapeHtml(a.operator || '-')}</td>
+      <td>${escapeHtml(a.operate_time || '-')}</td>
+      <td><div class="ont-pre">${escapeHtml(ontSnap(a.content_snapshot_parsed))}</div></td>
+      <td>${escapeHtml(a.remark || '-')}</td>
+    </tr>`).join('') : ontEmptyRow(7, '暂无审计流水'));
+  } catch (e) {
+    setHTML('ontAuditTbody', ontEmptyRow(7, `审计流水加载失败：${e.message}`));
+  }
+}
+
+/** 审计 action 带 align:/noop: 前缀，拆出来着色。 */
+function ontActionChip(action) {
+  const raw = String(action || '-');
+  if (raw.includes(':')) {
+    const [prefix, name] = raw.split(':', 2);
+    return `${ontChip(prefix, prefix === 'noop' ? 'm' : '')} <span class="ont-code">${escapeHtml(name)}</span>`;
+  }
+  return `${ontChip('执行', 'g')} <span class="ont-code">${escapeHtml(raw)}</span>`;
+}
+
+function ontSnap(obj) {
+  if (!obj || (typeof obj === 'object' && !Object.keys(obj).length)) return '{}';
+  try {
+    return JSON.stringify(obj, null, 1);
+  } catch (e) {
+    return String(obj);
+  }
+}
+
+function resetOntAuditFilters() {
+  ['ontAuditAction', 'ontAuditBizId', 'ontAuditKeyword'].forEach(id => { const el = $(id); if (el) el.value = ''; });
+  loadOntAudit();
+}
+
+// ---------- 面板 4：任务列表 ----------
+async function loadOntTasks() {
+  showPageLoading('加载本体任务...');
+  try {
+    const r = await ontApi('/tasks', {
+      status: ($('ontTaskStatus') || {}).value || '',
+      keyword: ($('ontTaskKeyword') || {}).value || '',
+    });
+    const rows = r.data || [];
+    ontFillStatusFilter(rows);
+    setHTML('ontTasksTbody', rows.length ? rows.map(t => {
+      const m = t.milestones || {};
+      const ms = [
+        m.inquiry_sent ? ontChip('B 询价', 'g') : '',
+        m.approval_sent ? ontChip('D 审批', 'g') : '',
+        m.order_sent ? ontChip('E 订货', 'g') : '',
+        m.tracking_no ? ontChip('运单', 'g') : '',
+        m.settled ? ontChip('G 结算', 'g') : '',
+      ].filter(Boolean).join(' ');
+      const p = t.part || {};
+      return `<tr>
+        <td><span class="ont-code">${escapeHtml(t.task_id)}</span>
+            <div style="color:var(--text2);font-size:11px">${escapeHtml(t.session_id || '')}</div></td>
+        <td>${escapeHtml([p.project_no, p.project_name].filter(Boolean).join(' · ') || '-')}
+            <div style="color:var(--text2);font-size:11px">${escapeHtml([p.brand, p.pn].filter(Boolean).join(' ') || '')}</div></td>
+        <td class="num">${escapeHtml(p.count || '-')}</td>
+        <td>${ontStatusChip(t.status)}</td>
+        <td>${ontStatusChip(t.internal_status)}</td>
+        <td>${ontStatusChip(t.external_status)}</td>
+        <td>${escapeHtml(t.quote_deadline || t.urgency_raw || '-')}</td>
+        <td class="ont-mono">${escapeHtml(t.target_supplier || '-')}</td>
+        <td class="num">${t.valid_quote_count}/${t.quote_count}</td>
+        <td>${ms || '<span style="color:var(--text2)">-</span>'}</td>
+        <td>${escapeHtml(t.create_time || '-')}</td>
+      </tr>`;
+    }).join('') : ontEmptyRow(11, '没有符合条件的本体任务'));
+  } finally {
+    hidePageLoading();
+  }
+}
+
+/** 状态下拉：用当前数据的取值填充，避免硬编码枚举漂移。 */
+function ontFillStatusFilter(rows) {
+  const sel = $('ontTaskStatus');
+  if (!sel) return;
+  const cur = sel.value;
+  const set = new Set();
+  rows.forEach(t => { [t.status, t.internal_status, t.external_status].forEach(s => s && set.add(s)); });
+  sel.innerHTML = '<option value="">全部状态</option>' +
+    [...set].sort().map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+  sel.value = cur;
+}
+
+function resetOntTaskFilters() {
+  const el = $('ontTaskKeyword'); if (el) el.value = '';
+  const st = $('ontTaskStatus'); if (st) st.value = '';
+  loadOntTasks();
+}
+
+// ---------- 面板 5：台账 ----------
+async function loadOntLedger() {
+  showPageLoading('加载本体台账...');
+  try {
+    const r = await ontApi('/ledger');
+    const rows = r.data || [];
+    setHTML('ontLedgerTbody', rows.length ? rows.map(l => `<tr>
+      <td><span class="ont-code">${escapeHtml(l.task_id)}</span></td>
+      <td>${escapeHtml(l.project_no || '-')}</td>
+      <td>${escapeHtml(l.project_name || '-')}</td>
+      <td>${escapeHtml(l.part || '-')}
+          <div style="color:var(--text2);font-size:11px">${escapeHtml(l.spec || '')}</div></td>
+      <td class="num">${escapeHtml(l.count || '-')}</td>
+      <td class="ont-mono">${escapeHtml(l.supplier || '-')}</td>
+      <td class="num">${escapeHtml(l.unit_price || '-')}</td>
+      <td class="num" style="color:#ff7089">${l.amount == null ? '-' : l.amount.toLocaleString('zh-CN')}</td>
+      <td>${escapeHtml(l.tracking_no || '-')}</td>
+      <td>${escapeHtml(l.close_time || '-')}</td>
+      <td>${ontStatusChip(l.close_status)}</td>
+      <td><div class="ont-pre">${escapeHtml(l.close_feedback || '-')}</div></td>
+    </tr>`).join('') : ontEmptyRow(12, '暂无已闭环任务，台账为空'));
+
+    let qty = 0, amt = 0;
+    rows.forEach(l => { qty += parseFloat(l.count) || 0; amt += parseFloat(l.amount) || 0; });
+    setText('ontLedgerCount', String(rows.length));
+    setText('ontLedgerQtySum', String(qty));
+    setText('ontLedgerAmtSum', amt.toLocaleString('zh-CN'));
+  } finally {
+    hidePageLoading();
+  }
 }
 
 

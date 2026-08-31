@@ -215,6 +215,59 @@
   .mi-kv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px 18px;margin-top:14px}
   .mi-kv-grid .k{color:var(--text2);font-size:11px;font-weight:500}
   .mi-kv-grid .v{color:var(--text);font-size:12.5px;line-height:1.6;word-break:break-all;margin-top:2px}
+
+  /* ========== 本体可观测（Ontology，只读展示） ========== */
+  /* 手风琴大菜单：沿用 .menu-item 的配色/交互，仅多一层可折叠头 + 子项缩进 */
+  .proc-acc{margin:2px 0}
+  .proc-acc-head{display:flex;align-items:center;gap:10px;padding:11px 20px;cursor:pointer;
+    font-size:13px;color:var(--text2);border-left:3px solid transparent;transition:all .18s;user-select:none}
+  .proc-acc-head:hover{color:var(--text);background:rgba(94,215,255,.04)}
+  .proc-acc-head.open{color:var(--cyan);background:rgba(94,215,255,.06);font-weight:600}
+  .proc-acc-head .icon{font-size:15px;width:18px;text-align:center}
+  .proc-acc-head .acc-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .proc-acc-head .acc-arrow{font-size:10px;transition:transform .2s;flex:0 0 auto}
+  .proc-acc-head.open .acc-arrow{transform:rotate(90deg)}
+  .proc-acc-body{display:none}
+  .proc-acc-body.open{display:block}
+  .proc-sidebar .menu-item.sub{padding-left:38px;font-size:12.5px}
+  .proc-sidebar .menu-item.sub .icon{font-size:13px;width:16px}
+  /* 概览指标条 */
+  .ont-stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:10px;margin-bottom:14px}
+  .ont-stat{background:var(--bg3);border:1px solid var(--border);border-radius:9px;padding:10px 12px}
+  .ont-stat .k{font-size:11px;color:var(--text2);margin-bottom:4px}
+  .ont-stat .v{font-size:17px;color:var(--cyan);font-weight:600}
+  .ont-stat .v.warn{color:var(--orange)}
+  .ont-stat .v.err{color:var(--red)}
+  .ont-stat .v.mute{color:var(--text2)}
+  /* 定义/规则卡片 */
+  .ont-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:12px}
+  .ont-card{background:var(--bg1);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
+  .ont-card h4{margin:0 0 6px;font-size:13px;color:var(--cyan);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .ont-card .def{font-size:12px;color:var(--text);line-height:1.65;margin-bottom:8px}
+  .ont-line{font-size:12px;line-height:1.7;margin:4px 0;display:flex;gap:8px}
+  .ont-line .tag{flex:0 0 auto;color:var(--text2);font-size:11px;min-width:56px}
+  .ont-line .body{flex:1;min-width:0;color:var(--text);word-break:break-word}
+  .ont-line ul{margin:0;padding-left:16px}
+  .ont-line.cond .tag{color:var(--cyan2)}
+  .ont-line.eff .tag{color:var(--green)}
+  .ont-line.inv .tag{color:var(--red)}
+  .ont-line.inv .body{color:var(--red)}
+  .ont-sec-title{font-size:13px;color:#fff;margin:20px 0 8px;padding-left:9px;border-left:3px solid var(--cyan)}
+  .ont-sub{font-size:12px;color:var(--text2);margin:2px 0 12px;line-height:1.6}
+  .ont-empty{text-align:center;padding:26px;color:var(--text2);font-size:12.5px}
+  .ont-mono{font-family:var(--mono);font-size:11.5px}
+  .ont-code{font-family:var(--mono);font-size:11px;color:var(--cyan2);background:var(--bg3);
+    border:1px solid var(--border);border-radius:6px;padding:2px 7px;display:inline-block;
+    word-break:break-all;max-width:100%}
+  .ont-chip{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;margin:2px 4px 2px 0;
+    background:rgba(94,215,255,.1);color:var(--cyan2);border:1px solid rgba(94,215,255,.25);white-space:nowrap}
+  .ont-chip.g{background:rgba(0,230,118,.1);color:var(--green);border-color:rgba(0,230,118,.3)}
+  .ont-chip.r{background:rgba(255,82,82,.12);color:var(--red);border-color:rgba(255,82,82,.3)}
+  .ont-chip.o{background:rgba(255,145,0,.12);color:var(--orange);border-color:rgba(255,145,0,.3)}
+  .ont-chip.m{background:rgba(125,141,176,.14);color:var(--text2);border-color:var(--border)}
+  .ont-pre{font-family:var(--mono);font-size:11px;color:var(--text2);background:var(--bg3);
+    border:1px solid var(--border);border-radius:6px;padding:6px 8px;margin:4px 0 0;
+    max-height:132px;overflow:auto;white-space:pre-wrap;word-break:break-all}
   .mi-kv-grid .v b{color:#fff}
   /* 5 步双流步骤条 */
   .mi-worker{font-size:12px;color:var(--text2);margin:4px 0 2px}
@@ -270,6 +323,23 @@
   <aside class="proc-sidebar" id="procSidebar">
     <div class="menu-group">业务中心</div>
     <div class="menu-item active" data-menu="tasks" onclick="switchSidebar('tasks')"><span class="icon">📋</span>询价任务</div>
+
+    <!-- 本体可观测（Ontology）：可折叠大菜单，子项与一级菜单共用 .menu-item 的选中态逻辑 -->
+    <div class="proc-acc" id="ontAcc">
+      <div class="proc-acc-head" id="ontAccHead" onclick="toggleOntAcc()" title="本体轨（neuops 9007）只读可观测视图">
+        <span class="icon">🧬</span>
+        <span class="acc-title">本体可观测（Ontology）</span>
+        <span class="acc-arrow" id="ontAccArrow">▸</span>
+      </div>
+      <div class="proc-acc-body" id="ontAccBody">
+        <div class="menu-item sub" data-menu="ontEntities" onclick="switchSidebar('ontEntities')"><span class="icon">🔗</span>实体与关系</div>
+        <div class="menu-item sub" data-menu="ontKnowledge" onclick="switchSidebar('ontKnowledge')"><span class="icon">📚</span>知识</div>
+        <div class="menu-item sub" data-menu="ontActions" onclick="switchSidebar('ontActions')"><span class="icon">⚡</span>动作</div>
+        <div class="menu-item sub" data-menu="ontTasks" onclick="switchSidebar('ontTasks')"><span class="icon">🗂</span>任务列表</div>
+        <div class="menu-item sub" data-menu="ontLedger" onclick="switchSidebar('ontLedger')"><span class="icon">🧾</span>台账</div>
+      </div>
+    </div>
+
     <div class="menu-item" data-menu="ledger" onclick="switchSidebar('ledger')"><span class="icon">📊</span>采购台账</div>
     <div class="menu-item" data-menu="mailinquiry" onclick="switchSidebar('mailinquiry')"><span class="icon mi-menu-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg></span>备件邮件询价</div>
 
@@ -698,6 +768,231 @@
       <div id="mailInqDetailBody"></div>
     </div>
   </div>  <!-- /proc-tab-mailinquiry -->
+
+
+  <!-- ================================================== -->
+  <!-- Panel: 本体可观测 — 实体与关系（TBox 概念/关系 + ABox 实例）-->
+  <!-- ================================================== -->
+  <div id="proc-tab-ontEntities" class="proc-top-panel">
+    <div class="panel">
+      <h3>🔗 实体与关系<span style="font-weight:400;color:var(--text2);font-size:11px">
+        &nbsp;·&nbsp;TBox 概念/关系 + ABox 实例，数据源 neuops 本体轨（只读）</span></h3>
+      <div class="proc-toolbar">
+        <span style="flex:1"></span>
+        <button class="btn btn-o btn-s" onclick="refreshOntPanel('ontEntities')">🔄 刷新</button>
+      </div>
+      <div id="ontOverview" class="ont-stat-grid">
+        <div class="ont-stat"><div class="k">加载中</div><div class="v mute">-</div></div>
+      </div>
+
+      <div class="ont-sec-title">TBox · 概念（Concepts）</div>
+      <div class="twrap">
+        <table>
+          <thead><tr>
+            <th style="width:180px">概念</th><th>语义说明</th><th style="width:110px">实例数</th>
+          </tr></thead>
+          <tbody id="ontConceptsTbody"><tr><td colspan="3" class="empty-tip">加载中...</td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="ont-sec-title">TBox · 关系（Relations）</div>
+      <div class="twrap">
+        <table>
+          <thead><tr>
+            <th style="width:340px">关系签名</th><th>语义说明</th>
+          </tr></thead>
+          <tbody id="ontRelationsTbody"><tr><td colspan="2" class="empty-tip">加载中...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>📦 ABox · 任务实例（o_task）</h3>
+      <div class="twrap">
+        <table>
+          <thead><tr>
+            <th>Task ID</th><th>备件</th><th class="num">数量</th>
+            <th>状态</th><th>内部流</th><th>外部流</th>
+            <th>供应商</th><th>发起邮箱</th><th>创建时间</th>
+          </tr></thead>
+          <tbody id="ontInstTasksTbody"><tr><td colspan="9" class="empty-tip">加载中...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>👤 ABox · 人员 / 邮件 / 报价 / 预会话</h3>
+      <div class="ont-sub">同一批实例按实体类型分块展示；空表说明本体轨尚未写入该实体。</div>
+      <div id="ontInstOthers"></div>
+    </div>
+  </div>  <!-- /proc-tab-ontEntities -->
+
+
+  <!-- ================================================== -->
+  <!-- Panel: 本体可观测 — 知识（动作定义 / 不变量 / 规则集） -->
+  <!-- ================================================== -->
+  <div id="proc-tab-ontKnowledge" class="proc-top-panel">
+    <div class="panel">
+      <h3>📚 知识层<span style="font-weight:400;color:var(--text2);font-size:11px">
+        &nbsp;·&nbsp;动作定义（条件/效果/不变量）+ 全局不变量 + 声明式规则集，来源 <span id="ontKnowSource" class="ont-mono">-</span></span></h3>
+      <div class="proc-toolbar">
+        <span style="flex:1"></span>
+        <button class="btn btn-o btn-s" onclick="refreshOntPanel('ontKnowledge')">🔄 刷新</button>
+      </div>
+
+      <div class="ont-sec-title">动作定义（本体声明）</div>
+      <div class="ont-sub">每个动作 = 定义 + 前置条件 + 效果 + 不变量 + 幂等性，是智能体决策的约束边界。</div>
+      <div id="ontActionDefs" class="ont-cards"><div class="ont-empty">加载中...</div></div>
+
+      <div class="ont-sec-title">全局不变量（INVARIANTS）</div>
+      <div class="ont-sub">跨动作恒定成立的语义护栏，校验器在执行前统一裁决。</div>
+      <div id="ontInvariants"><div class="ont-empty">加载中...</div></div>
+
+      <div class="ont-sec-title">声明式规则集（RULES）</div>
+      <div class="ont-sub">condition ⇒ 动作可执行；由 knowledge.py 的极小表达式求解器求值。</div>
+      <div class="twrap">
+        <table>
+          <thead><tr>
+            <th style="width:200px">规则 ID</th><th style="width:180px">目标动作</th>
+            <th style="width:380px">条件表达式</th><th>说明</th>
+          </tr></thead>
+          <tbody id="ontRulesTbody"><tr><td colspan="4" class="empty-tip">加载中...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>  <!-- /proc-tab-ontKnowledge -->
+
+
+  <!-- ================================================== -->
+  <!-- Panel: 本体可观测 — 动作（注册表 + 执行历史） -->
+  <!-- ================================================== -->
+  <div id="proc-tab-ontActions" class="proc-top-panel">
+    <div class="panel">
+      <h3>⚡ 动作注册表（ACTION_REGISTRY）</h3>
+      <div class="ont-sub">
+        统计列来自 <span class="ont-mono">o_audit_log</span>：<span class="ont-chip g">执行</span>真实落库动作、
+        <span class="ont-chip">对照</span>align: 阶段 A 只读比对、<span class="ont-chip m">空转</span>noop: 决策但未执行。
+      </div>
+      <div class="proc-toolbar">
+        <span style="flex:1"></span>
+        <button class="btn btn-o btn-s" onclick="refreshOntPanel('ontActions')">🔄 刷新</button>
+      </div>
+      <div class="twrap">
+        <table>
+          <thead><tr>
+            <th style="width:200px">动作 ID</th><th style="width:90px">类型</th><th>说明</th>
+            <th style="width:150px">后继状态</th>
+            <th style="width:90px" class="num">执行</th>
+            <th style="width:90px" class="num">对照</th>
+            <th style="width:90px" class="num">空转</th>
+            <th style="width:150px">最近发生</th>
+          </tr></thead>
+          <tbody id="ontRegistryTbody"><tr><td colspan="8" class="empty-tip">加载中...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>🧾 执行历史（o_audit_log，仅追加）</h3>
+      <div class="proc-toolbar">
+        <label>动作：</label>
+        <input type="text" id="ontAuditAction" placeholder="动作名模糊匹配" style="min-width:180px"
+               oninput="ontAuditTimer&&clearTimeout(ontAuditTimer);ontAuditTimer=setTimeout(loadOntAudit,300)">
+        <label>业务 ID：</label>
+        <input type="text" id="ontAuditBizId" placeholder="如 OT-XXXX" style="min-width:160px"
+               oninput="ontAuditTimer&&clearTimeout(ontAuditTimer);ontAuditTimer=setTimeout(loadOntAudit,300)">
+        <label>关键词：</label>
+        <input type="text" id="ontAuditKeyword" placeholder="操作人 / 备注 / 快照" style="min-width:180px"
+               oninput="ontAuditTimer&&clearTimeout(ontAuditTimer);ontAuditTimer=setTimeout(loadOntAudit,300)">
+        <span style="flex:1"></span>
+        <button class="btn btn-o btn-s" onclick="resetOntAuditFilters()">清空筛选</button>
+        <button class="btn btn-o btn-s" onclick="loadOntAudit()">🔄 刷新</button>
+      </div>
+      <div class="twrap">
+        <table>
+          <thead><tr>
+            <th style="width:60px">#</th><th style="width:150px">动作</th><th style="width:150px">业务 ID</th>
+            <th style="width:110px">操作者</th><th style="width:150px">时间</th>
+            <th style="width:420px">内容快照</th><th>备注</th>
+          </tr></thead>
+          <tbody id="ontAuditTbody"><tr><td colspan="7" class="empty-tip">加载中...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>  <!-- /proc-tab-ontActions -->
+
+
+  <!-- ================================================== -->
+  <!-- Panel: 本体可观测 — 任务列表（o_task） -->
+  <!-- ================================================== -->
+  <div id="proc-tab-ontTasks" class="proc-top-panel">
+    <div class="panel">
+      <h3>🗂 本体任务列表（o_task）</h3>
+      <div class="ont-sub">内部流 / 外部流双流状态 + 报价截止 + 选中供应商 + 关键里程碑（B 询价 / D 审批 / E 订货 / G 结算）。</div>
+      <div class="proc-toolbar">
+        <label>状态：</label>
+        <select id="ontTaskStatus" onchange="loadOntTasks()" style="min-width:170px">
+          <option value="">全部状态</option>
+        </select>
+        <label>关键词：</label>
+        <input type="text" id="ontTaskKeyword" placeholder="Task ID / 发起邮箱 / 供应商 / 备件" style="min-width:220px"
+               oninput="ontTaskTimer&&clearTimeout(ontTaskTimer);ontTaskTimer=setTimeout(loadOntTasks,300)">
+        <span style="flex:1"></span>
+        <button class="btn btn-o btn-s" onclick="resetOntTaskFilters()">清空筛选</button>
+        <button class="btn btn-o btn-s" onclick="loadOntTasks()">🔄 刷新</button>
+      </div>
+      <div class="twrap">
+        <table>
+          <thead><tr>
+            <th>Task ID</th><th>项目 / 备件</th><th class="num">数量</th>
+            <th>状态</th><th>内部流</th><th>外部流</th>
+            <th style="width:140px">报价截止</th><th>选中供应商</th>
+            <th class="num">报价</th><th>里程碑</th><th>创建时间</th>
+          </tr></thead>
+          <tbody id="ontTasksTbody"><tr><td colspan="11" class="empty-tip">加载中...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>  <!-- /proc-tab-ontTasks -->
+
+
+  <!-- ================================================== -->
+  <!-- Panel: 本体可观测 — 台账（结算 / 闭环记录） -->
+  <!-- ================================================== -->
+  <div id="proc-tab-ontLedger" class="proc-top-panel">
+    <div class="panel">
+      <h3>🧾 本体台账（闭环结算记录）</h3>
+      <p style="font-size:12px;color:var(--text2);margin:4px 0 14px">
+        本体轨没有独立的结算表，这里由「终态 <span class="ont-mono">o_task</span>（CLOSED / CLOSED_ABORT / CLOSED_MANUAL）
+        + 审计流水」推导：供应商取选中供应商，单价取其有效报价，闭环时间取
+        <span class="ont-mono">engineerFinalClose</span> 审计时间。
+      </p>
+      <div class="proc-toolbar">
+        <span style="flex:1"></span>
+        <button class="btn btn-o btn-s" onclick="loadOntLedger()">🔄 刷新</button>
+      </div>
+      <div class="twrap">
+        <table>
+          <thead><tr>
+            <th>Task ID</th><th>项目编号</th><th>项目名称</th><th>备件</th>
+            <th class="num">数量</th><th>选中供应商</th><th class="num">单价(元)</th>
+            <th class="num" style="color:#ff7089">金额(元)</th>
+            <th>快递单号</th><th>闭环时间</th><th>终态</th><th style="min-width:240px">工程师反馈</th>
+          </tr></thead>
+          <tbody id="ontLedgerTbody"><tr><td colspan="12" class="empty-tip">加载中...</td></tr></tbody>
+          <tfoot>
+            <tr style="background:rgba(94,215,255,.04);color:#fff;font-weight:600">
+              <td colspan="4" style="text-align:right">合计：<span id="ontLedgerCount">0</span> 条</td>
+              <td class="num" id="ontLedgerQtySum">-</td>
+              <td colspan="2"></td>
+              <td class="num" id="ontLedgerAmtSum" style="color:#ff7089">-</td>
+              <td colspan="4"></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  </div>  <!-- /proc-tab-ontLedger -->
 
   </div>  <!-- /proc-content -->
 </div>  <!-- /proc-layout -->
