@@ -37,23 +37,40 @@ ONT_TABLES = ["o_task", "o_person", "o_email", "o_supplier_quote",
 # 视为「终态」的任务状态：台账只收这些
 _CLOSED_STATUS = ("CLOSED", "CLOSED_ABORT", "CLOSED_MANUAL")
 
+# 本体库不可用时的降级标记（供概览页展示，不抛 500）
+_DB_ERR = {"missing": False, "error": ""}
+
 
 # ─────────────────────────────────────────────────────────────
 # 基础工具
 # ─────────────────────────────────────────────────────────────
 def _conn():
-    """只读连接本体库。文件不存在/不是库时 sqlite 会抛错，由路由层转 500。"""
+    """只读连接本体库。文件不存在时显式抛错，由 _rows 捕获降级为空结果。"""
+    if not os.path.exists(ONT_9007_DB_PATH):
+        raise sqlite3.OperationalError(f"本体库不存在: {ONT_9007_DB_PATH}")
     conn = sqlite3.connect(f"file:{ONT_9007_DB_PATH}?mode=ro", uri=True, timeout=5)
     conn.row_factory = sqlite3.Row
     return conn
 
 
 def _rows(sql, params=()):
-    conn = _conn()
+    """执行查询；本体库缺失/锁表/表不存在时一律降级为空列表，绝不抛 500。"""
+    try:
+        conn = _conn()
+    except Exception as e:
+        _DB_ERR["missing"] = True
+        _DB_ERR["error"] = f"{type(e).__name__}: {e}"
+        return []
     try:
         return [dict(r) for r in conn.execute(sql, params).fetchall()]
+    except sqlite3.Error as e:
+        _DB_ERR["error"] = f"{type(e).__name__}: {e}"
+        return []
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def _load_json(raw, default):
@@ -138,18 +155,33 @@ def _spec_from_source():
             "rules": spec["RULES"], "action_registry": spec["ACTION_REGISTRY"]}
 
 
+def _empty_spec():
+    """9007 不可达 / 源码目录不存在时的空 TBox，保证可观测页始终能渲染（不 500）。"""
+    return {"success": True, "service": "emp-009",
+            "concepts": {}, "relations": {}, "actions": {},
+            "invariants": [], "rules": [], "action_registry": {},
+            "fetched_at": "", "source": "unavailable"}
+
+
 def spec(force: bool = False):
-    """取本体定义。返回 (data, source)；source ∈ http | cache | source。"""
+    """取本体定义。返回 (data, source)；source ∈ http | cache | source | unavailable。
+
+    任何失败（9007 未起、源码目录不存在、定义缺失）都降级为 unavailable 空 TBox，
+    不再向上抛错导致 500——可观测页是「只读业务呈现」，缺失时显示空概念即可。
+    """
     if not force and _SPEC_CACHE["data"] and (time.time() - _SPEC_CACHE["at"]) < _SPEC_TTL:
         return _SPEC_CACHE["data"], "cache"
+    data, source = _empty_spec(), "unavailable"
     try:
         data = _spec_from_http()
-    except Exception:
-        # 9007 没起：退回源码解析，保证可观测页始终有 TBox 可看
-        data = _spec_from_source()
-        source = "source"
-    else:
         source = "http"
+    except Exception:
+        # 9007 没起：退回源码解析（同机部署才可用）
+        try:
+            data = _spec_from_source()
+            source = "source"
+        except Exception:
+            data, source = _empty_spec(), "unavailable"
     data["fetched_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
     _SPEC_CACHE.update(at=time.time(), data=data)
     return data, source
