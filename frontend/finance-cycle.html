@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>回款周期 · 财经 · 经营业务工作台</title>
+<link rel="stylesheet" href="/common.css">
+<!-- echarts 同款 CDN（与旧门户 index.html 一致） -->
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+</head>
+<body>
+<div id="app" class="app-frame">
+  <!-- 两级导航 · 顶部：左面包屑 + 右主菜单(域) -->
+  <div class="app-topbar">
+    <nav class="breadcrumb" id="breadcrumb"></nav>
+    <nav class="topmenu" id="topMenu"></nav>
+  </div>
+
+  <!-- 主体：左=护栏手风琴(财经域)；右=页面 -->
+  <div class="app-body">
+    <aside class="nav-rail" id="navRail"></aside>
+
+    <main class="app-main app-content">
+      <!-- 独立工具条：右上角放置操作按钮，不与下方 Tab 页签拥挤 -->
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+        <span style="font-size:11px;color:var(--text2)" id="anaStatus">数据来源：核心主数据 core_project + PLM 里程碑回款时间点（快照，秒级）</span>
+        <div style="display:flex;align-items:center;gap:10px">
+          <button class="btn btn-c" onclick="FinanceCycle.run()" id="btnCycleRun">▶ 执行分析</button>
+          <button class="btn btn-o" onclick="FinanceCycle.exportResult()" id="btnExport" style="display:none">📥 结果报告导出</button>
+        </div>
+      </div>
+      <!-- 回款周期分析区（高保真复刻旧门户：汇总卡/分区统计/可视化/地图/明细分页） -->
+      <div id="anaContent">
+        <div class="ana-empty"><div class="icon">📊</div><div>加载中...</div></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="/nav.config.js"></script>
+<script src="/finance-cycle.app.js"></script>
+</body>
+</html>

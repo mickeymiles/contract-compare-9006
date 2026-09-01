@@ -144,19 +144,21 @@ def test_plm_page_and_script_served(client):
     assert b'PLM' in js.content
 
 
-def test_plm_uses_tree_nav_not_tabs(plm_html, plm_js):
-    """用户要求：不要 tab 页，改用左侧菜单树。"""
-    assert '<nav id="plmNav"></nav>' in plm_html
-    assert 'plm-nav-kids' in plm_html and 'plm-leaf' in plm_html
-    # 页面内不再渲染横向 tab 条
+def test_plm_uses_accordion_not_tabs(plm_html, plm_js):
+    """PMO 左栏改为统一手风琴：三组（项目管理/进度管理/人员管理），含里程碑子菜单，不再渲染旧树。"""
+    # 统一手风琴壳 + 三组 section
+    assert 'id="plmSidebar"' in plm_html
+    assert 'renderAccordion' in plm_html
+    assert '项目管理' in plm_html and '进度管理' in plm_html and '人员管理' in plm_html
+    # 里程碑子菜单 + 对应视图容器
+    assert "label: '里程碑'" in plm_html
+    assert 'id="v-milestone"' in plm_html
+    # 不再渲染旧树节点 / 横向 tab 条
+    assert '<nav id="plmNav">' not in plm_html
     assert 'plm-tabs' not in plm_js
     assert 'subtab' not in plm_js
-    # 菜单树配置：10 个一级节点 + 二级叶子
+    # 视图拓扑保持可用
     assert 'var NAV = [' in plm_js
-    for leaf in ['项目立项', '合同主数据', '双维度进度', '里程碑与任务', '人员池与负荷',
-                 '人员分配', '工时填报', '毛利与差异', '收支台账', '预警中心', '规则配置',
-                 '全局参数', '字典维护', '操作日志']:
-        assert leaf in plm_js, leaf
     assert 'function navClick(' in plm_js and 'function renderNav(' in plm_js
 
 

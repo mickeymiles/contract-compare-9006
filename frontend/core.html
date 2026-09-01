@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>主数据 · 经营业务工作台</title>
+<link rel="stylesheet" href="/common.css">
+</head>
+<body>
+<div id="app" class="app-frame">
+  <!-- 两级导航 · 顶部：左面包屑 + 右主菜单(域) -->
+  <div class="app-topbar">
+    <nav class="breadcrumb" id="breadcrumb"></nav>
+    <nav class="topmenu" id="topMenu"></nav>
+  </div>
+
+  <!-- 主体：左=当前域内嵌手风琴；右=页面 -->
+  <div class="app-body">
+    <aside class="nav-rail" id="navRail"></aside>
+
+    <main class="app-main app-content">
+      <!-- 项目主数据 -->
+      <div class="section-hdr">
+        <span class="icon lg" id="projTitleIcon"></span>
+        <h2>项目主数据</h2>
+        <span class="hdr-sub" id="hdrSub"></span>
+        <div class="hdr-actions">
+          <button class="btn btn-o btn-s" id="btnImportProj" onclick="document.getElementById('importFile').click()">📥 导入合同Excel</button>
+          <input type="file" id="importFile" accept=".xlsx,.xls" style="display:none" onchange="Core.importProjects(this)">
+          <button class="btn btn-c btn-s" id="btnNewProject" onclick="Core.openProjectModal()">＋ 新建项目</button>
+        </div>
+      </div>
+      <div class="fbar">
+        <input id="kw" placeholder="搜索 项目号 / 名称" style="min-width:220px"
+               onkeydown="if(event.key==='Enter')Core.reload()">
+        <button class="btn btn-o btn-s" onclick="Core.reload()">搜索</button>
+      </div>
+      <div class="twrap"><table class="obj-table" id="projTbl"></table></div>
+      </main>
+  </div>
+</div>
+
+<!-- 新建/编辑 项目 弹窗 -->
+<div class="modal" id="projModal">
+  <div class="box">
+    <h3 id="projModalTitle">新建项目</h3>
+    <div class="row"><span class="l">项目号*</span><input class="in" id="f_project_no"></div>
+    <div class="row"><span class="l">商机号</span><input class="in" id="f_opportunity_no"></div>
+    <div class="row"><span class="l">合同号</span><input class="in" id="f_contract_no"></div>
+    <div class="row"><span class="l">项目名称</span><input class="in" id="f_name"></div>
+    <div class="row"><span class="l">客户</span><input class="in" id="f_customer_key"></div>
+    <div class="row"><span class="l">状态</span>
+      <select class="in" id="f_status">
+        <option value="active">进行中</option>
+        <option value="planning">规划</option>
+        <option value="done">已完成</option>
+        <option value="archived">已归档</option>
+      </select>
+    </div>
+    <div class="row"><span class="l">签订额</span><input class="in" id="f_sign_amount" type="number"></div>
+    <div class="row"><span class="l">签订日期</span><input class="in" id="f_sign_date" type="date"></div>
+    <div class="row"><span class="l">部门</span><input class="in" id="f_dept"></div>
+    <div class="row"><span class="l">归属人</span><input class="in" id="f_owner_ref"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button class="btn btn-o" onclick="Core.closeModal('projModal')">取消</button>
+      <button class="btn btn-c" id="btnProjSave" onclick="Core.saveProject()">保存</button>
+    </div>
+    <div class="row" style="margin-top:8px"><span class="l"></span><span class="hint" id="projHint"></span></div>
+  </div>
+</div>
+
+<script src="/nav.config.js"></script>
+<script src="/core.app.js"></script>
+</body>
+</html>

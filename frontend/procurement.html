@@ -344,50 +344,16 @@
 </style>
 </head>
 <body>
-<div class="header">
-  <nav class="crumb">
-    <span class="crumb-root" onclick="location.href='/'">运营管理</span>
-    <span class="crumb-sep">›</span>
-    <span class="crumb-cur" id="procCrumb">🛒 备品备件采购询比价</span>
-  </nav>
-  <span style="flex:1"></span>
-  <button class="btn btn-o btn-s" onclick="openHelp()" title="系统说明">❓ 帮助</button>
-</div>
+<div id="app" class="app-frame">
+  <!-- 两级导航 · 顶部：左面包屑 + 右主菜单(域) -->
+  <div class="app-topbar">
+    <nav class="breadcrumb" id="breadcrumb"></nav>
+    <nav class="topmenu" id="topMenu"></nav>
+  </div>
 
-<!-- 左侧菜单 + 内容区 -->
-<div class="proc-layout">
-  <aside class="proc-sidebar" id="procSidebar">
-    <div class="menu-group">业务中心</div>
-    <div class="menu-item active" data-menu="tasks" onclick="switchSidebar('tasks')"><span class="icon">📋</span>询价任务</div>
-
-    <!-- 本体可观测（Ontology）：可折叠大菜单，子项与一级菜单共用 .menu-item 的选中态逻辑 -->
-    <div class="proc-acc" id="ontAcc">
-      <div class="proc-acc-head" id="ontAccHead" onclick="toggleOntAcc()" title="本体轨（neuops 9007）只读可观测视图">
-        <span class="icon">🧬</span>
-        <span class="acc-title">本体可观测（Ontology）</span>
-        <span class="acc-arrow" id="ontAccArrow">▸</span>
-      </div>
-      <div class="proc-acc-body" id="ontAccBody">
-        <div class="menu-item sub" data-menu="ontEntities" onclick="switchSidebar('ontEntities')"><span class="icon">🔗</span>实体与关系</div>
-        <div class="menu-item sub" data-menu="ontKnowledge" onclick="switchSidebar('ontKnowledge')"><span class="icon">📚</span>知识</div>
-        <div class="menu-item sub" data-menu="ontActions" onclick="switchSidebar('ontActions')"><span class="icon">⚡</span>动作</div>
-        <div class="menu-item sub" data-menu="ontTasks" onclick="switchSidebar('ontTasks')"><span class="icon">🗂</span>任务列表</div>
-        <div class="menu-item sub" data-menu="ontLedger" onclick="switchSidebar('ontLedger')"><span class="icon">🧾</span>台账</div>
-        <div class="menu-item sub" data-menu="ontTopology" onclick="switchSidebar('ontTopology')"><span class="icon">🕸</span>拓扑与一致性</div>
-      </div>
-    </div>
-
-    <div class="menu-item" data-menu="ledger" onclick="switchSidebar('ledger')"><span class="icon">📊</span>采购台账</div>
-    <div class="menu-item" data-menu="mailinquiry" onclick="switchSidebar('mailinquiry')"><span class="icon mi-menu-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg></span>备件邮件询价</div>
-
-    <div class="menu-group">基础数据</div>
-    <div class="menu-item" data-menu="sparepart" onclick="switchSidebar('sparepart')"><span class="icon">🔧</span>备品备件</div>
-    <div class="menu-item" data-menu="supplier" onclick="switchSidebar('supplier')"><span class="icon">🏢</span>供应商</div>
-    <div class="menu-item" data-menu="approver" onclick="switchSidebar('approver')"><span class="icon">✅</span>审批人</div>
-    <div class="menu-item" data-menu="contract" onclick="switchSidebar('contract')"><span class="icon">📄</span>合同</div>
-    <div class="menu-item" data-menu="mailcc" onclick="switchSidebar('mailcc')"><span class="icon">📮</span>抄送</div>
-    <div class="menu-item" data-menu="mailtpl" onclick="switchSidebar('mailtpl')"><span class="icon">✉️</span>邮件模板</div>
-  </aside>
+  <!-- 主体：左=运维模块导航（菜单项由 nav.config.js 的 renderAccordion 渲染）；右=内容 -->
+  <div class="app-body">
+  <aside class="proc-sidebar" id="procSidebar"></aside>
 
   <div class="proc-content">
 
@@ -1138,7 +1104,8 @@
   </div>  <!-- /proc-tab-ontTopology -->
 
   </div>  <!-- /proc-content -->
-</div>  <!-- /proc-layout -->
+</div>  <!-- /app-body -->
+</div>  <!-- /app-frame -->
 
 <!-- 弹窗: 备品备件 新增 / 编辑 -->
 <div id="sparePartModal" class="modal" onclick="if(event.target===this)closeSparePartModal()">
@@ -1553,6 +1520,46 @@
   <div class="pl-sub" id="pageLoadingSub" style="display:none"></div>
 </div>
 
+<script src="/nav.config.js"></script>
+<script>
+(function () {
+  var NC = window.NAV_CONFIG;
+  NC.renderBreadcrumb(document.getElementById('breadcrumb'), ['运维', '备件采购', '询比价智能体']);
+  NC.renderTopMenu(document.getElementById('topMenu'), { activeKey: 'ops' });
+  NC.renderAccordion(document.getElementById('procSidebar'), {
+    rootTitle: '经营业务工作台', domainLabel: '运维', activeLink: 'ops-tasks',
+    sections: [
+      { sub: '业务中心', links: [
+        { key: 'ops-tasks',  label: '询价任务', icon: 'compare',  action: "switchSidebar('tasks')" },
+        { key: 'ops-ledger', label: '采购台账', icon: 'chart',    action: "switchSidebar('ledger')" },
+        { key: 'ops-mailinquiry', label: '备件邮件询价', icon: 'contact', action: "switchSidebar('mailinquiry')" }
+      ]},
+      // 本体可观测（Ontology）：本体轨（neuops 9007）只读可观测视图
+      // 合并 r2 时补回：r2 的 R4 统一壳早于 main 的本体面板，原配置缺此分组
+      { sub: '本体可观测（Ontology）', links: [
+        { key: 'ops-ont-entities',  label: '实体与关系',   icon: 'ops',        action: "switchSidebar('ontEntities')" },
+        { key: 'ops-ont-knowledge', label: '知识',         icon: 'datasource', action: "switchSidebar('ontKnowledge')" },
+        { key: 'ops-ont-actions',   label: '动作',         icon: 'refresh',    action: "switchSidebar('ontActions')" },
+        { key: 'ops-ont-tasks',     label: '任务列表',     icon: 'project',    action: "switchSidebar('ontTasks')" },
+        { key: 'ops-ont-ledger',    label: '台账',         icon: 'receipt',    action: "switchSidebar('ontLedger')" },
+        { key: 'ops-ont-topology',  label: '拓扑与一致性', icon: 'chart',      action: "switchSidebar('ontTopology')" }
+      ]},
+      { sub: '基础数据', links: [
+        { key: 'ops-spare',    label: '备品备件', icon: 'project',  action: "switchSidebar('sparepart')" },
+        { key: 'ops-supplier', label: '供应商',   icon: 'contact',  action: "switchSidebar('supplier')" },
+        { key: 'ops-approver', label: '审批人',   icon: 'pmo',      action: "switchSidebar('approver')" },
+        { key: 'ops-contract', label: '合同',     icon: 'contract', action: "switchSidebar('contract')" },
+        { key: 'ops-mailcc',   label: '抄送',     icon: 'receipt',  action: "switchSidebar('mailcc')" },
+        { key: 'ops-mailtpl',  label: '邮件模板', icon: 'edit',     action: "switchSidebar('mailtpl')" }
+      ]},
+      { sub: '支持', links: [
+        { key: 'ops-help', label: '帮助说明', icon: 'setting', action: "openHelp()" }
+      ]}
+    ]
+  });
+})();
+</script>
+<style>.proc-sidebar{width:232px}.proc-sidebar ::-webkit-scrollbar-thumb{background:#24324d}</style>
 <script src="/procurement.app.js"></script>
 </body>
 </html>

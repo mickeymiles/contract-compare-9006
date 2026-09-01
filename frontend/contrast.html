@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>合同硬件采购比对</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<link rel="stylesheet" href="/common.css">
+<style>
+/* 采购域 · 合同硬件采购比对 专用补充样式（沿用 common.css 设计语言） */
+.proc-sidebar{width:232px}
+.proc-sidebar ::-webkit-scrollbar-thumb{background:#24324d}
+/* 内容区顶部工具条：当前合同 + 返回列表 */
+.contrast-topbar{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.contrast-topbar .ct-label{font-size:13px;color:var(--cyan);font-weight:600}
+/* 上传资料工作区 */
+.up-wrap{max-width:1180px}
+.up-block{margin-bottom:18px}
+.up-block .up-title{font-size:13px;color:var(--cyan);font-weight:600;margin-bottom:8px}
+.up-field{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+.up-field select,.up-field input{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:8px;font-size:12px}
+.up-field select:focus,.up-field input:focus{outline:none;border-color:var(--cyan)}
+/* 按钮 loading 态 */
+.btn[disabled]{opacity:.65;cursor:not-allowed}
+</style>
+</head>
+<body>
+<div id="app" class="app-frame">
+  <!-- 两级导航 · 顶部：左面包屑 + 右主菜单(域) -->
+  <div class="app-topbar">
+    <nav class="breadcrumb" id="breadcrumb"></nav>
+    <nav class="topmenu" id="topMenu"></nav>
+  </div>
+
+  <!-- 主体：左=域内模块导航（手风琴）；右=内容 -->
+  <div class="app-body">
+    <aside class="proc-sidebar" id="procSidebar"></aside>
+
+    <div class="app-main app-content">
+      <!-- 内容区顶部工具条 -->
+      <div class="contrast-topbar">
+        <span id="currentContractLabel" class="ct-label"></span>
+        <span style="flex:1"></span>
+        <button class="btn btn-o btn-s" id="btnBackList" style="display:none" onclick="showSelect('home')">← 返回合同列表</button>
+      </div>
+
+      <!-- 视图1：对比分析 → 合同列表 -->
+      <div id="page-home" class="page active">
+        <div class="cards" id="globalStats"></div>
+        <div class="panel">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <h3 style="margin:0">📑 合同列表</h3>
+            <button class="btn btn-c" onclick="showCreateContract()">＋ 新建合同</button>
+          </div>
+          <div class="fbar">
+            <input type="text" id="ctSearch" placeholder="搜索合同名称/编号..." oninput="loadContracts()">
+            <select id="ctStatusFilter" onchange="loadContracts()">
+              <option value="全部">全部状态</option>
+              <option value="未上传基准">未上传基准</option>
+              <option value="比对进行中">比对进行中</option>
+              <option value="待供应商整改">待供应商整改</option>
+              <option value="已闭环(100%)">已闭环(100%)</option>
+            </select>
+          </div>
+          <div id="contractList"></div>
+        </div>
+      </div>
+
+      <!-- 视图2：合同工作区（完整对比工作台） -->
+      <div id="page-workspace" class="page">
+        <div class="nav" id="wsNav">
+          <button class="nav-btn active" onclick="switchWsTab('dashboard',this)">📊 合同看板</button>
+          <button class="nav-btn" onclick="switchWsTab('contract',this)">📄 合同基准</button>
+          <button class="nav-btn" onclick="switchWsTab('supplier',this)">📦 供应商版本</button>
+          <button class="nav-btn" onclick="switchWsTab('results',this)">🔍 比对结果</button>
+          <button class="nav-btn" onclick="switchWsTab('export',this)">📥 整改报告</button>
+        </div>
+
+        <!-- 合同看板 -->
+        <div id="ws-dashboard" class="page active">
+          <div class="cards" id="wsStatCards"></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div class="chart-box"><h3>条目状态分布</h3><div id="pieChart" style="height:280px;"></div></div>
+            <div class="chart-box"><h3>版本迭代进度趋势</h3><div id="trendChart" style="height:280px;"></div></div>
+          </div>
+        </div>
+
+        <!-- 合同基准 -->
+        <div id="ws-contract" class="page">
+          <div class="panel"><h3>📤 上传合同基准Excel</h3>
+            <div class="upzone" onclick="document.getElementById('contractFile').click()">
+              <div class="icon">📄</div><div>点击上传合同Excel（无列名约束）</div>
+              <input type="file" id="contractFile" accept=".xlsx" onchange="uploadContract(this)">
+            </div>
+          </div>
+          <div class="panel"><h3>📋 合同基准清单（只读）</h3>
+            <div class="twrap"><table><thead id="ctTableHead"></thead><tbody id="ctTable"></tbody></table></div>
+          </div>
+        </div>
+
+        <!-- 供应商版本 -->
+        <div id="ws-supplier" class="page">
+          <div class="panel"><h3>📤 上传供应商报价Excel</h3>
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+              <input type="text" id="supplierName" placeholder="供应商名称（必填）" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;font-size:12px;flex:1;max-width:280px">
+            </div>
+            <div class="upzone" onclick="document.getElementById('supplierFile').click()">
+              <div class="icon">📦</div><div>点击上传（自动生成版本+比对）</div>
+              <input type="file" id="supplierFile" accept=".xlsx" onchange="uploadSupplier(this)">
+            </div>
+          </div>
+          <div class="panel"><h3>📜 版本历史</h3>
+            <div class="fbar">
+              <select id="verSupplierFilter" onchange="loadVersions()"><option value="">全部供应商</option></select>
+            </div>
+            <div class="twrap"><table><thead><tr><th>版本</th><th>供应商</th><th>上传时间</th><th>总条目</th><th>成功</th><th>异常</th><th>待采购</th><th>增项</th><th>进度</th><th>操作</th></tr></thead><tbody id="verTable"></tbody></table></div>
+          </div>
+        </div>
+
+        <!-- 比对结果 -->
+        <div id="ws-results" class="page">
+          <div class="panel">
+            <div id="columnAlignPanel" style="display:none;margin-bottom:14px;padding-bottom:4px;border-bottom:1px solid var(--border)">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+                <span style="font-size:12px;color:var(--cyan);font-weight:bold">🔗 列对齐</span>
+                <span style="font-size:11px;color:var(--text2)">主合同列（上）↔ 供应商列（下），下拉可调整对应关系，调整后自动重新比对</span>
+              </div>
+              <div id="columnAlignBar"></div>
+            </div>
+            <div class="fbar">
+              <button class="btn btn-c btn-s" style="white-space:nowrap" onclick="rerunCompare(this)">🔄 重新比对</button>
+              <select id="filterStatus" onchange="loadResults()">
+                <option value="全部">全部</option><option value="匹配成功">匹配成功</option><option value="判断符合">判断符合</option><option value="匹配异常">匹配异常</option><option value="待采购">待采购</option><option value="供应商增项">供应商增项</option>
+              </select>
+              <input type="text" id="filterKeyword" placeholder="搜索设备名称..." oninput="loadResults()">
+              <span style="font-size:11px;color:var(--text2);margin-left:auto" id="resSummary"></span>
+            </div>
+            <div class="twrap" style="max-height:600px">
+              <table><thead id="resThead"></thead><tbody id="resTable"></tbody></table>
+            </div>
+          </div>
+        </div>
+
+        <!-- 导出 -->
+        <div id="ws-export" class="page">
+          <div class="panel" style="text-align:center;padding:40px">
+            <div style="font-size:40px;margin-bottom:12px">📥</div>
+            <h3>导出供应商整改报告</h3>
+            <p style="color:var(--text2);margin:8px 0;font-size:12px">导出当前版本的异常明细、待采购清单、供应商增项清单</p>
+            <button class="btn btn-c" style="padding:10px 28px;font-size:14px" onclick="exportReport(this)">一键导出Excel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="detailModal" onclick="if(event.target===this)closeModal()"><div class="box" id="detailContent"></div></div>
+<div class="modal" id="createModal" onclick="if(event.target===this)closeCreate()">
+  <div class="box"><h3>+ 新建合同</h3>
+    <div style="margin-bottom:8px"><label style="color:var(--text2);font-size:12px">合同名称</label><br><input id="newCtName" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px;border-radius:8px;margin-top:4px"></div>
+    <div style="margin-bottom:8px"><label style="color:var(--text2);font-size:12px">合同编号</label><br><input id="newCtNo" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px;border-radius:8px;margin-top:4px"></div>
+    <div style="margin-bottom:12px"><label style="color:var(--text2);font-size:12px">签订日期</label><br><input type="date" id="newCtDate" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px;border-radius:8px;margin-top:4px"></div>
+    <button class="btn btn-c" onclick="createContract(this)">创建</button>
+    <button class="btn btn-o" style="margin-left:8px" onclick="closeCreate()">取消</button>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script src="/nav.config.js"></script>
+<script>
+(function () {
+  var NC = window.NAV_CONFIG;
+  NC.renderBreadcrumb(document.getElementById('breadcrumb'), ['采购', '合同硬件采购比对']);
+  NC.renderTopMenu(document.getElementById('topMenu'), { activeKey: 'proc' });
+  NC.renderAccordion(document.getElementById('procSidebar'), {
+    activeKey: 'proc', activeLink: 'proc-contrast',
+    sections: [
+      { sub: '合同硬件采购比对', links: [
+        { key: 'proc-contrast', label: '对比分析', icon: 'compare', action: "showSelect('home')" }
+      ] }
+    ]
+  });
+})();
+</script>
+<script src="/contrast.app.js"></script>
+</body>
+</html>

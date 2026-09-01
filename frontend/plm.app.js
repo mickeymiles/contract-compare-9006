@@ -1979,6 +1979,79 @@
     toast('报表已开始下载');
   }
 
+  // ---------- 里程碑台账（跨项目） ----------
+  function viewMilestone() {
+    var el = qs('#v-milestone');
+    el.innerHTML = '<div class="plm-page-hd"><h2>🚩 里程碑台账</h2>' +
+      '<span class="pp-sub">上传「项目里程碑表」或跨项目查看里程碑进度与回款节点</span>' +
+      '<span class="pp-sp"></span>' +
+      '<label class="btn btn-c btn-s" style="cursor:pointer;display:inline-flex;align-items:center">📤 上传里程碑表' +
+      '<input type="file" accept=".xlsx,.xls" style="display:none" onchange="PLM.importMilestones(this)"></label></div>' +
+      '<div class="plm-bar"><label>里程碑</label>' +
+      '<input type="search" id="msKw" placeholder="搜索 项目号 / 合同号 / 里程碑名…" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:7px;font-size:12px" onkeydown="if(event.key===\'Enter\')PLM.milestoneList()">' +
+      '<button class="btn btn-o btn-s" onclick="PLM.milestoneList()">🔍 查询</button>' +
+      '<button class="btn btn-o btn-s" onclick="PLM.milestoneList(true)">🔄 刷新</button>' +
+      '<span id="msSummary" class="plm-note" style="margin-left:auto"></span></div>' +
+      '<div id="msTable"><div class="plm-loading">加载中…</div></div>';
+    S.loaded.milestone = true;
+    return milestoneList();
+  }
+  function milestoneList(force) {
+    var host = qs('#msTable');
+    if (!host) return Promise.resolve();
+    host.innerHTML = '<div class="plm-loading">加载中…</div>';
+    var kw = qs('#msKw') ? qs('#msKw').value.trim() : '';
+    var url = '/api/plm/milestones' + (kw ? '?keyword=' + encodeURIComponent(kw) : '');
+    return GET(url).then(function (res) {
+      var rows = unwrap(res) || [];
+      var sum = qs('#msSummary');
+      if (sum) sum.textContent = '共 ' + rows.length + ' 条里程碑';
+      host.innerHTML = renderTable([
+        { k: 'project_no', l: '项目编号' },
+        { k: 'task_no', l: '任务编号' },
+        { k: 'name', l: '里程碑名称', render: function (v, r) {
+          return h(v) + (r.level === '粗' ? ' <span class="plm-chip purple">粗</span>' : '');
+        } },
+        { k: 'owner', l: '负责人' },
+        { k: 'plan_start', l: '计划开始', t: 'date' },
+        { k: 'plan_end', l: '计划结束', t: 'date' },
+        { k: 'actual_end', l: '实际完成', t: 'date' },
+        { k: 'progress', l: '完成度', render: function (v) {
+          return v === null || v === undefined || v === '' ? '-' :
+            (Number(v) * 100).toFixed(0) + '%';
+        } },
+        { k: 'status', l: '状态', t: 'badge', map: { 未开始: 'gray', 进行中: 'orange', 已完成: 'green', 延期: 'red' } },
+        { k: 'plan_payback_date', l: '计划回款', t: 'date' },
+        { k: 'payback_date', l: '回款时间', t: 'date' },
+        { k: 'payback_amount', l: '回款金额', n: 1, t: 'money' },
+        { k: 'contract_no', l: '合同编号' }
+      ], rows, { icon: '🚩', empty: '暂无里程碑数据',
+        emptyHint: '点击右上角「上传里程碑表」导入项目里程碑表' });
+      return rows;
+    });
+  }
+  function importMilestones(input) {
+    var file = input && input.files && input.files[0];
+    if (!file) return;
+    if (!/\.(xlsx|xls)$/i.test(file.name)) { toast('仅支持 .xlsx / .xls 文件', false); if (input) input.value = ''; return; }
+    var fd = new FormData();
+    fd.append('file', file);
+    fd.append('operator', OPERATOR);
+    toast('正在导入…');
+    return fetch(API + '/api/plm/milestones/import?operator=' + encodeURIComponent(OPERATOR), {
+      method: 'POST', body: fd
+    }).then(function (r) {
+      return r.json().catch(function () { return { success: false, error: 'HTTP ' + r.status }; });
+    }).then(function (res) {
+      if (input) input.value = '';
+      if (!res || res.success === false) { toast((res && res.error) || '导入失败', false); return; }
+      var d = (res.data && (res.data.data !== undefined)) ? res.data.data
+        : (res.data && res.data.success !== undefined ? res.data : (res.data || res));
+      toast('导入完成：新增 ' + (d.inserted || 0) + ' 条，跳过 ' + (d.skipped || 0) + ' 条');
+      return milestoneList(true);
+    }).catch(function (e) { toast('网络异常：' + e.message, false); });
+  }
+
   // ---------------- 左侧菜单树与路由 ----------------
   var NAV = [
     { view: 'overview', icon: '📡', label: '经营驾驶舱' },
@@ -2047,8 +2120,38 @@
       s.classList.toggle('active', !sub || s.id === 'sub-' + v + '-' + sub);
     });
   }
+  // 视图 → 面包屑 与 手风琴联动键
+  var CRUMB = {
+    overview: ['PMO', '项目管理', '项目概览'],
+    milestone: ['PMO', '项目管理', '里程碑'],
+    project: ['PMO', '项目管理', '合同与立项'],
+    baseline: ['PMO', '进度管理', '四算基线'],
+    pmo: ['PMO', '进度管理', 'PMO 进度'],
+    labor: ['PMO', '人员管理', '人力与工时']
+  };
+  var VIEW_LINK_KEY = {
+    overview: 'plm-overview', milestone: 'plm-milestone', project: 'plm-project',
+    baseline: 'plm-baseline', pmo: 'plm-pmo', labor: 'plm-labor'
+  };
+  function updateAccordion(view) {
+    if (global.NAV_CONFIG && CRUMB[view]) {
+      global.NAV_CONFIG.renderBreadcrumb(document.getElementById('breadcrumb'), CRUMB[view]);
+    }
+    var key = VIEW_LINK_KEY[view];
+    var acc = document.querySelector('#plmSidebar .accordion');
+    if (!key || !acc) return;
+    acc.querySelectorAll('.acc-link.active').forEach(function (x) { x.classList.remove('active'); });
+    var links = acc.querySelectorAll('.acc-link');
+    for (var i = 0; i < links.length; i++) {
+      if ((links[i].getAttribute('onclick') || '').indexOf("go('" + view) >= 0) {
+        links[i].classList.add('active');
+        break;
+      }
+    }
+  }
   function go(view, sub) {
-    var n = navOf(view) || NAV[0];
+    var n = navOf(view);
+    if (!n) { n = (VIEWS[view] ? { view: view } : NAV[0]); }  // 兼容不在旧 NAV 的 leaf 视图（如 milestone）
     view = n.view;
     if (n.kids) {
       sub = sub || S.lastSub[view] || n.kids[0].sub;
@@ -2063,6 +2166,7 @@
     qsa('.plm-view').forEach(function (v) {
       v.classList.toggle('active', v.id === 'v-' + view);
     });
+    updateAccordion(view);
     renderNav();
     renderView(view, false, sub);
     refreshBadge();
@@ -2077,8 +2181,7 @@
     go(view, S.lastSub[view]);
   }
   function renderView(view, force, sub) {
-    var n = navOf(view);
-    if (!n) return;
+    if (!VIEWS[view]) return;
     var run = function () {
       var p;
       try { p = VIEWS[view](); } catch (e) { toast('视图加载失败：' + e.message, false); return; }
@@ -2086,10 +2189,10 @@
         .catch(function (e) { toast('视图加载失败：' + e.message, false); });
     };
     if (force || !S.loaded[view]) run(); else showSub();
-    if (sub && n.kids) S.lastSub[view] = sub;
+    if (sub && view !== 'milestone' && navOf(view) && navOf(view).kids) S.lastSub[view] = sub;
   }
   var VIEWS = {
-    overview: viewOverview, opportunity: viewOpportunity, project: viewProject,
+    overview: viewOverview, milestone: viewMilestone, opportunity: viewOpportunity, project: viewProject,
     baseline: viewBaseline, pmo: viewPmo, labor: viewLabor, finance: viewFinance,
     panorama: viewPanorama, alert: viewAlert, config: viewConfig
   };
@@ -2123,6 +2226,7 @@
     oppFilter: oppFilter, gotoBaseline: gotoBaseline, openProjPanorama: openProjPanorama,
     editBaseline: editBaseline, lockBase: lockBase,
     newMs: newMs, editMs: editMs, delMs: delMs, newTask: newTask, editTask: editTask, delTask: delTask,
+    milestoneList: milestoneList, importMilestones: importMilestones,
     handleAlert: handleAlert, editRule: editRule, filterAlerts: filterAlerts, scanAlerts: scanAlerts,
     exportReport: exportReport, editParam: editParam, renderLogs: renderLogs
   };

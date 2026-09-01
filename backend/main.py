@@ -19,9 +19,31 @@ from compare_engine import run_comparison
 from excel_handler import import_contract_excel, import_supplier_excel, export_report, reapply_column_mapping
 from procurement_models import init_procurement_db, seed_procurement_master
 import ontology_gateway as ont
+from common.neuops import NEUOPS_BASE, trigger_neuops
+from services.etl import ETL_JOB_DEFS, _register_etl_jobs, run_etl_gross_margin, run_etl_fund_multidim, run_etl_payment_cycle
 app = FastAPI(title="合同比对系统（多合同版）", version="2.0")
 from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# ── R2 逐域路由拆分（behavior 不变，仅 registrar include）──
+from domains.foundation.routes_datasource import router as foundation_ds_router
+from domains.foundation.routes_ontology import router as foundation_ontology_router
+from domains.finance.routes_gross import router as finance_gross_router
+from domains.foundation.routes_etl import router as foundation_etl_router
+from domains.lifecycle.routes_plm import router as lifecycle_plm_router
+from domains.ops.routes_ops import router as ops_router
+from domains.finance.routes_payment import router as finance_payment_router
+from domains.procurement.routes_contrast import router as procurement_contrast_router
+app.include_router(foundation_ds_router)
+app.include_router(foundation_ontology_router)
+app.include_router(finance_gross_router)
+app.include_router(foundation_etl_router)
+app.include_router(lifecycle_plm_router)
+from core.routes import router as core_master_router
+app.include_router(core_master_router)
+app.include_router(ops_router)
+app.include_router(finance_payment_router)
+app.include_router(procurement_contrast_router)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, '..', 'uploads')
@@ -42,8 +64,11 @@ os.makedirs(DATASOURCE_DIR, exist_ok=True)
 # 命中范围 = 显式清单 + 后缀兜底，后续新增 .css/.js 无需再改这里。
 # ─────────────────────────────────────────────────────────────
 NO_CACHE_PATHS = frozenset((
-    '/', '/gross', '/plm', '/procurement',
-    '/common.css', '/plm.app.js', '/procurement.app.js', '/china.json',
+    '/', '/gross', '/plm', '/procurement', '/contrast', '/core', '/dev', '/finance',
+    '/finance-cycle', '/finance-fund', '/finance-cost',
+    '/common.css', '/plm.app.js', '/procurement.app.js', '/contrast.app.js', '/core.app.js', '/finance.app.js',
+    '/gross.app.js',
+    '/finance-cycle.app.js', '/finance-fund.app.js', '/finance-cost.app.js', '/nav.config.js', '/china.json',
 ))
 NO_CACHE_SUFFIXES = ('.css', '.js')
 
@@ -75,31 +100,7 @@ async def no_cache_static_assets(request: Request, call_next):
         return Response(status_code=304, headers=headers)
     return response
 
-# ── neuops 智能体网关（emp-008 采购询比价）──
-NEUOPS_BASE = os.getenv("NEUOPS_BASE", "http://127.0.0.1:9007")
-# 一次 trigger 在 9007 侧可能包含「LLM 组邮件 + SMTP 发送 + IMAP 线程查询」，
-# 原硬编码 15 秒在选型确认（flow-05）等较重的流程上必然超时：
-# 表现为 9006 每次调用都要干等 15 秒，且确认邮件发不出、target_supplier 等字段回写不到。
-# 默认放宽到 45 秒，可用环境变量 NEUOPS_TRIGGER_TIMEOUT 覆盖。
-NEUOPS_TRIGGER_TIMEOUT = float(os.getenv("NEUOPS_TRIGGER_TIMEOUT", "45"))
-
-
-def trigger_neuops(path: str, payload: dict, timeout: float = None) -> dict:
-    """调用 neuops 智能体 trigger API。失败不阻断主流程，返回 trigger 结果。"""
-    import copy
-    if timeout is None:
-        timeout = NEUOPS_TRIGGER_TIMEOUT
-    p = copy.deepcopy(payload)
-    # 清理空 dict 字段（neuops Pydantic Optional[Model] 遇到 {} 会报 required）
-    if isinstance(p, dict) and isinstance(p.get("selected_supplier"), dict) and not p["selected_supplier"]:
-        p["selected_supplier"] = None
-    try:
-        r = httpx.post(f"{NEUOPS_BASE}/api/procurement-agent/{path}",
-                       json=p, timeout=timeout)
-        return r.json()
-    except Exception as e:
-        return {"success": False, "error": f"neuops trigger 失败: {type(e).__name__}: {e}"}
-
+# ── neuops 智能体网关已抽至 common/neuops.py（R2.8），此处不再内联定义 ──
 # ─────────────────────────────────────────────────────────────
 # 客户/项目敏感信息：一律丢弃，不导入数据库、不展示（只保留合同编号）
 # 匹配列名：甲方名称/客户名称/客户简称/客户分类/最终用户/项目名称/项目描述等
@@ -176,123 +177,6 @@ def _ensure_table(meta, table_name):
 
 
 # ===================== 数据源 API =====================
-
-@app.get("/api/datasource/tables")
-def datasource_tables():
-    """列出所有数据表及其最新版本摘要"""
-    meta = _load_ds_meta()
-    tables = []
-    for tname, tdata in meta.items():
-        vers = tdata.get('versions', [])
-        latest = vers[0] if vers else None
-        tables.append({
-            'name': tname,
-            'version_count': len(vers),
-            'latest_id': latest['id'] if latest else None,
-            'latest_time': latest['upload_time'] if latest else None,
-            'latest_rows': latest['row_count'] if latest else 0,
-            'latest_columns': [c for c in (latest['columns'] or []) if not is_privacy_header(c)],
-        })
-    return {'tables': tables}
-
-
-@app.post("/api/datasource/upload")
-async def datasource_upload(file: UploadFile = File(...), table_name: str = Query(...)):
-    """上传原始数据表（Excel），按表名隔离版本"""
-    if not file.filename.endswith(('.xlsx', '.xls')):
-        return JSONResponse({'success': False, 'error': '仅支持 .xlsx / .xls 文件'})
-    meta = _load_ds_meta()
-    tdata = _ensure_table(meta, table_name)
-    vid = tdata['next_id']
-    fname = f'{table_name}_v{vid}.xlsx'
-    fpath = os.path.join(DATASOURCE_DIR, fname)
-    content = await file.read()
-    with open(fpath, 'wb') as f:
-        f.write(content)
-    # 客户名/客户简称/项目名等敏感列一律删除，不进入系统
-    sanitize_excel_file(fpath)
-    import openpyxl
-    wb = openpyxl.load_workbook(fpath, read_only=True)
-    ws = wb.active
-    rows = list(ws.iter_rows(values_only=True))
-    headers = [str(h) for h in rows[0]] if rows else []
-    row_count = len(rows) - 1
-    wb.close()
-    from datetime import datetime
-    ver = {
-        'id': vid,
-        'filename': file.filename,
-        'upload_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'row_count': row_count,
-        'columns': headers,
-        'file': fname,
-    }
-    tdata['versions'].insert(0, ver)
-    tdata['next_id'] = vid + 1
-    _save_ds_meta(meta)
-    return {'success': True, 'version': ver, 'table_name': table_name}
-
-
-@app.get("/api/datasource/versions")
-def datasource_versions(table_name: str = Query(...)):
-    """获取指定表的所有版本"""
-    meta = _load_ds_meta()
-    tdata = meta.get(table_name, {})
-    vers = tdata.get('versions', [])
-    return {'table_name': table_name, 'versions': vers, 'latest_id': vers[0]['id'] if vers else None}
-
-
-@app.get("/api/datasource/latest")
-def datasource_latest(table_name: str = Query(...)):
-    """获取指定表最新版本的数据预览"""
-    meta = _load_ds_meta()
-    tdata = meta.get(table_name, {})
-    vers = tdata.get('versions', [])
-    if not vers:
-        return {'version': None, 'headers': [], 'rows': [], 'row_count': 0}
-    latest = vers[0]
-    fpath = os.path.join(DATASOURCE_DIR, latest['file'])
-    if not os.path.exists(fpath):
-        return {'version': latest, 'headers': [], 'rows': [], 'row_count': 0, 'error': '文件丢失'}
-    import openpyxl
-    wb = openpyxl.load_workbook(fpath, read_only=True)
-    ws = wb.active
-    rows_iter = ws.iter_rows(values_only=True)
-    headers = [str(h) for h in next(rows_iter, [])]
-    keep_idx = filter_privacy_headers(headers)
-    headers = [headers[i] for i in keep_idx]
-    preview_rows = []
-    for i, row in enumerate(rows_iter):
-        if i >= 20:
-            break
-        preview_rows.append([str(v) if v is not None else '' for v in [row[i] for i in keep_idx if i < len(row)]])
-    wb.close()
-    return {'version': latest, 'headers': headers, 'rows': preview_rows, 'row_count': latest['row_count']}
-
-
-@app.delete("/api/datasource/version/{table_name}/{version_id}")
-def datasource_delete_version(table_name: str, version_id: int):
-    """删除指定表的指定版本"""
-    meta = _load_ds_meta()
-    tdata = meta.get(table_name)
-    if not tdata:
-        return JSONResponse({'success': False, 'error': '表不存在'}, status_code=404)
-    target = None
-    for v in tdata.get('versions', []):
-        if v['id'] == version_id:
-            target = v
-            break
-    if not target:
-        return JSONResponse({'success': False, 'error': '版本不存在'}, status_code=404)
-    fpath = os.path.join(DATASOURCE_DIR, target['file'])
-    if os.path.exists(fpath):
-        os.remove(fpath)
-    tdata['versions'] = [v for v in tdata['versions'] if v['id'] != version_id]
-    if not tdata['versions']:
-        del meta[table_name]
-    _save_ds_meta(meta)
-    return {'success': True}
-
 
 # ===================== 回款周期分析 API =====================
 
@@ -933,6 +817,9 @@ def startup():
     import plm_models as _plm
     _plm.init_plm_db()
     _plm.seed_plm_master()
+    # 主数据域 core（R3）— 建表
+    from core import project as _core
+    _core.init_core_db()
 
 
 # ===================== 供应商列名 =====================
@@ -952,6 +839,55 @@ def common_css():
 @app.get("/gross")
 def gross_page():
     return FileResponse(os.path.join(FRONTEND_DIR, 'gross.html'))
+
+
+@app.get("/gross.app.js")
+def gross_app_js():
+    return FileResponse(os.path.join(FRONTEND_DIR, 'gross.app.js'))
+
+
+@app.get("/finance")
+def finance_page():
+    return FileResponse(os.path.join(FRONTEND_DIR, 'finance.html'))
+
+
+@app.get("/finance.app.js")
+def finance_app_js():
+    return FileResponse(os.path.join(FRONTEND_DIR, 'finance.app.js'))
+
+
+@app.get("/finance-cycle")
+def finance_cycle_page():
+    """财经 · 资金运作 · 回款周期 独立页。"""
+    return FileResponse(os.path.join(FRONTEND_DIR, 'finance-cycle.html'))
+
+
+@app.get("/finance-cycle.app.js")
+def finance_cycle_app_js():
+    return FileResponse(os.path.join(FRONTEND_DIR, 'finance-cycle.app.js'))
+
+
+@app.get("/finance-fund")
+def finance_fund_page():
+    """财经 · 资金运作 · 资金占用·周转率 独立页。"""
+    return FileResponse(os.path.join(FRONTEND_DIR, 'finance-fund.html'))
+
+
+@app.get("/finance-fund.app.js")
+def finance_fund_app_js():
+    return FileResponse(os.path.join(FRONTEND_DIR, 'finance-fund.app.js'))
+
+
+@app.get("/finance-cost")
+def finance_cost_page():
+    """财经 · 资金运作 · 成本预警 独立页。"""
+    return FileResponse(os.path.join(FRONTEND_DIR, 'finance-cost.html'))
+
+
+@app.get("/finance-cost.app.js")
+def finance_cost_app_js():
+    return FileResponse(os.path.join(FRONTEND_DIR, 'finance-cost.app.js'))
+
 
 @app.get("/china.json")
 def china_map_data():
@@ -993,72 +929,17 @@ from pydantic import BaseModel
 from typing import List, Optional, Dict, Any  # Any：CC-010 /api/plm/* 路由体使用
 
 
-class SupplierItem(BaseModel):
-    """询价供应商条目（前端页面 -> 9006 API -> DB）。
-    【修复 2026-08-24】显式声明 id 字段（资源池供应商有id，临时供应商无id）。
-    之前未声明时，Pydantic 默认 extra='ignore' 会静默丢弃前端传入的 data-pool-id，
-    导致 flow-02 中 s.id 恒为 None，全部被误标记为 _is_temp=True。"""
-    model_config = {"extra": "allow"}  # 允许额外字段（如 flow-02 回写的下划线字段透传）
-    id: int | None = None
-    name: str
-    email: str
 
 
-class NewTaskBody(BaseModel):
-    """新建询价任务（页面入口）：合同号 + 备件 + 数量 + 紧急等级 + 询价供应商（空则自动带池子）
-
-    备件属性全部可选，但**建议传全**：智能体按模板 B 组询价邮件时，标题与正文
-    依赖 brand / pn / spec / condition / address 等变量。缺失时 LLM 只能凭合同号
-    与备件型号自由发挥，出现过「SMOKE-20260830-01（）-电池模块型号备件询价邮件」
-    这类失控标题（模板要求的变量为空，渲染成空括号）。
-
-    字段命名与邮件入口的解析字段（9007 `_extract_inquiry_fields`）保持一致，
-    便于「页面 / Agent对话 / 邮件」三入口后续统一。
-    """
-    contract_no: str
-    spare_part_model: str
-    purchase_qty: float
-    emergency_level: str
-    inquiry_supplier_list: List[SupplierItem] = []
-    # ── 备件属性（可选，建议传全）──
-    project_no: str = ''
-    project_name: str = ''
-    part_type: str = ''
-    brand: str = ''
-    pn: str = ''
-    spec: str = ''
-    condition: str = ''
-    address: str = ''
-    latest_ship_time: str = ''
-    urgent: str = ''
+# NewTaskBody 与 /api/procurement/tasks 路由已迁至 domains/ops/routes_ops.py（R2.8）
 
 
-class AgentNewTaskBody(BaseModel):
-    """智能体创建任务（对话入口）：直接传业务字段，走标准 create_task + trigger_neuops"""
-    contract_no: str
-    spare_part_model: str
-    purchase_qty: float
-    emergency_level: str
-    inquiry_supplier_list: List[Dict[str, str]] = []  # 可空，空则自动带池子
-    creator: str = 'agent'
 
 
-class SelectBody(BaseModel):
-    selected_supplier: SupplierItem
-    deal_unit_price: float
-    # source 标记：card_callback 表示从飞书卡片按钮触发；web(默认) 表示从前端页面手动选型
-    source: str = 'web'
 
 
-class TestResultBody(BaseModel):
-    test_result: str
-    remark: str = ''
-    source: str = 'web'
 
 
-class CancelBody(BaseModel):
-    cancel_reason: str
-    source: str = 'web'
 
 
 @app.get("/procurement")
@@ -1071,347 +952,89 @@ def procurement_app_js():
     return FileResponse(os.path.join(FRONTEND_DIR, 'procurement.app.js'))
 
 
+@app.get("/contrast")
+def contrast_page():
+    """采购域 · 合同硬件采购比对（独立页面，壳驱动）"""
+    return FileResponse(os.path.join(FRONTEND_DIR, 'contrast.html'))
+
+
+@app.get("/contrast.app.js")
+def contrast_app_js():
+    return FileResponse(os.path.join(FRONTEND_DIR, 'contrast.app.js'))
+
+
 # ---- 任务 ----
-@app.get("/api/procurement/tasks")
-def api_proc_task_list(status: Optional[str] = None, source: Optional[str] = None, keyword: Optional[str] = None):
-    """列出询比价任务（支持 状态 / 来源 / 关键词 过滤）。
-    source 如 ?source=email（邮件来源）/ page（页面）/ agent（Agent对话）→ 归一为 邮件/页面/Agent对话。
-    2026-08-29 起「备件邮件询价」观察面板改读本端点 source=email。
-    """
-    return {"success": True, "data": list_tasks(status=status, source=source, keyword=keyword)}
 
 
-@app.get("/api/procurement/tasks/{task_id}")
-def api_proc_task_get(task_id: str):
-    t = get_task(task_id)
-    if not t:
-        return JSONResponse({"success": False, "error": "任务不存在"}, status_code=404)
-    t['_op_logs'] = list_op_logs(task_id)
-    return {"success": True, "data": t}
 
 
-@app.post("/api/procurement/tasks")
-def api_proc_task_create(body: NewTaskBody):
-    """新建询价任务：落库 + 操作日志 + 触发 neuops 智能体发询价邮件+飞书通知
-    若未传 inquiry_supplier_list，create_task 会自动从供应商资源池全量带出
-    """
-    try:
-        t = create_task(
-            contract_no=body.contract_no, spare_part_model=body.spare_part_model,
-            purchase_qty=body.purchase_qty, emergency_level=body.emergency_level,
-            inquiry_supplier_list=[s.dict() for s in body.inquiry_supplier_list] if body.inquiry_supplier_list else None,
-            creator='pm',
-            # 备件属性：前端建议传全。缺失时智能体按模板 B 组询价邮件会缺变量，
-            # 标题/正文由 LLM 自由发挥（历史上出现过渲染成空括号的失控标题）。
-            # urgent 缺省用 emergency_level 兜底，保证询价时限始终有值。
-            project_no=body.project_no, project_name=body.project_name,
-            part_type=body.part_type, brand=body.brand, pn=body.pn,
-            spec=body.spec, condition=body.condition, address=body.address,
-            latest_ship_time=body.latest_ship_time,
-            urgent=body.urgent or body.emergency_level,
-        )
-        # 触发 neuops emp-008：flow-proc-01(已落库) + flow-proc-02(发询价邮件+飞书通知)
-        agent_r = trigger_neuops("trigger/task-created", t)
-        return {"success": True, "data": t, "agent_trigger": agent_r}
-    except ValueError as e:
-        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
 
 
-@app.post("/api/procurement/tasks/agent")
-def api_proc_task_create_agent(body: AgentNewTaskBody):
-    """智能体创建任务（对话入口）：直接传业务字段，走标准 create_task + trigger_neuops。
-    保证 task_id 格式、reply_deadline 自动计算、操作日志、flow-proc-01/02 触发。"""
-    try:
-        t = create_task(
-            contract_no=body.contract_no, spare_part_model=body.spare_part_model,
-            purchase_qty=body.purchase_qty, emergency_level=body.emergency_level,
-            inquiry_supplier_list=body.inquiry_supplier_list or None,
-            creator=body.creator,
-        )
-        # 触发 neuops emp-008：flow-proc-01(已落库) + flow-proc-02(发询价邮件+飞书通知)
-        agent_r = trigger_neuops("trigger/task-created", t)
-        return {"success": True, "data": t, "agent_trigger": agent_r}
-    except ValueError as e:
-        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
 
 
-@app.post("/api/procurement/tasks/{task_id}/select")
-def api_proc_task_select(task_id: str, body: SelectBody):
-    """选型确认：落库 + 触发 neuops 发采购确认邮件+飞书通知"""
-    try:
-        t = confirm_selection(
-            task_id=task_id,
-            selected_supplier=body.selected_supplier.dict(),
-            deal_unit_price=body.deal_unit_price,
-            operator='pm',
-        )
-        # 触发 neuops emp-008：flow-proc-05(发采购确认邮件+飞书通知)
-        # 透传 source：card_callback 场景下 flow-proc-05 会跳过 confirm_purchase 新卡片通知，
-        # 避免与 card-callback 返回的就地替换置灰卡片造成双卡片
-        agent_r = trigger_neuops("trigger/task-selected", {
-            "task": t, "selected_supplier": body.selected_supplier.dict(),
-            "deal_unit_price": body.deal_unit_price,
-            "source": body.source or "web",
-        })
-        return {"success": True, "data": t, "agent_trigger": agent_r}
-    except ValueError as e:
-        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
 
 
-@app.post("/api/procurement/tasks/{task_id}/test")
-def api_proc_task_test(task_id: str, body: TestResultBody):
-    """测试结果录入：落库 + 触发 neuops 闭环/告警+飞书通知"""
-    try:
-        t = input_test_result(
-            task_id=task_id, test_result=body.test_result,
-            remark=body.remark, operator='pm',
-        )
-        agent_r = trigger_neuops("trigger/test-result", {
-            "task": t, "test_result": body.test_result, "remark": body.remark,
-            "source": body.source or "web",
-        })
-        return {"success": True, "data": t, "agent_trigger": agent_r}
-    except ValueError as e:
-        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
 
 
-@app.post("/api/procurement/tasks/{task_id}/cancel")
-def api_proc_task_cancel(task_id: str, body: CancelBody):
-    """任务取消：落库 + 触发 neuops 飞书通知取消"""
-    try:
-        t = cancel_task(task_id=task_id, cancel_reason=body.cancel_reason, operator='pm')
-        agent_r = trigger_neuops("trigger/task-canceled", {
-            "task": t, "cancel_reason": body.cancel_reason,
-            "source": body.source or "web",
-        })
-        return {"success": True, "data": t, "agent_trigger": agent_r}
-    except ValueError as e:
-        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
 
 
-@app.get("/api/procurement/tasks/{task_id}/logs")
-def api_proc_task_logs(task_id: str):
-    return {"success": True, "data": list_op_logs(task_id)}
 
 
-class ManualQuoteBody(BaseModel):
-    reply_index: int
-    unit_price: Optional[float] = None
-    total_price: Optional[float] = None
-    lead_time: Optional[str] = None
-    brand: Optional[str] = None
-    model: Optional[str] = None
-    note: Optional[str] = None
 
 
-@app.patch("/api/procurement/tasks/{task_id}/quote/manual")
-def api_proc_task_quote_manual(task_id: str, body: ManualQuoteBody):
-    """前端铅笔按钮：人工录入/修改某供应商报价。保存后 is_manual=True，后续 IMAP 复解析不会覆盖。"""
-    try:
-        t = manual_update_supplier_quote(
-            task_id=task_id, reply_index=body.reply_index,
-            payload={
-                "unit_price": body.unit_price, "total_price": body.total_price,
-                "lead_time": body.lead_time, "brand": body.brand,
-                "model": body.model, "note": body.note,
-            },
-            operator="frontend:user",
-        )
-        return {"success": True, "data": t}
-    except ValueError as e:
-        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
 
 
 # ---- 台账 ----
-@app.get("/api/procurement/ledger")
-def api_proc_ledger_list(contract_no: Optional[str] = None,
-                         supplier_name: Optional[str] = None,
-                         from_date: Optional[str] = None,
-                         to_date: Optional[str] = None,
-                         limit: int = 500):
-    """采购业务台账（增强查询：合同 / 供应商 / 日期范围 / 条数上限）"""
-    rows = list_ledger_advanced(contract_no=contract_no,
-                                supplier_name=supplier_name,
-                                from_date=from_date, to_date=to_date, limit=limit)
-    return {"success": True, "data": rows}
 
 
 # ============================================================
 # 【新增 A】供应商主数据 CRUD（5 个 REST 路由）
 # ============================================================
 
-class SupplierBody(BaseModel):
-    name: str
-    email: str
-    capability: Optional[str] = ''
 
 
-class SupplierUpdateBody(BaseModel):
-    name: Optional[str] = None
-    email: Optional[str] = None
-    capability: Optional[str] = None
 
 
-@app.get("/api/procurement/suppliers")
-def api_proc_suppliers_list(keyword: Optional[str] = None, limit: int = 500):
-    """供应商主数据列表（支持 名称/邮箱/供货能力 关键词模糊搜索）"""
-    return {"success": True, "data": list_suppliers(keyword=keyword, limit=limit)}
 
 
-@app.get("/api/procurement/suppliers/{supplier_id}")
-def api_proc_suppliers_get(supplier_id: int):
-    s = get_supplier(supplier_id)
-    if not s:
-        return JSONResponse({"success": False, "error": "供应商不存在"}, status_code=404)
-    return {"success": True, "data": s}
 
 
-@app.post("/api/procurement/suppliers")
-def api_proc_suppliers_create(body: SupplierBody):
-    try:
-        s = create_supplier(name=body.name, email=body.email,
-                            capability=body.capability or '')
-        return {"success": True, "data": s}
-    except ValueError as e:
-        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
 
 
-@app.put("/api/procurement/suppliers/{supplier_id}")
-def api_proc_suppliers_update(supplier_id: int, body: SupplierUpdateBody):
-    try:
-        s = update_supplier(supplier_id=supplier_id, name=body.name,
-                            email=body.email, capability=body.capability)
-        if s is None:
-            return JSONResponse({"success": False, "error": "供应商不存在"}, status_code=404)
-        return {"success": True, "data": s}
-    except ValueError as e:
-        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
 
 
-@app.delete("/api/procurement/suppliers/{supplier_id}")
-def api_proc_suppliers_delete(supplier_id: int):
-    try:
-        r = delete_supplier(supplier_id)
-        return {"success": True, **r}
-    except ValueError as e:
-        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
 
 
 # ============================================================
 # 合同主数据表：5 个 CRUD（合同名 / 合同编号 / 项目经理 / 项目经理邮箱）
 # ============================================================
 
-class ProcContractBody(BaseModel):
-    contract_no: str
-    contract_name: Optional[str] = ''
-    pm_name: Optional[str] = ''
-    pm_email: Optional[str] = ''
-    receiver_name: Optional[str] = ''
-    receiver_phone: Optional[str] = ''
-    receiver_address: Optional[str] = ''
 
 
-class ProcContractUpdateBody(BaseModel):
-    contract_no: Optional[str] = None
-    contract_name: Optional[str] = None
-    pm_name: Optional[str] = None
-    pm_email: Optional[str] = None
-    receiver_name: Optional[str] = None
-    receiver_phone: Optional[str] = None
-    receiver_address: Optional[str] = None
 
 
-@app.get("/api/procurement/contracts")
-def api_proc_contracts_list(keyword: Optional[str] = None, limit: int = 500):
-    """合同主数据列表：按 合同编号 / 合同名 / 项目经理名 / 邮箱 搜索"""
-    return {"success": True, "data": list_contracts(keyword=keyword, limit=limit)}
 
 
-@app.get("/api/procurement/contracts/{contract_id}")
-def api_proc_contracts_get(contract_id: int):
-    s = get_contract(contract_id=contract_id)
-    if not s:
-        return JSONResponse({"success": False, "error": "合同不存在"}, status_code=404)
-    return {"success": True, "data": s}
 
 
-@app.post("/api/procurement/contracts")
-def api_proc_contracts_create(body: ProcContractBody):
-    try:
-        c = proc_create_contract(
-            contract_no=body.contract_no,
-            contract_name=body.contract_name or '',
-            pm_name=body.pm_name or '',
-            pm_email=body.pm_email or '',
-            receiver_name=body.receiver_name or '',
-            receiver_phone=body.receiver_phone or '',
-            receiver_address=body.receiver_address or '',
-        )
-        return {"success": True, "data": c}
-    except ValueError as e:
-        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
 
 
-@app.put("/api/procurement/contracts/{contract_id}")
-def api_proc_contracts_update(contract_id: int, body: ProcContractUpdateBody):
-    try:
-        c = update_contract(contract_id=contract_id, contract_no=body.contract_no,
-                            contract_name=body.contract_name, pm_name=body.pm_name,
-                            pm_email=body.pm_email,
-                            receiver_name=body.receiver_name, receiver_phone=body.receiver_phone,
-                            receiver_address=body.receiver_address)
-        if c is None:
-            return JSONResponse({"success": False, "error": "合同不存在"}, status_code=404)
-        return {"success": True, "data": c}
-    except ValueError as e:
-        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
 
 
-@app.delete("/api/procurement/contracts/{contract_id}")
-def api_proc_contracts_delete(contract_id: int):
-    try:
-        r = proc_delete_contract(contract_id)
-        return {"success": True, **r}
-    except ValueError as e:
-        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
 
 
 # ============================================================
 # 【新增】全局邮件抄送配置：列表 / 新增 / 删除 + 给 neuops 用的 "只返回 [(name,email)]" 极简接口
 # ============================================================
 
-class ProcMailCCBody(BaseModel):
-    name: str
-    email: str
 
 
-@app.get("/api/procurement/mail-cc")
-def api_proc_mailcc_list(keyword: Optional[str] = None):
-    return {"success": True, "data": list_mail_cc(keyword=keyword)}
 
 
-@app.get("/api/procurement/mail-cc/emails")
-def api_proc_mailcc_emails_plain():
-    """给 neuops 调用的极简接口：只返回 CC 列表，不包裹 success/data。"""
-    return {"cc": get_all_cc_emails()}
 
 
-@app.post("/api/procurement/mail-cc")
-def api_proc_mailcc_create(body: ProcMailCCBody):
-    try:
-        r = create_mail_cc(name=body.name, email=body.email)
-        return {"success": True, "data": r}
-    except ValueError as e:
-        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
 
 
-@app.delete("/api/procurement/mail-cc/{cc_id}")
-def api_proc_mailcc_delete(cc_id: int):
-    try:
-        r = delete_mail_cc(cc_id)
-        return {"success": True, **r}
-    except ValueError as e:
-        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
 
 
 # ============================================================
@@ -1513,70 +1136,18 @@ def api_proc_mail_template_reset(tpl_key: str):
 
 # ===================== 备品备件 =====================
 
-@app.get("/api/procurement/spare-parts")
-def api_proc_spare_parts(keyword: str = Query(None), category: str = Query(None)):
-    rows = list_spare_parts(keyword=keyword, category=category)
-    return {"success": True, "data": rows, "total": len(rows)}
 
 
-@app.get("/api/procurement/spare-parts/categories")
-def api_proc_spare_part_categories():
-    cats = list_spare_part_categories()
-    return {"success": True, "data": cats}
 
 
-@app.get("/api/procurement/spare-parts/{part_id}")
-def api_proc_spare_part_get(part_id: int):
-    r = get_spare_part(part_id)
-    if not r:
-        return JSONResponse({"success": False, "error": "备件不存在"}, status_code=404)
-    return {"success": True, "data": r}
 
 
-class SparePartBody(BaseModel):
-    part_code: str
-    part_name: str
-    spec_model: str = ''
-    brand: str = ''
-    unit: str = '个'
-    category: str = '通用'
-    condition: str = ''
-    remark: str = ''
 
 
-@app.post("/api/procurement/spare-parts")
-def api_proc_spare_part_create(body: SparePartBody):
-    try:
-        r = create_spare_part(
-            part_code=body.part_code, part_name=body.part_name,
-            spec_model=body.spec_model, brand=body.brand,
-            unit=body.unit, category=body.category,
-            condition=body.condition, remark=body.remark)
-        return {"success": True, "data": r}
-    except ValueError as e:
-        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
 
 
-@app.put("/api/procurement/spare-parts/{part_id}")
-def api_proc_spare_part_update(part_id: int, body: SparePartBody):
-    try:
-        r = update_spare_part(part_id,
-                              part_code=body.part_code, part_name=body.part_name,
-                              spec_model=body.spec_model, brand=body.brand,
-                              unit=body.unit, category=body.category,
-                              condition=body.condition, remark=body.remark)
-        return {"success": True, "data": r}
-    except ValueError as e:
-        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
 
 
-@app.delete("/api/procurement/spare-parts/{part_id}")
-def api_proc_spare_part_delete(part_id: int):
-    try:
-        r = delete_spare_part(part_id)
-        return {"success": True, **r}
-    except ValueError as e:
-        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
 
 
 # ===================== 备件邮件询价（只读观察） =====================
@@ -1703,419 +1274,44 @@ def api_ontology_ledger(limit: int = 200):
 
 # ===================== 合同管理 =====================
 
-@app.get("/api/contracts")
-def list_contracts_legacy(keyword: str = Query(None), status: str = Query(None)):
-    """全部合同列表（首页）——【旧合同管理】Python 函数加 _legacy 避免与 procurement_models 导入的同名函数冲突"""
-    conn = get_db()
-    where = ["1=1"]
-    params = []
-    if keyword:
-        where.append("(contract_name LIKE ? OR contract_no LIKE ?)")
-        params.extend([f"%{keyword}%", f"%{keyword}%"])
-    if status and status != '全部':
-        where.append("status = ?")
-        params.append(status)
-
-    contracts = [dict(r) for r in conn.execute(
-        f"""SELECT c.*, COALESCE(v.progress, 0) as progress, COALESCE(v.supplier_name, '') as latest_supplier,
-                   (SELECT COUNT(DISTINCT supplier_name) FROM versions WHERE contract_id = c.id AND supplier_name != '') as supplier_count
-            FROM contracts c
-            LEFT JOIN (
-                SELECT contract_id, MAX(id) as max_id FROM versions GROUP BY contract_id
-            ) latest ON c.id = latest.contract_id
-            LEFT JOIN versions v ON v.id = latest.max_id
-            WHERE {' AND '.join(where)}
-            ORDER BY c.id DESC""", params
-    ).fetchall()]
-
-    # 统计
-    stats = {
-        'total': conn.execute("SELECT COUNT(*) FROM contracts").fetchone()[0],
-        'closed': conn.execute("SELECT COUNT(*) FROM contracts WHERE status = '已闭环(100%)'").fetchone()[0],
-        'active': conn.execute("SELECT COUNT(*) FROM contracts WHERE status != '已闭环(100%)' AND status != '未上传基准'").fetchone()[0],
-        'total_amount': conn.execute("SELECT COALESCE(SUM(total_amount), 0) FROM contracts").fetchone()[0],
-    }
-    conn.close()
-    return JSONResponse({'contracts': contracts, 'stats': stats})
 
 
-@app.post("/api/contracts")
-async def create_new_contract(name: str = Query(...), no: str = Query(''), sign_date: str = Query('')):
-    """CC-001 FR-1 新建合同（合同比对域）。create_contract 现为 models.py 的实现。"""
-    if not (name or '').strip():
-        return JSONResponse({'success': False, 'error': '合同名称不能为空'}, status_code=400)
-    cid = create_contract(name.strip(), no or '', sign_date or '')
-    return JSONResponse({'success': True, 'contract_id': cid})
 
 
-@app.put("/api/contracts/{contract_id}")
-async def update_contract_legacy(contract_id: int):
-    """更新合同元信息（通过form data）- 函数加 _legacy 避免与采购模块同名冲突"""
-    # Simple update via query params for now
-    return JSONResponse({'success': True})
 
 
-@app.delete("/api/contracts/{contract_id}")
-def remove_contract(contract_id: int):
-    """CC-001 FR-3 删除合同并级联清理（合同比对域）。"""
-    delete_contract(contract_id)
-    return JSONResponse({'success': True})
 
 
 # ===================== 合同基准管理 =====================
 
-@app.post("/api/contract/{contract_id}/upload")
-async def upload_contract(contract_id: int, file: UploadFile = File(...)):
-    filepath = os.path.join(UPLOAD_DIR, f'contract_{contract_id}_基准.xlsx')
-    with open(filepath, 'wb') as f:
-        shutil.copyfileobj(file.file, f)
-    try:
-        result = import_contract_excel(contract_id, filepath)
-        # 更新合同总金额
-        conn = get_db()
-        total = conn.execute(
-            "SELECT COALESCE(SUM(contract_amount), 0) FROM contract_items WHERE contract_id = ?",
-            (contract_id,)
-        ).fetchone()[0]
-        conn.execute("UPDATE contracts SET total_amount = ?, status = '比对进行中' WHERE id = ?",
-                     (total, contract_id))
-        conn.commit(); conn.close()
-        return JSONResponse(result)
-    except Exception as e:
-        return JSONResponse({'success': False, 'error': str(e)}, status_code=400)
 
 
-@app.get("/api/contract/{contract_id}/items")
-def list_contract_items(contract_id: int):
-    conn = get_db()
-    items = [dict(r) for r in conn.execute(
-        "SELECT * FROM contract_items WHERE contract_id = ? ORDER BY id", (contract_id,)
-    ).fetchall()]
-    all_headers = []
-    for item in items:
-        try:
-            raw = json.loads(item.get('raw_columns', '{}'))
-            for k in raw:
-                if k not in all_headers: all_headers.append(k)
-        except: pass
-    conn.close()
-    return JSONResponse({'items': items, 'total': len(items), 'headers': all_headers})
 
 
 # ===================== 供应商版本管理 =====================
 
-@app.post("/api/contract/{contract_id}/supplier/upload")
-async def upload_supplier(contract_id: int, file: UploadFile = File(...),
-                          supplier_name: str = Query('')):
-    if not supplier_name.strip():
-        return JSONResponse({'success': False, 'error': '请填写供应商名称'}, status_code=400)
-    filepath = os.path.join(UPLOAD_DIR, f'supplier_{contract_id}_{supplier_name}_{file.filename}')
-    with open(filepath, 'wb') as f:
-        shutil.copyfileobj(file.file, f)
-    try:
-        result = import_supplier_excel(contract_id, filepath, supplier_name.strip())
-        update_contract_status(contract_id)
-        return JSONResponse(result)
-    except Exception as e:
-        return JSONResponse({'success': False, 'error': str(e)}, status_code=400)
 
 
-@app.get("/api/contract/{contract_id}/supplier/versions")
-def list_versions(contract_id: int, supplier_name: str = Query(None)):
-    """版本列表，可按供应商筛选"""
-    conn = get_db()
-    where = "contract_id = ?"
-    params = [contract_id]
-    if supplier_name:
-        where += " AND supplier_name = ?"
-        params.append(supplier_name)
-    versions = [dict(r) for r in conn.execute(
-        f"SELECT * FROM versions WHERE {where} ORDER BY id DESC", params
-    ).fetchall()]
-
-    # 该合同下有哪些供应商
-    suppliers = [dict(r) for r in conn.execute(
-        "SELECT supplier_name, COUNT(*) as version_count, MAX(id) as latest_id FROM versions WHERE contract_id = ? AND supplier_name != '' GROUP BY supplier_name ORDER BY latest_id DESC",
-        (contract_id,)
-    ).fetchall()]
-    conn.close()
-    return JSONResponse({'versions': versions, 'suppliers': suppliers})
 
 
-@app.get("/api/contract/{contract_id}/supplier/items")
-def list_supplier_items(contract_id: int, version_id: int = Query(...)):
-    conn = get_db()
-    items = [dict(r) for r in conn.execute(
-        "SELECT * FROM supplier_items WHERE contract_id = ? AND version_id = ? ORDER BY id",
-        (contract_id, version_id)
-    ).fetchall()]
-    # 提取供应商全部原始列名（保持顺序，不删减）
-    all_headers = []
-    for item in items:
-        try:
-            raw = json.loads(item.get('raw_columns', '{}'))
-            for k in raw:
-                if k not in all_headers:
-                    all_headers.append(k)
-        except Exception:
-            pass
-    conn.close()
-    return JSONResponse({'items': items, 'total': len(items), 'headers': all_headers})
 
 
-@app.delete("/api/contract/{contract_id}/supplier/versions/{version_id}")
-def delete_version(contract_id: int, version_id: int):
-    """删除供应商版本，级联删除 comparison_results 和 supplier_items"""
-    conn = get_db()
-    c = conn.cursor()
-
-    # 获取版本信息用于后续处理
-    v = c.execute(
-        "SELECT supplier_name FROM versions WHERE id = ? AND contract_id = ?",
-        (version_id, contract_id)
-    ).fetchone()
-    if not v:
-        conn.close()
-        return JSONResponse({'success': False, 'error': '版本不存在'}, status_code=404)
-
-    supplier_name = v['supplier_name']
-
-    # 级联删除
-    c.execute("DELETE FROM comparison_results WHERE version_id = ?", (version_id,))
-    c.execute("DELETE FROM supplier_items WHERE version_id = ?", (version_id,))
-    c.execute("DELETE FROM versions WHERE id = ?", (version_id,))
-
-    # 如果该供应商还有其他版本，让最新的一个变活跃
-    if supplier_name:
-        latest = c.execute("""
-            SELECT id FROM versions
-            WHERE contract_id = ? AND supplier_name = ?
-            ORDER BY id DESC LIMIT 1
-        """, (contract_id, supplier_name)).fetchone()
-        if latest:
-            c.execute("UPDATE versions SET is_active = 1 WHERE id = ?", (latest[0],))
-
-    conn.commit()
-    conn.close()
-
-    update_contract_status(contract_id)
-    return JSONResponse({'success': True})
 
 
 # ===================== 比对引擎 =====================
 
-@app.post("/api/contract/{contract_id}/compare/run")
-def run_compare(contract_id: int, version_id: int = Query(...)):
-    try:
-        result = run_comparison(contract_id, version_id)
-        update_contract_status(contract_id)
-        return JSONResponse(result)
-    except Exception as e:
-        return JSONResponse({'success': False, 'error': str(e)}, status_code=400)
 
 
-@app.get("/api/contract/{contract_id}/compare/results")
-def get_results(contract_id: int, version_id: int = Query(None),
-                status: str = Query(None), keyword: str = Query(None)):
-    conn = get_db()
-    where = ["r.contract_id = ?"]
-    params = [contract_id]
-
-    if version_id:
-        where.append("r.version_id = ?"); params.append(version_id)
-    else:
-        latest = conn.execute(
-            "SELECT MAX(id) FROM versions WHERE contract_id = ?", (contract_id,)
-        ).fetchone()[0]
-        if latest:
-            where.append("r.version_id = ?"); params.append(latest)
-
-    if status and status != '全部':
-        where.append("r.match_status = ?"); params.append(status)
-
-    query = f"""
-        SELECT r.*, ct.device_name as ct_name, ct.device_model as ct_model,
-            ct.specs_full as ct_specs, ct.contract_qty, ct.contract_unit,
-            ct.raw_columns as ct_raw,
-            sp.device_name as sp_name, sp.device_model as sp_model,
-            sp.specs_full as sp_specs, sp.quote_qty, sp.quote_unit,
-            sp.raw_columns as sp_raw
-        FROM comparison_results r
-        LEFT JOIN contract_items ct ON r.contract_item_id = ct.id
-        LEFT JOIN supplier_items sp ON r.supplier_item_id = sp.id
-        WHERE {' AND '.join(where)} ORDER BY r.match_status, ct.device_name
-    """
-    results = [dict(r) for r in conn.execute(query, params).fetchall()]
-
-    # 收集合同和供应商的原始列名（取第一个有数据的）
-    ct_headers = []
-    sp_headers_raw = []
-    for r in results:
-        if not ct_headers and r.get('ct_raw'):
-            try: ct_headers = list(json.loads(r['ct_raw']).keys())
-            except: pass
-        if not sp_headers_raw and r.get('sp_raw'):
-            try: sp_headers_raw = list(json.loads(r['sp_raw']).keys())
-            except: pass
-        if ct_headers and sp_headers_raw: break
-
-    # 供应商列保留全部原始列，不删减
-    sp_headers = sp_headers_raw
-    conn.close()
-
-    if keyword:
-        kw = keyword.lower()
-        results = [r for r in results if kw in str(r.get('ct_name','')).lower()
-                   or kw in str(r.get('ct_model','')).lower()
-                   or kw in str(r.get('sp_name','')).lower()
-                   or kw in str(r.get('anomaly_detail','')).lower()]
-
-    for r in results:
-        try: r['anomaly_types_list'] = json.loads(r.get('anomaly_types', '[]'))
-        except: r['anomaly_types_list'] = []
-
-    return JSONResponse({'results': results, 'total': len(results), 'ct_headers': ct_headers, 'sp_headers': sp_headers})
 
 
-@app.get("/api/contract/{contract_id}/column-mapping")
-def get_column_mapping(contract_id: int, version_id: int = Query(None)):
-    """返回主合同列 ↔ 供应商列 的对齐关系"""
-    conn = get_db()
-    if not version_id:
-        latest = conn.execute("SELECT MAX(id) FROM versions WHERE contract_id=?", (contract_id,)).fetchone()[0]
-        version_id = latest
-    row = conn.execute("SELECT column_mapping FROM versions WHERE id=?", (version_id,)).fetchone()
-    conn.close()
-    if row and row['column_mapping']:
-        try:
-            cm = json.loads(row['column_mapping'])
-            cm['version_id'] = version_id
-            return JSONResponse(cm)
-        except Exception:
-            pass
-    return JSONResponse({'version_id': version_id})
 
 
-@app.post("/api/contract/{contract_id}/column-mapping")
-async def save_column_mapping(contract_id: int, request: Request):
-    """保存手动调整的列对齐，重提供应商数据并重新比对"""
-    try:
-        body = await request.json()
-    except Exception:
-        return JSONResponse({'success': False, 'error': '请求体不是合法 JSON'}, status_code=400)
-    version_id = body.get('version_id')
-    mapping = body.get('mapping', {})
-    if not version_id:
-        return JSONResponse({'success': False, 'error': '缺少 version_id'}, status_code=400)
-
-    conn = get_db()
-    c = conn.cursor()
-    row = c.execute("SELECT column_mapping FROM versions WHERE id=?", (version_id,)).fetchone()
-    if not row:
-        conn.close()
-        return JSONResponse({'success': False, 'error': '版本不存在'}, status_code=404)
-    try:
-        cm = json.loads(row['column_mapping'] or '{}')
-    except Exception:
-        cm = {}
-    cm['mapping'] = mapping
-    c.execute("UPDATE versions SET column_mapping=? WHERE id=?",
-              (json.dumps(cm, ensure_ascii=False), version_id))
-    conn.commit()
-    conn.close()
-
-    try:
-        result = reapply_column_mapping(contract_id, version_id, mapping, cm.get('contract_semantics', {}))
-    except Exception as e:
-        return JSONResponse({'success': False, 'error': str(e)}, status_code=400)
-    update_contract_status(contract_id)
-    result['column_mapping'] = cm
-    return JSONResponse(result)
 
 
-@app.post("/api/compare/{result_id}/confirm")
-def confirm_result(result_id: int, confirmed: int = Query(1)):
-    """手动确认：判断符合/匹配异常 → 确认后变为匹配成功；取消确认恢复原状态"""
-    conn = get_db()
-    c = conn.cursor()
-    # 获取当前状态
-    cur = dict(c.execute("SELECT * FROM comparison_results WHERE id = ?", (result_id,)).fetchone())
-    original_status = cur['match_status']
-    
-    if confirmed:
-        # 确认：判断符合/匹配异常 → 匹配成功
-        if original_status in ('判断符合', '匹配异常'):
-            c.execute("UPDATE comparison_results SET confirmed = 1, match_status = '匹配成功' WHERE id = ?",
-                      (result_id,))
-    else:
-        # 取消确认：匹配成功 → 恢复原状态
-        # 通过 match_note 推断原状态：有推理过程说明曾是判断符合，否则是匹配异常
-        if cur.get('match_note', ''):
-            c.execute("UPDATE comparison_results SET confirmed = 0, match_status = '判断符合' WHERE id = ?",
-                      (result_id,))
-        else:
-            c.execute("UPDATE comparison_results SET confirmed = 0, match_status = '匹配异常' WHERE id = ?",
-                      (result_id,))
-    
-    # 同步更新版本统计
-    r = dict(c.execute("SELECT * FROM comparison_results WHERE id = ?", (result_id,)).fetchone())
-    conn.commit()
-    
-    vid = r['version_id']
-    stats = c.execute("""
-        SELECT 
-            COUNT(*) as total,
-            SUM(CASE WHEN match_status='匹配成功' THEN 1 ELSE 0 END) as matched,
-            SUM(CASE WHEN match_status='判断符合' THEN 1 ELSE 0 END) as judged,
-            SUM(CASE WHEN match_status='匹配异常' THEN 1 ELSE 0 END) as anomaly,
-            SUM(CASE WHEN match_status='待采购' THEN 1 ELSE 0 END) as pending,
-            SUM(CASE WHEN match_status='供应商增项' THEN 1 ELSE 0 END) as extra
-        FROM comparison_results WHERE version_id = ?
-    """, (vid,)).fetchone()
-    contract_total = c.execute(
-        "SELECT COUNT(*) FROM contract_items WHERE contract_id = ?", (r['contract_id'],)
-    ).fetchone()[0]
-    # 进度 = 匹配成功（含已确认的判断符合/异常）/ 合同总条目
-    progress = round((stats['matched'] / max(contract_total, 1) * 100), 2)
-    c.execute("UPDATE versions SET matched_count=?, judged_count=?, anomaly_count=?, pending_count=?, extra_count=?, progress=? WHERE id=?",
-              (stats['matched'] or 0, stats['judged'] or 0, stats['anomaly'] or 0, stats['pending'] or 0, stats['extra'] or 0, progress, vid))
-    conn.commit()
-    conn.close()
-    update_contract_status(r['contract_id'])
-    return JSONResponse({'success': True, 'confirmed': bool(confirmed)})
 
 
 # ===================== 统计（多合同版） =====================
 
-@app.get("/api/contract/{contract_id}/stats")
-def get_contract_stats(contract_id: int):
-    conn = get_db()
-    ct_count = conn.execute(
-        "SELECT COUNT(*) FROM contract_items WHERE contract_id = ?", (contract_id,)
-    ).fetchone()[0]
-    ct_amount = conn.execute(
-        "SELECT COALESCE(SUM(contract_amount), 0) FROM contract_items WHERE contract_id = ?",
-        (contract_id,)
-    ).fetchone()[0]
-
-    stats = {'contract_total': ct_count, 'contract_amount': ct_amount}
-    latest = conn.execute(
-        "SELECT MAX(id) FROM versions WHERE contract_id = ?", (contract_id,)
-    ).fetchone()[0]
-    if latest:
-        v = dict(conn.execute("SELECT * FROM versions WHERE id = ?", (latest,)).fetchone())
-        stats.update({
-            'version_id': v['id'], 'matched_count': v['matched_count'],
-            'judged_count': v.get('judged_count', 0),
-            'anomaly_count': v['anomaly_count'], 'pending_count': v['pending_count'],
-            'extra_count': v['extra_count'], 'progress': v['progress'],
-        })
-
-    versions = [dict(r) for r in conn.execute(
-        "SELECT id, progress FROM versions WHERE contract_id = ? ORDER BY id", (contract_id,)
-    ).fetchall()]
-    conn.close()
-    return JSONResponse({'stats': stats, 'versions': versions})
 
 
 # ===================== 全局统计（首页） =====================
@@ -2134,15 +1330,6 @@ def get_global_stats():
 
 # ===================== 报告导出 =====================
 
-@app.get("/api/contract/{contract_id}/export/report")
-def download_report(contract_id: int, version_id: int = Query(...)):
-    try:
-        filepath = export_report(version_id)
-        return FileResponse(filepath,
-            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            filename=os.path.basename(filepath))
-    except Exception as e:
-        return JSONResponse({'success': False, 'error': str(e)}, status_code=400)
 
 
 # ===================== 资金占用分析 API =====================
@@ -3566,63 +2753,8 @@ def fund_analyze_export():
 # 原始明细表 → 定时任务聚合 → 指标汇总宽表
 # ═══════════════════════════════════════════
 
-ETL_JOB_DEFS = [
-    {
-        'job_key': 'gross-margin',
-        'job_name': '签单毛利指标计算',
-        'description': '按年份/区域聚合签单毛利、签单毛利率',
-        'schedule': '0 2 * * *',
-        'calculation_logic': '数据源：总合同表（数据源管理最新版）。字段映射：「统计日期」→年份、「区域」分组、「合同总金额」+「签单毛利」求和。计算：签单毛利率 = 签单毛利 ÷ 合同总金额。产出：indicator_metrics 宽表（dim_type=year 按年份、dim_type=region 按区域×年份）。',
-    },
-    {
-        'job_key': 'payment-cycle',
-        'job_name': '回款周期指标计算',
-        'description': '按合同聚合回款周期指标',
-        'schedule': '0 3 * * *',
-        'calculation_logic': '数据源：总合同表 + 项目里程碑表。口径：按合同编号关联回款记录，取最后一笔回款日期；回款周期 = 最后一笔回款日 − 合同签订日（统计日期）；按合同聚合。产出：payment_cycle_metrics 宽表（每合同一行）。',
-    },
-    {
-        'job_key': 'sign-summary',
-        'job_name': '签约汇总指标计算',
-        'description': '按业务线/区域聚合签约合同额',
-        'schedule': '0 4 * * *',
-        'calculation_logic': '数据源：总合同表。口径：按「业务线」「区域」分组，聚合当年生效合同额与签约合同数。（骨架阶段，计算逻辑待实现）',
-    },
-    {
-        'job_key': 'fund-occupancy',
-        'job_name': '资金占用指标计算',
-        'description': 'FIFO 垫资冲抵，计算每个合同的资金占用、加权资金占用、资金成本',
-        'schedule': '0 5 * * *',
-        'calculation_logic': '数据源：付款明细表 + 收款明细表。口径：按合同编号透视（付款/收款按日期聚合）→ FIFO 先进先出冲抵 → 预收款冲抵后续付款 → 生成垫资片段（SETTLED/OCCUPYING）。计算：当前资金占用=占用中片段金额和；元天合计=片段金额×占用天数；预估资金成本=元天×日利率（年化3%）。产出：fund_metrics 宽表（每合同一行）。',
-    },
-    {
-        'job_key': 'fund-multidim',
-        'job_name': '资金占用多维度聚合',
-        'description': '按区域/部门/业务线/客户集合/月份聚合资金占用与风险分布',
-        'schedule': '30 5 * * *',
-        'calculation_logic': '数据源：fund_metrics 宽表（资金占用指标计算产物）。口径：按维度列（region/dept/biz_line/industry/customer_key/project_status/contract_status/sign_year/month）分组聚合合同数、累计付款/收款、当前资金占用、回款率、占用强度、风险等级分布。产出：indicator_metrics 宽表（dim_type=fund_dim）。',
-    },
-]
 
 
-def _register_etl_jobs():
-    """注册 ETL 任务定义（幂等，UPSERT 保证计算逻辑同步）"""
-    from models import init_db
-    init_db()
-    conn = get_db()
-    c = conn.cursor()
-    for job in ETL_JOB_DEFS:
-        c.execute("""
-            INSERT INTO etl_jobs (job_key, job_name, description, calculation_logic, schedule)
-            VALUES (?,?,?,?,?)
-            ON CONFLICT(job_key) DO UPDATE SET
-                job_name=excluded.job_name,
-                description=excluded.description,
-                calculation_logic=excluded.calculation_logic,
-                schedule=excluded.schedule
-        """, (job['job_key'], job['job_name'], job['description'], job['calculation_logic'], job['schedule']))
-    conn.commit()
-    conn.close()
 
 
 def _ds_latest_path(table_name):
@@ -3639,484 +2771,16 @@ def _ds_latest_path(table_name):
     return None
 
 
-def run_etl_gross_margin():
-    """签单毛利 ETL：读总合同表 → 按年份/区域聚合 → 写指标宽表"""
-    import openpyxl
-    from datetime import datetime
-    from collections import defaultdict
-
-    h_fpath = _ds_latest_path('总合同表')
-    if not h_fpath:
-        return {'success': False, 'error': '总合同表未上传'}
-
-    def safe_float(v):
-        if v is None or v == '' or v == '-': return 0.0
-        try: return float(v)
-        except: return 0.0
-
-    def find_col(headers, keywords):
-        for h in headers:
-            hl = str(h).lower().replace(' ', '').replace('_', '').replace('-', '')
-            for kw in keywords:
-                if kw.lower().replace(' ', '').replace('_', '').replace('-', '') in hl:
-                    return h
-        return None
-
-    wb = openpyxl.load_workbook(h_fpath, data_only=True)
-    ws = wb.active
-    rows = list(ws.iter_rows(values_only=True))
-    wb.close()
-    headers = [str(h) if h is not None else '' for h in rows[0]]
-    col_idx = {h: i for i, h in enumerate(headers)}
-
-    col_amt = find_col(headers, ['合同总金额'])
-    col_gross = find_col(headers, ['签单毛利'])
-    col_region = find_col(headers, ['区域'])
-    col_date = find_col(headers, ['统计日期'])
-    col_dept = find_col(headers, ['业务类型'])
-
-    def dept_cn(biz):
-        """从业务类型映射部门（智能计算与集成事业部 ICID 下属）：
-        系统集成业务→系统集成部、运维服务业务→运维服务部、资产运营业务→资产运营部、一体化运维→运维平台；
-        其余业务类型不纳入部门维度"""
-        biz = str(biz).strip()
-        if not biz:
-            return ''
-        if '一体化运维' in biz:
-            return '运维平台'
-        if '运维服务' in biz:
-            return '运维服务部'
-        if '系统集成' in biz:
-            return '系统集成部'
-        if '资产运营' in biz:
-            return '资产运营部'
-        return ''
-
-    def parse_year(v):
-        if isinstance(v, datetime): return v.year
-        if hasattr(v, 'year'): return v.year
-        try: return int(str(v)[:4])
-        except: return None
-
-    year_agg = defaultdict(lambda: {'amt': 0.0, 'gross': 0.0})
-    region_year_agg = defaultdict(lambda: defaultdict(lambda: {'amt': 0.0, 'gross': 0.0}))
-    dept_year_agg = defaultdict(lambda: defaultdict(lambda: {'amt': 0.0, 'gross': 0.0}))
-    dept_region_year_agg = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: {'amt': 0.0, 'gross': 0.0})))
-    for r in rows[1:]:
-        if r is None: continue
-        amt = safe_float(r[col_idx[col_amt]]) if col_amt else 0.0
-        gross = safe_float(r[col_idx[col_gross]]) if col_gross else 0.0
-        region = str(r[col_idx[col_region]]).strip() if col_region and r[col_idx[col_region]] else ''
-        dept = str(r[col_idx[col_dept]]).strip() if col_dept and r[col_idx[col_dept]] else ''
-        dept = dept_cn(dept) if dept else ''
-        y = parse_year(r[col_idx[col_date]]) if col_date else None
-        if y is not None:
-            year_agg[y]['amt'] += amt
-            year_agg[y]['gross'] += gross
-            if region:
-                region_year_agg[region][y]['amt'] += amt
-                region_year_agg[region][y]['gross'] += gross
-            if dept:
-                dept_year_agg[dept][y]['amt'] += amt
-                dept_year_agg[dept][y]['gross'] += gross
-            if region and dept:
-                dept_region_year_agg[dept][region][y]['amt'] += amt
-                dept_region_year_agg[dept][region][y]['gross'] += gross
-
-    def rate(g, a): return round(g / a, 6) if a else 0.0
-
-    conn = get_db()
-    c = conn.cursor()
-    # 兼容旧数据库：若 indicator_metrics 无 extra_json 列则添加
-    cols = [row[1] for row in c.execute("PRAGMA table_info(indicator_metrics)").fetchall()]
-    if 'extra_json' not in cols:
-        c.execute("ALTER TABLE indicator_metrics ADD COLUMN extra_json TEXT DEFAULT '{}' ")
-    c.execute("DELETE FROM indicator_metrics WHERE job_key='gross-margin'")
-    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    n = 0
-    for y, v in year_agg.items():
-        c.execute("INSERT INTO indicator_metrics (job_key, metric_name, dim_type, dim_value, year, contract_amt, gross_profit, gross_rate, calc_time) VALUES (?,?,?,?,?,?,?,?,?)",
-                  ('gross-margin', '签单毛利率', 'year', str(y), str(y), v['amt'], v['gross'], rate(v['gross'], v['amt']), now))
-        n += 1
-    for region, yd in region_year_agg.items():
-        for y, v in yd.items():
-            c.execute("INSERT INTO indicator_metrics (job_key, metric_name, dim_type, dim_value, year, contract_amt, gross_profit, gross_rate, calc_time) VALUES (?,?,?,?,?,?,?,?,?)",
-                      ('gross-margin', '签单毛利率', 'region', region, str(y), v['amt'], v['gross'], rate(v['gross'], v['amt']), now))
-            n += 1
-    for dept, yd in dept_year_agg.items():
-        for y, v in yd.items():
-            c.execute("INSERT INTO indicator_metrics (job_key, metric_name, dim_type, dim_value, year, contract_amt, gross_profit, gross_rate, calc_time) VALUES (?,?,?,?,?,?,?,?,?)",
-                      ('gross-margin', '签单毛利率', 'dept', dept, str(y), v['amt'], v['gross'], rate(v['gross'], v['amt']), now))
-            n += 1
-    for dept, rd in dept_region_year_agg.items():
-        for region, yd in rd.items():
-            for y, v in yd.items():
-                extra = json.dumps({'dept': dept, 'region': region})
-                c.execute("INSERT INTO indicator_metrics (job_key, metric_name, dim_type, dim_value, year, contract_amt, gross_profit, gross_rate, extra_json, calc_time) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                          ('gross-margin', '签单毛利率', 'dept_region', f"{dept}|{region}", str(y), v['amt'], v['gross'], rate(v['gross'], v['amt']), extra, now))
-                n += 1
-    conn.commit()
-    conn.close()
-    return {'success': True, 'rows': n}
 
 
-@app.get("/api/gross/metrics")
-def gross_metrics():
-    """签单毛利宽表查询：读 indicator_metrics 宽表（ETL 结果），页面直接渲染，不重复计算"""
-    from collections import defaultdict
-    conn = get_db()
-    c = conn.cursor()
-    rows = [dict(r) for r in c.execute("SELECT * FROM indicator_metrics WHERE job_key='gross-margin' ORDER BY id").fetchall()]
-    conn.close()
-    if not rows:
-        return {'success': False, 'error': '指标宽表为空，请先执行「签单毛利指标计算」定时任务'}
-
-    year_rows = [r for r in rows if r['dim_type'] == 'year']
-    region_rows = [r for r in rows if r['dim_type'] == 'region']
-    dept_rows = [r for r in rows if r['dim_type'] == 'dept']
-
-    by_year = {r['year']: r for r in year_rows}
-    def rate(y):
-        m = by_year.get(str(y))
-        return m['gross_rate'] if m else None
-    def amt(y):
-        m = by_year.get(str(y))
-        return m['contract_amt'] if m else 0
-
-    r26, r25 = rate(2026), rate(2025)
-    summary = {
-        '2026签单毛利率': f"{r26*100:.2f}%" if r26 is not None else '-',
-        '2025签单毛利率': f"{r25*100:.2f}%" if r25 is not None else '-',
-        '同比增减': f"{(r26-r25)*100:+.2f}个百分点" if (r26 is not None and r25 is not None) else '-',
-        '2026合同额(万)': round(amt(2026)/10000, 2),
-    }
-
-    year_list = [{
-        '年份': r['year'],
-        '合同额(万)': round(r['contract_amt']/10000, 2),
-        '签单毛利(万)': round(r['gross_profit']/10000, 2),
-        '签单毛利率': r['gross_rate'],
-    } for r in sorted(year_rows, key=lambda x: x['year'])]
-
-    region_map = defaultdict(dict)
-    for r in region_rows:
-        region_map[r['dim_value']][r['year']] = r
-    region_list = []
-    for region, yd in sorted(region_map.items()):
-        m26 = yd.get('2026'); m25 = yd.get('2025')
-        r26_rate = m26['gross_rate'] if m26 else None
-        r25_rate = m25['gross_rate'] if m25 else None
-        diff = round((r26_rate - r25_rate)*100, 2) if (r26_rate is not None and r25_rate is not None) else None
-        region_list.append({
-            '区域': region,
-            '2026合同额(万)': round(m26['contract_amt']/10000, 2) if m26 else 0,
-            '2026签单毛利率': r26_rate,
-            '2025合同额(万)': round(m25['contract_amt']/10000, 2) if m25 else 0,
-            '2025签单毛利率': r25_rate,
-            '同比(百分点)': diff,
-        })
-
-    dept_map = defaultdict(dict)
-    for r in dept_rows:
-        dept_map[r['dim_value']][r['year']] = r
-    dept_list = []
-    for dept, yd in sorted(dept_map.items()):
-        m26 = yd.get('2026'); m25 = yd.get('2025')
-        dept_list.append({
-            '部门': dept,
-            '2026合同额(万)': round(m26['contract_amt']/10000, 2) if m26 else 0,
-            '2026签单毛利率': m26['gross_rate'] if m26 else None,
-            '2025合同额(万)': round(m25['contract_amt']/10000, 2) if m25 else 0,
-            '2025签单毛利率': m25['gross_rate'] if m25 else None,
-        })
-
-    # 部门 × 区域 二维热力图数据
-    dr_rows = [r for r in rows if r['dim_type'] == 'dept_region']
-    dr_dept_region_year = defaultdict(lambda: defaultdict(dict))
-    for r in dr_rows:
-        extra = json.loads(r['extra_json'] or '{}')
-        dept = extra.get('dept') or r['dim_value'].split('|')[0]
-        region = extra.get('region') or r['dim_value'].split('|')[1]
-        dr_dept_region_year[dept][region][r['year']] = r
-
-    dr_depts = sorted({d for d, _ in dr_dept_region_year.items()})
-    dr_regions = sorted({r for _, rd in dr_dept_region_year.items() for r in rd.keys()})
-
-    def _cell(r26, r25):
-        if r26 is None:
-            return {'rate': None, 'diff': None, 'hasData': False}
-        return {
-            'rate': round(r26['gross_rate'], 6),
-            'diff': round((r26['gross_rate'] - (r25['gross_rate'] if r25 else 0)) * 100, 2) if r25 else None,
-            'hasData': True,
-        }
-
-    cells = {}
-    total_by_dept = {}
-    total_by_region = {}
-    for dept in dr_depts:
-        cells[dept] = {}
-        dept_amt_26 = dept_amt_25 = 0.0
-        dept_gross_26 = dept_gross_25 = 0.0
-        for region in dr_regions:
-            yd = dr_dept_region_year[dept].get(region, {})
-            m26 = yd.get('2026')
-            m25 = yd.get('2025')
-            cells[dept][region] = _cell(m26, m25)
-            if m26:
-                dept_amt_26 += m26['contract_amt']
-                dept_gross_26 += m26['gross_profit']
-            if m25:
-                dept_amt_25 += m25['contract_amt']
-                dept_gross_25 += m25['gross_profit']
-        total_by_dept[dept] = {
-            'rate': round(dept_gross_26 / dept_amt_26, 6) if dept_amt_26 else None,
-            'diff': round((dept_gross_26 / dept_amt_26 - dept_gross_25 / dept_amt_25) * 100, 2) if (dept_amt_26 and dept_amt_25) else None,
-            'hasData': dept_amt_26 > 0,
-        }
-
-    for region in dr_regions:
-        reg_amt_26 = reg_amt_25 = 0.0
-        reg_gross_26 = reg_gross_25 = 0.0
-        for dept in dr_depts:
-            yd = dr_dept_region_year[dept].get(region, {})
-            m26 = yd.get('2026')
-            m25 = yd.get('2025')
-            if m26:
-                reg_amt_26 += m26['contract_amt']
-                reg_gross_26 += m26['gross_profit']
-            if m25:
-                reg_amt_25 += m25['contract_amt']
-                reg_gross_25 += m25['gross_profit']
-        total_by_region[region] = {
-            'rate': round(reg_gross_26 / reg_amt_26, 6) if reg_amt_26 else None,
-            'diff': round((reg_gross_26 / reg_amt_26 - reg_gross_25 / reg_amt_25) * 100, 2) if (reg_amt_26 and reg_amt_25) else None,
-            'hasData': reg_amt_26 > 0,
-        }
-
-    dept_region_rows = {
-        'regions': dr_regions,
-        'depts': dr_depts,
-        'cells': cells,
-        'totals': {'byDept': total_by_dept, 'byRegion': total_by_region},
-    }
-
-    return {
-        'success': True,
-        'summary': summary,
-        'year_rows': year_list,
-        'region_rows': region_list,
-        'dept_rows': dept_list,
-        'dept_region_rows': dept_region_rows,
-    }
 
 
-def run_etl_fund_multidim():
-    """资金占用多维度 ETL：读 fund_metrics 宽表 → 按维度×月份聚合 → 写 indicator_metrics
-
-    产出 dim_type='fund_dim'，metric_name 形如 'fund_dim:region'。
-    """
-    from datetime import datetime
-    from collections import defaultdict
-    import json
-
-    rows = _fund_rows_with_dims()
-    if not rows:
-        return {'success': False, 'error': 'fund_metrics 为空，请先执行「资金占用指标计算」'}
-
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("DELETE FROM indicator_metrics WHERE job_key='fund-multidim'")
-    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    n = 0
-
-    for dim in DIM_COLUMN_MAP:
-        col = DIM_COLUMN_MAP[dim]
-        agg = defaultdict(lambda: {
-            'count': 0, 'pay': 0.0, 'recv': 0.0, 'occupy': 0.0, 'amt_day': 0.0,
-            'cost': 0.0, 'ca': 0.0, 'risk': {'healthy': 0, 'yellow': 0, 'orange': 0, 'red': 0},
-        })
-        for r in rows:
-            name = (r.get(col) or '').strip() or '未知'
-            month = (r.get('cycle_start') or '')[:7] or '未知'
-            b = agg[(name, month)]
-            b['count'] += 1
-            b['pay'] += r.get('total_pay') or 0
-            b['recv'] += r.get('total_recv') or 0
-            b['occupy'] += r.get('current_occupy') or 0
-            b['amt_day'] += r.get('amount_day') or 0
-            b['cost'] += r.get('est_cost') or 0
-            b['ca'] += r.get('contract_amount') or 0
-            rl = r.get('risk_level') or 'healthy'
-            b['risk'][rl if rl in b['risk'] else 'healthy'] += 1
-
-        for (name, month), b in agg.items():
-            ca = b['ca'] or b['pay'] or 0
-            extra = {
-                'dim': dim, 'dim_name': DIM_NAME_MAP.get(dim, dim), 'month': month,
-                'contract_count': b['count'],
-                'total_pay': round(b['pay'], 2), 'total_recv': round(b['recv'], 2),
-                'current_occupy': round(b['occupy'], 2), 'amount_day': round(b['amt_day'], 2),
-                'est_cost': round(b['cost'], 2),
-                'recv_rate': round(b['recv'] / ca, 4) if ca > 0 else 0,
-                'occupy_intensity': round(b['occupy'] / ca, 4) if ca > 0 else 0,
-                'risk_count': b['risk'],
-                'risk_level': next((lv for lv in ['red', 'orange', 'yellow', 'healthy']
-                                    if b['risk'].get(lv, 0) > 0), 'healthy'),
-            }
-            c.execute("INSERT INTO indicator_metrics (job_key, metric_name, dim_type, dim_value, year, contract_amt, gross_profit, gross_rate, extra_json, calc_time) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                      ('fund-multidim', f'fund_dim:{dim}', 'fund_dim', name, month,
-                       b['count'], b['occupy'], extra['occupy_intensity'],
-                       json.dumps(extra, ensure_ascii=False), now))
-            n += 1
-
-    conn.commit()
-    conn.close()
-    return {'success': True, 'rows': n}
 
 
-def run_etl_payment_cycle():
-    """回款周期 ETL：读总合同表 + 项目里程碑表 → 算每合同回款周期 → 写宽表"""
-    import openpyxl
-    from datetime import datetime, date
-
-    h_fpath = _ds_latest_path('总合同表')
-    r_fpath = _ds_latest_path('项目里程碑表')
-    if not h_fpath:
-        return {'success': False, 'error': '总合同表未上传'}
-
-    def parse_date(v):
-        if v is None or v == '' or v == '-': return None
-        if isinstance(v, (datetime, date)): return v
-        s = str(v).strip()
-        if s.startswith('='): return None
-        for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%Y/%m/%d', '%Y.%m.%d', '%Y%m%d']:
-            try: return datetime.strptime(s, fmt)
-            except: pass
-        return None
-
-    def safe_float(v):
-        if v is None or v == '' or v == '-': return 0.0
-        try: return float(v)
-        except: return 0.0
-
-    def find_col(headers, keywords):
-        for h in headers:
-            hl = str(h).lower().replace(' ', '').replace('_', '').replace('-', '')
-            for kw in keywords:
-                if kw.lower().replace(' ', '').replace('_', '').replace('-', '') in hl:
-                    return h
-        return None
-
-    # 读总合同表
-    wb = openpyxl.load_workbook(h_fpath, data_only=True)
-    ws = wb.active
-    hrows = list(ws.iter_rows(values_only=True))
-    wb.close()
-    h_headers = [str(h) if h else '' for h in hrows[0]]
-    h_col_no = find_col(h_headers, ['合同编号'])
-    h_col_date = find_col(h_headers, ['统计日期', '签约日期'])
-    h_col_amt = find_col(h_headers, ['合同总金额', '合同金额', '合同额'])
-    h_idx = {h: i for i, h in enumerate(h_headers)}
-    contracts = {}
-    for r in hrows[1:]:
-        if r is None: continue
-        cno = str(r[h_idx[h_col_no]]).strip() if h_col_no and h_idx.get(h_col_no) is not None else ''
-        if not cno: continue
-        cdate = parse_date(r[h_idx[h_col_date]]) if h_col_date and h_idx.get(h_col_date) is not None else None
-        amt = safe_float(r[h_idx[h_col_amt]]) if h_col_amt and h_idx.get(h_col_amt) is not None else 0.0
-        contracts[cno] = {'date': cdate, 'amount': amt}
-
-    # 读项目里程碑表，找每合同的最后一笔回款日期
-    last_pay = {}
-    if r_fpath:
-        wb = openpyxl.load_workbook(r_fpath, data_only=True)
-        ws = wb.active
-        rrows = list(ws.iter_rows(values_only=True))
-        wb.close()
-        r_headers = [str(h) if h else '' for h in rrows[0]]
-        r_col_no = find_col(r_headers, ['合同编号'])
-        r_col_pay_date = find_col(r_headers, ['回款时间', '回款日期', '到款时间'])
-        r_idx = {h: i for i, h in enumerate(r_headers)}
-        for r in rrows[1:]:
-            if r is None: continue
-            cno = str(r[r_idx[r_col_no]]).strip() if r_col_no and r_idx.get(r_col_no) is not None else ''
-            if not cno: continue
-            pdate = parse_date(r[r_idx[r_col_pay_date]]) if r_col_pay_date and r_idx.get(r_col_pay_date) is not None else None
-            if pdate and (cno not in last_pay or pdate > last_pay[cno]):
-                last_pay[cno] = pdate
-
-    # 算回款周期，写宽表
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("DELETE FROM payment_cycle_metrics")
-    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    n = 0
-    for cno, info in contracts.items():
-        cdate = info['date']
-        pdate = last_pay.get(cno)
-        cycle_days = 0
-        if cdate and pdate:
-            cycle_days = (pdate - cdate).days
-            if cycle_days < 0: cycle_days = 0
-        c.execute("INSERT INTO payment_cycle_metrics (contract_no, contract_date, last_payment_date, cycle_days, amount, calc_time) VALUES (?,?,?,?,?,?)",
-                  (cno, cdate.strftime('%Y-%m-%d') if cdate else '', pdate.strftime('%Y-%m-%d') if pdate else '', cycle_days, info['amount'], now))
-        n += 1
-    conn.commit()
-    conn.close()
-    return {'success': True, 'rows': n}
 
 
-@app.get("/api/payment-cycle/metrics")
-def payment_cycle_metrics():
-    """回款周期宽表查询：读 payment_cycle_metrics 宽表（ETL 结果），页面直接渲染"""
-    conn = get_db()
-    c = conn.cursor()
-    rows = [dict(r) for r in c.execute("SELECT * FROM payment_cycle_metrics ORDER BY cycle_days DESC").fetchall()]
-    conn.close()
-    if not rows:
-        return {'success': False, 'error': '回款周期宽表为空，请先执行「回款周期指标计算」定时任务'}
-
-    # 统计：平均回款周期、分布
-    total = len(rows)
-    has_pay = [r for r in rows if r['cycle_days'] > 0]
-    avg_days = round(sum(r['cycle_days'] for r in has_pay) / len(has_pay)) if has_pay else 0
-    buckets = {'0-90天': 0, '91-180天': 0, '181-365天': 0, '365天以上': 0}
-    for r in has_pay:
-        d = r['cycle_days']
-        if d <= 90: buckets['0-90天'] += 1
-        elif d <= 180: buckets['91-180天'] += 1
-        elif d <= 365: buckets['181-365天'] += 1
-        else: buckets['365天以上'] += 1
-
-    summary = {
-        '合同总数': f'{total}个',
-        '已回款合同': f'{len(has_pay)}个',
-        '平均回款周期': f'{avg_days}天',
-        '回款周期分布': buckets,
-    }
-
-    detail_rows = [{
-        '合同编号': r['contract_no'],
-        '合同签订日期': r['contract_date'],
-        '最后一笔回款日期': r['last_payment_date'],
-        '回款周期(天)': r['cycle_days'],
-        '合同额': r['amount'],
-    } for r in rows[:200]]
-
-    columns = ['合同编号', '合同签订日期', '最后一笔回款日期', '回款周期(天)', '合同额']
-
-    return {'success': True, 'data': {'summary': summary, 'columns': columns, 'rows': detail_rows, 'total': total}}
 
 
-@app.get("/api/etl/jobs")
-def etl_jobs():
-    """ETL 任务列表（供 9007 长期任务关联）"""
-    conn = get_db()
-    c = conn.cursor()
-    jobs = [dict(r) for r in c.execute("SELECT * FROM etl_jobs ORDER BY id").fetchall()]
-    conn.close()
-    return {'jobs': jobs}
 
 
 def _record_execution(job_key, result):
@@ -4134,83 +2798,14 @@ def _record_execution(job_key, result):
     conn.close()
 
 
-@app.post("/api/etl/run/{job_key}")
-def etl_run(job_key: str):
-    """手动触发 ETL 任务"""
-    if job_key == 'gross-margin':
-        result = run_etl_gross_margin()
-    elif job_key == 'fund-occupancy':
-        result = fund_analyze()
-        if result.get('success'):
-            result['rows'] = len(result.get('data', {}).get('rows', []))
-    elif job_key == 'fund-multidim':
-        result = run_etl_fund_multidim()
-    elif job_key == 'payment-cycle':
-        result = run_etl_payment_cycle()
-    else:
-        result = {'success': False, 'error': '该任务的计算逻辑尚未实现（骨架阶段）'}
-    _record_execution(job_key, result)
-    return result
 
 
-@app.post("/api/etl/jobs/{job_key}/start")
-def etl_start(job_key: str):
-    """启动任务（进入自动调度）"""
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("UPDATE etl_jobs SET status='running' WHERE job_key=?", (job_key,))
-    conn.commit()
-    conn.close()
-    return {'success': True, 'job_key': job_key, 'status': 'running'}
 
 
-@app.post("/api/etl/jobs/{job_key}/stop")
-def etl_stop(job_key: str):
-    """停止任务（退出自动调度）"""
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("UPDATE etl_jobs SET status='stopped' WHERE job_key=?", (job_key,))
-    conn.commit()
-    conn.close()
-    return {'success': True, 'job_key': job_key, 'status': 'stopped'}
 
 
-@app.get("/api/etl/jobs/{job_key}")
-def etl_job_detail(job_key: str):
-    """任务详情（含计算逻辑 + 执行记录）"""
-    conn = get_db()
-    c = conn.cursor()
-    job = c.execute("SELECT * FROM etl_jobs WHERE job_key=?", (job_key,)).fetchone()
-    if not job:
-        conn.close()
-        return JSONResponse({'error': '任务不存在'}, status_code=404)
-    job_dict = dict(job)
-    exes = [dict(r) for r in c.execute("SELECT * FROM etl_executions WHERE job_key=? ORDER BY id DESC LIMIT 20", (job_key,)).fetchall()]
-    conn.close()
-    job_dict['executions'] = exes
-    return job_dict
 
 
-@app.get("/api/etl/metrics")
-def etl_metrics(job_key: str = '', metric_name: str = '', dim_type: str = ''):
-    """查询指标汇总宽表（指标数据集MCP 基础，只读）"""
-    conn = get_db()
-    c = conn.cursor()
-    sql = "SELECT * FROM indicator_metrics WHERE 1=1"
-    params = []
-    if job_key:
-        sql += " AND job_key=?"
-        params.append(job_key)
-    if metric_name:
-        sql += " AND metric_name=?"
-        params.append(metric_name)
-    if dim_type:
-        sql += " AND dim_type=?"
-        params.append(dim_type)
-    sql += " ORDER BY id"
-    rows = [dict(r) for r in c.execute(sql, params).fetchall()]
-    conn.close()
-    return {'metrics': rows}
 
 
 # ═══════════════════════════════════════════
@@ -4218,100 +2813,6 @@ def etl_metrics(job_key: str = '', metric_name: str = '', dim_type: str = ''):
 # 对外暴露原始明细访问通道，不做大规模聚合
 # ═══════════════════════════════════════════
 
-@app.get("/api/mcp/ontology/tables")
-def mcp_ontology_tables():
-    """列出原始本体表（只读）"""
-    meta = _load_ds_meta()
-    return {'tables': [{'name': k, 'version_count': len(v.get('versions', []))} for k, v in meta.items()]}
-
-
-@app.get("/api/mcp/ontology/schema")
-def mcp_ontology_schema(table_name: str):
-    """获取数据表结构（原子只读）：返回所有列名及示例值，供智能体了解字段含义。"""
-    import openpyxl
-    fpath = _ds_latest_path(table_name)
-    if not fpath:
-        return {'success': False, 'error': f'表「{table_name}」未上传'}
-    wb = openpyxl.load_workbook(fpath, data_only=True)
-    ws = wb.active
-    rows = list(ws.iter_rows(values_only=True))
-    wb.close()
-    headers = [str(h) if h is not None else '' for h in rows[0]]
-    keep_idx = filter_privacy_headers(headers)
-    s1 = rows[1] if len(rows) > 1 else None
-    s2 = rows[2] if len(rows) > 2 else None
-    columns = []
-    for i in keep_idx:
-        h = headers[i]
-        ex = []
-        if s1 is not None and i < len(s1) and s1[i] is not None:
-            ex.append(str(s1[i])[:24])
-        if s2 is not None and i < len(s2) and s2[i] is not None:
-            ex.append(str(s2[i])[:24])
-        columns.append({'name': h, 'example': ex})
-    return {'table_name': table_name, 'columns': columns, 'column_count': len(columns)}
-
-
-@app.get("/api/mcp/ontology/query")
-def mcp_ontology_query(table_name: str, keyword: str = '', time_column: str = '',
-                       start_date: str = '', end_date: str = '', columns: str = '', limit: int = 100):
-    """查询原始明细（原子只读）：关键词模糊匹配、时间范围过滤、列投影。columns 为逗号分隔列名，空则返回全部列。"""
-    import openpyxl
-    from datetime import datetime, timedelta
-    fpath = _ds_latest_path(table_name)
-    if not fpath:
-        return {'success': False, 'error': f'表「{table_name}」未上传'}
-    wb = openpyxl.load_workbook(fpath, data_only=True)
-    ws = wb.active
-    rows = list(ws.iter_rows(values_only=True))
-    wb.close()
-    headers = [str(h) if h is not None else '' for h in rows[0]]
-    keep_idx = filter_privacy_headers(headers)
-    col_idx = {h: i for i, h in enumerate(headers)}
-
-    selected = [c.strip() for c in columns.split(',') if c.strip() and not is_privacy_header(c.strip())] if columns else []
-
-    def parse_date(v):
-        if v is None or v == '': return None
-        if isinstance(v, datetime): return v
-        s = str(v).strip()
-        try: return datetime.strptime(s[:10], '%Y-%m-%d')
-        except Exception: pass
-        try:
-            n = float(s)
-            if 20000 < n < 80000:
-                return datetime(1899, 12, 30) + timedelta(days=int(n))
-        except Exception: pass
-        return None
-
-    start = parse_date(start_date)
-    end = parse_date(end_date)
-    tc = col_idx.get(time_column) if time_column else None
-
-    kw = keyword.strip().lower()
-    data_rows = []
-    for r in rows[1:]:
-        if r is None: continue
-        if kw:
-            hit = any(kw in str(v).lower() for v in r if v is not None)
-            if not hit: continue
-        if tc is not None:
-            dt = parse_date(r[tc] if tc < len(r) else None)
-            if dt is None: continue
-            if start and dt < start: continue
-            if end and dt > end: continue
-        data_rows.append([str(v) if v is not None else '' for v in r])
-        if len(data_rows) >= limit: break
-
-    if selected:
-        sel_idx = [col_idx[c] for c in selected if c in col_idx]
-        out_headers = [headers[i] for i in sel_idx]
-        out_rows = [[row[i] if i < len(row) else '' for i in sel_idx] for row in data_rows]
-    else:
-        out_headers = [headers[i] for i in keep_idx]
-        out_rows = [[row[i] if i < len(row) else '' for i in keep_idx] for row in data_rows]
-
-    return {'table_name': table_name, 'headers': out_headers, 'rows': out_rows, 'count': len(out_rows)}
 
 
 
@@ -4420,438 +2921,183 @@ def plm_app_js():
     return FileResponse(os.path.join(FRONTEND_DIR, 'plm.app.js'))
 
 
+# ---- 主数据域 core 前端页（R4.2 样板）----
+@app.get("/core")
+def core_page():
+    return FileResponse(os.path.join(FRONTEND_DIR, 'core.html'))
+
+
+@app.get("/core.app.js")
+def core_app_js():
+    return FileResponse(os.path.join(FRONTEND_DIR, 'core.app.js'))
+
+@app.get("/nav.config.js")
+def nav_config_js():
+    return FileResponse(os.path.join(FRONTEND_DIR, 'nav.config.js'))
+
+@app.get("/dev")
+def dev_page(feature: str = ''):
+    return FileResponse(os.path.join(FRONTEND_DIR, 'dev.html'))
+
+
 # ---- 总览 / 配置 / 字典 / 日志 ----
-@app.get("/api/plm/overview")
-def api_plm_overview():
-    return _plm_ret(plm.overview())
 
 
-@app.get("/api/plm/dict")
-def api_plm_dict(category: Optional[str] = None):
-    return _plm_ret(plm.list_dict(category))
 
 
-@app.post("/api/plm/dict")
-def api_plm_dict_create(payload: Dict[str, Any]):
-    return _plm_ret(plm.create_dict(payload.get('category', ''), payload.get('key', ''),
-                                    payload.get('label', ''), payload.get('sort', 0),
-                                    payload.get('remark', ''), _plm_op(payload)))
 
 
-@app.delete("/api/plm/dict/{dict_id}")
-def api_plm_dict_delete(dict_id: int, operator: str = Query('admin')):
-    return _plm_ret(plm.delete_dict(dict_id, operator))
 
 
-@app.get("/api/plm/config")
-def api_plm_config():
-    return _plm_ret(plm.list_config())
 
 
-@app.put("/api/plm/config")
-def api_plm_config_update(payload: Dict[str, Any]):
-    key = payload.get('key')
-    if not key:
-        return {'success': False, 'error': 'key 必填'}
-    return _plm_ret({'key': key,
-                     'value': plm.set_config(key, payload.get('value', ''),
-                                             payload.get('description', ''), _plm_op(payload))})
 
 
-@app.get("/api/plm/logs")
-def api_plm_logs(target_type: Optional[str] = None, target_id: Optional[str] = None,
-                 limit: int = Query(200, le=1000)):
-    return _plm_ret(plm.list_logs(target_type, target_id, limit))
 
 
 # ---- 模块一：商机与投标概算 ----
-@app.get("/api/plm/opportunities")
-def api_plm_opp_list(keyword: Optional[str] = None, status: Optional[str] = None):
-    return _plm_ret(plm.list_opportunities(keyword, status))
 
 
-@app.post("/api/plm/opportunities")
-def api_plm_opp_create(payload: Dict[str, Any]):
-    return _plm_ret(plm.create_opportunity(payload, _plm_op(payload)))
 
 
-@app.get("/api/plm/opportunities/{opp_id}")
-def api_plm_opp_get(opp_id: int):
-    r = plm.get_opportunity(opp_id)
-    if not r:
-        return JSONResponse({'success': False, 'error': '商机不存在'}, status_code=404)
-    return _plm_ret(r)
 
 
-@app.put("/api/plm/opportunities/{opp_id}")
-def api_plm_opp_update(opp_id: int, payload: Dict[str, Any]):
-    return _plm_ret(plm.update_opportunity(opp_id, payload, _plm_op(payload)))
 
 
-@app.delete("/api/plm/opportunities/{opp_id}")
-def api_plm_opp_delete(opp_id: int, operator: str = Query('admin')):
-    return _plm_ret(plm.delete_opportunity(opp_id, operator))
 
 
-@app.post("/api/plm/opportunities/{opp_id}/follow")
-def api_plm_opp_follow(opp_id: int, payload: Dict[str, Any]):
-    return _plm_ret(plm.add_follow_record(opp_id, payload.get('content', ''),
-                                          _plm_op(payload), payload.get('time')))
 
 
-@app.get("/api/plm/opportunities/{opp_id}/estimate")
-def api_plm_opp_estimate(opp_id: int):
-    return _plm_ret(plm.get_opportunity_estimate(opp_id))
 
 
-@app.post("/api/plm/opportunities/{opp_id}/estimate")
-def api_plm_opp_estimate_save(opp_id: int, payload: Dict[str, Any]):
-    return _plm_ret(plm.save_opportunity_estimate(opp_id, payload, _plm_op(payload)))
 
 
-@app.get("/api/plm/opportunities/{opp_id}/docs")
-def api_plm_opp_docs(opp_id: int):
-    return _plm_ret(plm.list_presale_docs(opp_id))
 
 
-@app.post("/api/plm/opportunities/{opp_id}/docs")
-def api_plm_opp_doc_create(opp_id: int, payload: Dict[str, Any]):
-    p = dict(payload)
-    p['opportunity_id'] = opp_id
-    return _plm_ret(plm.create_presale_doc(p, _plm_op(payload)))
 
 
-@app.delete("/api/plm/presale-docs/{doc_id}")
-def api_plm_opp_doc_delete(doc_id: int, operator: str = Query('admin')):
-    return _plm_ret(plm.delete_presale_doc(doc_id, operator))
 
 
 # ---- 模块二：中标商机联动立项 ----
-@app.post("/api/plm/opportunities/convert")
-def api_plm_convert(payload: Dict[str, Any]):
-    return _plm_ret(plm.convert_opportunity(payload, _plm_op(payload)))
 
 
 # ---- 模块二：合同 ----
-@app.get("/api/plm/contracts")
-def api_plm_ct_list(keyword: Optional[str] = None):
-    return _plm_ret(plm.list_contracts(keyword))
 
 
-@app.post("/api/plm/contracts")
-def api_plm_ct_create(payload: Dict[str, Any]):
-    return _plm_ret(plm.create_contract(payload, _plm_op(payload)))
 
 
-@app.get("/api/plm/contracts/{contract_id}")
-def api_plm_ct_get(contract_id: int):
-    r = plm.get_contract(contract_id)
-    if not r:
-        return JSONResponse({'success': False, 'error': '合同不存在'}, status_code=404)
-    return _plm_ret(r)
 
 
-@app.put("/api/plm/contracts/{contract_id}")
-def api_plm_ct_update(contract_id: int, payload: Dict[str, Any]):
-    return _plm_ret(plm.update_contract(contract_id, payload, _plm_op(payload)))
 
 
-@app.delete("/api/plm/contracts/{contract_id}")
-def api_plm_ct_delete(contract_id: int, operator: str = Query('admin')):
-    return _plm_ret(plm.delete_contract(contract_id, operator))
 
 
 # ---- 项目：列表 / 详情 / 全景 / 进度 / 财务 ----
-@app.get("/api/plm/projects")
-def api_plm_proj_list(keyword: Optional[str] = None, status: Optional[str] = None):
-    return _plm_ret(plm.list_projects(keyword, status))
 
 
-@app.post("/api/plm/projects")
-def api_plm_proj_create(payload: Dict[str, Any]):
-    return _plm_ret(plm.create_project(payload, _plm_op(payload)))
 
 
-@app.get("/api/plm/projects/{project_id}")
-def api_plm_proj_get(project_id: int):
-    r = plm.get_project(project_id)
-    if not r:
-        return JSONResponse({'success': False, 'error': '项目不存在'}, status_code=404)
-    return _plm_ret(r)
 
 
-@app.put("/api/plm/projects/{project_id}")
-def api_plm_proj_update(project_id: int, payload: Dict[str, Any]):
-    return _plm_ret(plm.update_project(project_id, payload, _plm_op(payload)))
 
 
-@app.delete("/api/plm/projects/{project_id}")
-def api_plm_proj_delete(project_id: int, operator: str = Query('admin')):
-    return _plm_ret(plm.delete_project(project_id, operator))
 
 
-@app.get("/api/plm/projects/{project_id}/panorama")
-def api_plm_proj_panorama(project_id: int):
-    r = plm.project_panorama(project_id)
-    if not r:
-        return JSONResponse({'success': False, 'error': '项目不存在'}, status_code=404)
-    return _plm_ret(r)
 
 
-@app.get("/api/plm/projects/{project_id}/progress")
-def api_plm_proj_progress(project_id: int):
-    return _plm_ret(plm.project_progress(project_id))
 
 
-@app.get("/api/plm/projects/{project_id}/finance")
-def api_plm_proj_finance(project_id: int):
-    return _plm_ret(plm.project_finance(project_id))
 
 
 # ---- 模块二/三：四算基线 ----
-@app.get("/api/plm/projects/{project_id}/baselines")
-def api_plm_baseline_list(project_id: int):
-    return _plm_ret(plm.list_baselines(project_id=project_id))
 
 
-@app.get("/api/plm/projects/{project_id}/baseline-compare")
-def api_plm_baseline_compare(project_id: int):
-    return _plm_ret(plm.compare_baselines(project_id))
 
 
-@app.post("/api/plm/projects/{project_id}/baselines")
-def api_plm_baseline_save(project_id: int, payload: Dict[str, Any]):
-    p = dict(payload)
-    p.setdefault('project_id', project_id)
-    p.setdefault('scope_type', 'project')
-    p.setdefault('scope_id', project_id)
-    return _plm_ret(plm.save_baseline(p, _plm_op(payload)))
 
 
-@app.get("/api/plm/baselines/{baseline_id}")
-def api_plm_baseline_get(baseline_id: int):
-    r = plm.get_baseline(baseline_id)
-    if not r:
-        return JSONResponse({'success': False, 'error': '基线不存在'}, status_code=404)
-    return _plm_ret(r)
 
 
-@app.put("/api/plm/baselines/{baseline_id}")
-def api_plm_baseline_update(baseline_id: int, payload: Dict[str, Any]):
-    p = dict(payload)
-    p['id'] = baseline_id
-    return _plm_ret(plm.save_baseline(p, _plm_op(payload)))
 
 
-@app.post("/api/plm/baselines/{baseline_id}/confirm")
-def api_plm_baseline_confirm(baseline_id: int, payload: Dict[str, Any] = None):
-    return _plm_ret(plm.confirm_baseline(baseline_id, _plm_op(payload)))
 
 
-@app.post("/api/plm/baselines/{baseline_id}/lock")
-def api_plm_baseline_lock(baseline_id: int, payload: Dict[str, Any] = None):
-    return _plm_ret(plm.lock_baseline(baseline_id, _plm_op(payload)))
 
 
-@app.delete("/api/plm/baselines/{baseline_id}")
-def api_plm_baseline_delete(baseline_id: int, operator: str = Query('admin')):
-    return _plm_ret(plm.delete_baseline(baseline_id, operator))
 
 
 # ---- 模块三：里程碑与任务 ----
-@app.get("/api/plm/projects/{project_id}/milestones")
-def api_plm_ms_list(project_id: int):
-    return _plm_ret(plm.list_milestones(project_id))
 
 
-@app.post("/api/plm/projects/{project_id}/milestones")
-def api_plm_ms_create(project_id: int, payload: Dict[str, Any]):
-    p = dict(payload)
-    p.setdefault('project_id', project_id)
-    return _plm_ret(plm.create_milestone(p, _plm_op(payload)))
 
 
-@app.put("/api/plm/milestones/{milestone_id}")
-def api_plm_ms_update(milestone_id: int, payload: Dict[str, Any]):
-    return _plm_ret(plm.update_milestone(milestone_id, payload, _plm_op(payload)))
 
 
-@app.delete("/api/plm/milestones/{milestone_id}")
-def api_plm_ms_delete(milestone_id: int, operator: str = Query('admin')):
-    return _plm_ret(plm.delete_milestone(milestone_id, operator))
 
 
-@app.get("/api/plm/projects/{project_id}/tasks")
-def api_plm_task_list(project_id: int, milestone_id: Optional[int] = None):
-    return _plm_ret(plm.list_tasks(project_id, milestone_id))
 
 
-@app.post("/api/plm/tasks")
-def api_plm_task_create(payload: Dict[str, Any]):
-    return _plm_ret(plm.create_task(payload, _plm_op(payload)))
 
 
-@app.get("/api/plm/tasks/{task_id}")
-def api_plm_task_get(task_id: int):
-    r = plm.get_task(task_id)
-    if not r:
-        return JSONResponse({'success': False, 'error': '任务不存在'}, status_code=404)
-    return _plm_ret(r)
 
 
-@app.put("/api/plm/tasks/{task_id}")
-def api_plm_task_update(task_id: int, payload: Dict[str, Any]):
-    return _plm_ret(plm.update_task(task_id, payload, _plm_op(payload)))
 
 
-@app.delete("/api/plm/tasks/{task_id}")
-def api_plm_task_delete(task_id: int, operator: str = Query('admin')):
-    return _plm_ret(plm.delete_task(task_id, operator))
 
 
 # ---- 模块四：人力池 / 分配 / 工时 ----
-@app.get("/api/plm/staff")
-def api_plm_staff_list(keyword: Optional[str] = None, status: Optional[str] = None):
-    return _plm_ret(plm.list_staff(keyword, status))
 
 
 # 必须先于 /staff/{staff_id} 注册，否则 'load' 会被当作整型 id 解析
-@app.get("/api/plm/staff/load")
-def api_plm_staff_load():
-    return _plm_ret(plm.staff_load())
 
 
-@app.post("/api/plm/staff")
-def api_plm_staff_create(payload: Dict[str, Any]):
-    return _plm_ret(plm.create_staff(payload, _plm_op(payload)))
 
 
-@app.get("/api/plm/staff/{staff_id}")
-def api_plm_staff_get(staff_id: int):
-    r = plm.get_staff(staff_id)
-    if not r:
-        return JSONResponse({'success': False, 'error': '人员不存在'}, status_code=404)
-    return _plm_ret(r)
 
 
-@app.put("/api/plm/staff/{staff_id}")
-def api_plm_staff_update(staff_id: int, payload: Dict[str, Any]):
-    return _plm_ret(plm.update_staff(staff_id, payload, _plm_op(payload)))
 
 
-@app.delete("/api/plm/staff/{staff_id}")
-def api_plm_staff_delete(staff_id: int, operator: str = Query('admin')):
-    return _plm_ret(plm.delete_staff(staff_id, operator))
 
 
-@app.get("/api/plm/assignments")
-def api_plm_asg_list(project_id: Optional[int] = None, staff_id: Optional[int] = None,
-                     status: Optional[str] = None):
-    return _plm_ret(plm.list_assignments(project_id, staff_id, status))
 
 
-@app.post("/api/plm/assignments")
-def api_plm_asg_create(payload: Dict[str, Any]):
-    return _plm_ret(plm.create_assignment(payload, _plm_op(payload)))
 
 
-@app.put("/api/plm/assignments/{assign_id}")
-def api_plm_asg_update(assign_id: int, payload: Dict[str, Any]):
-    return _plm_ret(plm.update_assignment(assign_id, payload, _plm_op(payload)))
 
 
-@app.delete("/api/plm/assignments/{assign_id}")
-def api_plm_asg_delete(assign_id: int, operator: str = Query('admin')):
-    return _plm_ret(plm.delete_assignment(assign_id, operator))
 
 
-@app.get("/api/plm/timesheets")
-def api_plm_ts_list(project_id: Optional[int] = None, staff_id: Optional[int] = None):
-    return _plm_ret(plm.list_timesheets(project_id, staff_id))
 
 
-@app.post("/api/plm/timesheets")
-def api_plm_ts_create(payload: Dict[str, Any]):
-    return _plm_ret(plm.create_timesheet(payload, _plm_op(payload)))
 
 
-@app.put("/api/plm/timesheets/{ts_id}")
-def api_plm_ts_update(ts_id: int, payload: Dict[str, Any]):
-    return _plm_ret(plm.update_timesheet(ts_id, payload, _plm_op(payload)))
 
 
-@app.delete("/api/plm/timesheets/{ts_id}")
-def api_plm_ts_delete(ts_id: int, operator: str = Query('admin')):
-    return _plm_ret(plm.delete_timesheet(ts_id, operator))
 
 
-@app.post("/api/plm/timesheets/sync")
-def api_plm_ts_sync(payload: Dict[str, Any] = None):
-    p = payload or {}
-    return _plm_ret(plm.sync_labor_cost(p.get('project_id'), p.get('staff_id')))
 
 
 # ---- 模块五：收支台账 ----
-@app.get("/api/plm/ledger")
-def api_plm_ledger_list(project_id: Optional[int] = None, kind: Optional[str] = None,
-                        category: Optional[str] = None, source: Optional[str] = None):
-    return _plm_ret(plm.list_ledger(project_id, kind, category, source))
 
 
-@app.post("/api/plm/ledger")
-def api_plm_ledger_create(payload: Dict[str, Any]):
-    return _plm_ret(plm.create_ledger(payload, _plm_op(payload)))
 
 
-@app.put("/api/plm/ledger/{ledger_id}")
-def api_plm_ledger_update(ledger_id: int, payload: Dict[str, Any]):
-    return _plm_ret(plm.update_ledger(ledger_id, payload, _plm_op(payload)))
 
 
-@app.delete("/api/plm/ledger/{ledger_id}")
-def api_plm_ledger_delete(ledger_id: int, operator: str = Query('admin')):
-    return _plm_ret(plm.delete_ledger(ledger_id, operator))
 
 
 # ---- 模块七：预警 ----
-@app.get("/api/plm/alert-rules")
-def api_plm_rule_list():
-    return _plm_ret(plm.list_alert_rules())
 
 
-@app.put("/api/plm/alert-rules/{rule_key}")
-def api_plm_rule_update(rule_key: str, payload: Dict[str, Any]):
-    return _plm_ret(plm.update_alert_rule(rule_key, payload, _plm_op(payload)))
 
 
-@app.get("/api/plm/alerts")
-def api_plm_alert_list(project_id: Optional[int] = None, dim: Optional[str] = None,
-                       status: Optional[str] = None, level: Optional[str] = None):
-    return _plm_ret(plm.list_alerts(project_id, dim, status, level))
 
 
-@app.post("/api/plm/alerts/scan")
-def api_plm_alert_scan(payload: Dict[str, Any] = None):
-    return _plm_ret(plm.scan_alerts(_plm_op(payload)))
 
 
-@app.put("/api/plm/alerts/{alert_id}/handle")
-def api_plm_alert_handle(alert_id: int, payload: Dict[str, Any]):
-    return _plm_ret(plm.handle_alert(alert_id, payload, _plm_op(payload)))
 
 
 # ---- 模块八：报表导出 ----
-@app.get("/api/plm/export/{report}")
-def api_plm_export(report: str, project_id: Optional[int] = None):
-    try:
-        filename, data = plm.export_report(report, project_id)
-    except ValueError as e:
-        return JSONResponse({'success': False, 'error': str(e)}, status_code=400)
-    return _RawResponse(
-        content=data,
-        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        headers={'Content-Disposition': "attachment; filename*=UTF-8''%s"
-                                        % urllib.parse.quote(filename)})
 
 
 if __name__ == '__main__':

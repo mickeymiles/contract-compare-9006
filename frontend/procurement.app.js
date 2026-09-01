@@ -166,9 +166,8 @@ function switchSidebar(name) {
   });
   __assertUniqueActive('.proc-top-panel.active', 'proc-top-panel');
 
-  // 本体可观测：二级菜单进入时同步展开手风琴，并刷新面包屑
+  // 本体可观测：二级菜单进入时同步刷新面包屑
   if (_ONT_MENU_KEYS.includes(name)) {
-    setOntAccOpen(true);
     $('procCrumb').textContent = `🛒 备品备件采购询比价 › 本体可观测 › ${_ONT_MENU_LABEL[name]}`;
   }
 
@@ -2618,15 +2617,8 @@ function refreshOntPanel(name) {
   });
 }
 
-/** 手风琴展开/收起（二级菜单被选中时自动保持展开）。 */
-function toggleOntAcc() {
-  setOntAccOpen(!($('ontAccHead').classList.contains('open')));
-}
-
-function setOntAccOpen(open) {
-  $('ontAccHead').classList.toggle('open', open);
-  $('ontAccBody').classList.toggle('open', open);
-}
+// 注：原 toggleOntAcc / setOntAccOpen（本体可观测手风琴的手动展开收起）已移除 ——
+// R4 统一壳改用 nav.config.js 的 renderAccordion 渲染侧边栏，分组折叠由 NC 统一处理。
 
 function ontChip(text, tone = '') {
   return `<span class="ont-chip ${tone}">${escapeHtml(text)}</span>`;
