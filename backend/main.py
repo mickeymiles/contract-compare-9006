@@ -975,6 +975,12 @@ from procurement_models import (
     delete_contract as proc_delete_contract,
     # ---- 全局邮件抄送配置（list/create/delete + 给 neuops 拿 CC 列表）----
     list_mail_cc, create_mail_cc, delete_mail_cc, get_all_cc_emails,
+    # ---- 审批人配置（智能体 emp-009 用，页面维护，替代 ONT_APPROVERS 环境变量）----
+    list_approvers, get_approver, create_approver, update_approver, delete_approver,
+    get_all_approver_emails,
+    # ---- 智能体邮件模板配置（A-G，页面可改措辞）----
+    list_mail_templates, get_mail_template, update_mail_template, reset_mail_template,
+    get_mail_templates_map,
     # ---- 前端人工修改报价 ----
     manual_update_supplier_quote,
     # ---- 备品备件主数据 CRUD ----
@@ -1406,6 +1412,103 @@ def api_proc_mailcc_delete(cc_id: int):
         return {"success": True, **r}
     except ValueError as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+
+
+# ============================================================
+# 审批人配置：备件采购智能体(emp-009)的审批人，页面维护
+# 替代 ONT_APPROVERS 环境变量；智能体直读本库 procurement_approver
+# ============================================================
+
+class ApproverBody(BaseModel):
+    name: str
+    email: str
+    enabled: Optional[int] = 1
+
+
+class ApproverUpdateBody(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    enabled: Optional[int] = None
+
+
+@app.get("/api/procurement/approvers")
+def api_proc_approvers_list(keyword: Optional[str] = None, only_enabled: int = 0):
+    rows = list_approvers(keyword=keyword, only_enabled=bool(only_enabled))
+    return {"success": True, "data": rows, "total": len(rows)}
+
+
+@app.post("/api/procurement/approvers")
+def api_proc_approvers_create(body: ApproverBody):
+    try:
+        r = create_approver(name=body.name, email=body.email, enabled=body.enabled or 0)
+        return {"success": True, "data": r}
+    except ValueError as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+
+
+@app.put("/api/procurement/approvers/{approver_id}")
+def api_proc_approvers_update(approver_id: int, body: ApproverUpdateBody):
+    try:
+        r = update_approver(approver_id=approver_id, name=body.name,
+                            email=body.email, enabled=body.enabled)
+        if r is None:
+            return JSONResponse({"success": False, "error": "审批人不存在"}, status_code=404)
+        return {"success": True, "data": r}
+    except ValueError as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+
+
+@app.delete("/api/procurement/approvers/{approver_id}")
+def api_proc_approvers_delete(approver_id: int):
+    try:
+        r = delete_approver(approver_id)
+        return {"success": True, **r}
+    except ValueError as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+
+
+# ============================================================
+# 智能体邮件模板配置：A-G，页面可改措辞
+# subject/body 留空 => 智能体回退 skill 默认模板（避免发出空邮件）
+# ============================================================
+
+class MailTemplateUpdateBody(BaseModel):
+    name: Optional[str] = None
+    subject: Optional[str] = None
+    body: Optional[str] = None
+    enabled: Optional[int] = None
+
+
+@app.get("/api/procurement/mail-templates")
+def api_proc_mail_templates():
+    rows = list_mail_templates()
+    return {"success": True, "data": rows, "total": len(rows)}
+
+
+@app.get("/api/procurement/mail-templates/{tpl_key}")
+def api_proc_mail_template_get(tpl_key: str):
+    r = get_mail_template(tpl_key.upper())
+    if not r:
+        return JSONResponse({"success": False, "error": "模板不存在"}, status_code=404)
+    return {"success": True, "data": r}
+
+
+@app.put("/api/procurement/mail-templates/{tpl_key}")
+def api_proc_mail_template_update(tpl_key: str, body: MailTemplateUpdateBody):
+    r = update_mail_template(tpl_key=tpl_key.upper(), name=body.name,
+                             subject=body.subject, body=body.body, enabled=body.enabled)
+    if r is None:
+        return JSONResponse({"success": False, "error": "模板不存在"}, status_code=404)
+    return {"success": True, "data": r}
+
+
+@app.post("/api/procurement/mail-templates/{tpl_key}/reset")
+def api_proc_mail_template_reset(tpl_key: str):
+    """清空自定义内容，回退到 skill 默认模板"""
+    r = reset_mail_template(tpl_key.upper())
+    if r is None:
+        return JSONResponse({"success": False, "error": "模板不存在"}, status_code=404)
+    return {"success": True, "data": r}
 
 
 # ===================== 备品备件 =====================

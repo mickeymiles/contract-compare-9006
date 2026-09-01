@@ -186,6 +186,43 @@ def init_procurement_db():
             INSERT INTO procurement_supplier(name, email, capability) VALUES (?,?,?)
         """, seed_suppliers)
 
+    # 4.1 审批人配置（备件采购智能体 emp-009 用；页面维护，逐步替代 ONT_APPROVERS 环境变量）
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS procurement_approver (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            enabled INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            updated_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_proc_approver_email ON procurement_approver(email)")
+
+    # 4.2 智能体邮件模板配置（A-G；页面可改措辞。subject/body 留空则回退 skill 默认模板，避免发空邮件）
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS procurement_mail_template (
+            tpl_key TEXT PRIMARY KEY,
+            name TEXT DEFAULT '',
+            subject TEXT DEFAULT '',
+            body TEXT DEFAULT '',
+            enabled INTEGER DEFAULT 1,
+            updated_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    _tpl_keys = [
+        ("A", "工程师询价回执"),
+        ("B", "向供应商发起询价"),
+        ("C", "催报价"),
+        ("D", "报价汇总待审批"),
+        ("E", "订货确认"),
+        ("F", "快递单号/中止通知"),
+        ("G", "采购结束结算"),
+    ]
+    c.executemany("""
+        INSERT OR IGNORE INTO procurement_mail_template(tpl_key, name) VALUES (?,?)
+    """, _tpl_keys)
+
     # 5. 合同主数据表（核心实体，不再关联项目）
     c.execute("""
         CREATE TABLE IF NOT EXISTS procurement_contract (
@@ -1308,6 +1345,172 @@ def list_ledger_advanced(*, contract_no=None, supplier_name=None,
     rows = [dict(r) for r in c.fetchall()]
     conn.close()
     return rows
+
+
+# ============================================================
+# 审批人配置（备件采购智能体 emp-009 用，页面维护）
+# ============================================================
+
+def list_approvers(*, keyword=None, only_enabled=False, limit=500):
+    """审批人列表：支持按 名称/邮箱 模糊搜索"""
+    conn = get_db()
+    c = conn.cursor()
+    sql = "SELECT * FROM procurement_approver"
+    params, conds = [], []
+    if keyword:
+        conds.append("(name LIKE ? OR email LIKE ?)")
+        like = f"%{keyword}%"
+        params += [like, like]
+    if only_enabled:
+        conds.append("enabled=1")
+    if conds:
+        sql += " WHERE " + " AND ".join(conds)
+    sql += " ORDER BY id ASC LIMIT ?"
+    params.append(limit)
+    c.execute(sql, params)
+    rows = c.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_approver(approver_id):
+    conn = get_db()
+    c = conn.cursor()
+    r = c.execute("SELECT * FROM procurement_approver WHERE id=?", (approver_id,)).fetchone()
+    conn.close()
+    return dict(r) if r else None
+
+
+def create_approver(*, name, email, enabled=1):
+    """新增审批人：email 唯一"""
+    if not name or not email:
+        raise ValueError("审批人姓名与邮箱必填")
+    conn = get_db()
+    c = conn.cursor()
+    dup = c.execute("SELECT id FROM procurement_approver WHERE email=?", (email,)).fetchone()
+    if dup:
+        conn.close()
+        raise ValueError(f"邮箱已被审批人『{dup['id']}』占用，每个审批人一个邮箱")
+    c.execute("""
+        INSERT INTO procurement_approver(name, email, enabled) VALUES (?,?,?)
+    """, (name.strip(), email.strip(), 1 if enabled else 0))
+    new_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return get_approver(new_id)
+
+
+def update_approver(*, approver_id, name=None, email=None, enabled=None):
+    conn = get_db()
+    c = conn.cursor()
+    existing = c.execute("SELECT id FROM procurement_approver WHERE id=?", (approver_id,)).fetchone()
+    if not existing:
+        conn.close()
+        return None
+    sets, params = [], []
+    if name is not None:
+        sets.append("name=?"); params.append(name.strip())
+    if email is not None:
+        email = email.strip()
+        dup = c.execute("SELECT id FROM procurement_approver WHERE email=? AND id<>?",
+                        (email, approver_id)).fetchone()
+        if dup:
+            conn.close()
+            raise ValueError(f"邮箱已被其它审批人『{dup['id']}』占用")
+        sets.append("email=?"); params.append(email)
+    if enabled is not None:
+        sets.append("enabled=?"); params.append(1 if enabled else 0)
+    if not sets:
+        conn.close(); return get_approver(approver_id)
+    sets.append("updated_at=datetime('now','localtime')")
+    params.append(approver_id)
+    c.execute(f"UPDATE procurement_approver SET {', '.join(sets)} WHERE id=?", params)
+    conn.commit()
+    conn.close()
+    return get_approver(approver_id)
+
+
+def delete_approver(approver_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM procurement_approver WHERE id=?", (approver_id,))
+    n = c.rowcount
+    conn.commit()
+    conn.close()
+    if n == 0:
+        raise ValueError("审批人不存在")
+    return {"deleted": n, "id": approver_id}
+
+
+def get_all_approver_emails():
+    """给智能体用：返回启用中的审批人邮箱列表"""
+    return [r["email"] for r in list_approvers(only_enabled=True) if r.get("email")]
+
+
+# ============================================================
+# 智能体邮件模板配置（A-G，页面可改措辞）
+# ============================================================
+
+def list_mail_templates():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM procurement_mail_template ORDER BY tpl_key ASC")
+    rows = c.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_mail_template(tpl_key):
+    conn = get_db()
+    c = conn.cursor()
+    r = c.execute("SELECT * FROM procurement_mail_template WHERE tpl_key=?", (tpl_key,)).fetchone()
+    conn.close()
+    return dict(r) if r else None
+
+
+def update_mail_template(*, tpl_key, name=None, subject=None, body=None, enabled=None):
+    conn = get_db()
+    c = conn.cursor()
+    existing = get_mail_template(tpl_key)
+    if not existing:
+        conn.close()
+        return None
+    sets, params = [], []
+    if name is not None:
+        sets.append("name=?"); params.append(name)
+    if subject is not None:
+        sets.append("subject=?"); params.append(subject)
+    if body is not None:
+        sets.append("body=?"); params.append(body)
+    if enabled is not None:
+        sets.append("enabled=?"); params.append(1 if enabled else 0)
+    if not sets:
+        conn.close(); return existing
+    sets.append("updated_at=datetime('now','localtime')")
+    params.append(tpl_key)
+    c.execute(f"UPDATE procurement_mail_template SET {', '.join(sets)} WHERE tpl_key=?", params)
+    conn.commit()
+    conn.close()
+    return get_mail_template(tpl_key)
+
+
+def reset_mail_template(tpl_key):
+    """清空自定义内容，回退到 skill 默认模板"""
+    return update_mail_template(tpl_key=tpl_key, subject="", body="")
+
+
+def get_mail_templates_map():
+    """给智能体用：{模板键: {subject, body}}，仅含启用且内容非空者（空则回退默认模板）"""
+    out = {}
+    for r in list_mail_templates():
+        if not r.get("enabled"):
+            continue
+        subj = (r.get("subject") or "").strip()
+        body = (r.get("body") or "").strip()
+        if not subj and not body:
+            continue
+        out[r["tpl_key"]] = {"subject": subj, "body": body}
+    return out
 
 
 # ============================================================

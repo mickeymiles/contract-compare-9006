@@ -383,8 +383,10 @@
     <div class="menu-group">基础数据</div>
     <div class="menu-item" data-menu="sparepart" onclick="switchSidebar('sparepart')"><span class="icon">🔧</span>备品备件</div>
     <div class="menu-item" data-menu="supplier" onclick="switchSidebar('supplier')"><span class="icon">🏢</span>供应商</div>
+    <div class="menu-item" data-menu="approver" onclick="switchSidebar('approver')"><span class="icon">✅</span>审批人</div>
     <div class="menu-item" data-menu="contract" onclick="switchSidebar('contract')"><span class="icon">📄</span>合同</div>
     <div class="menu-item" data-menu="mailcc" onclick="switchSidebar('mailcc')"><span class="icon">📮</span>抄送</div>
+    <div class="menu-item" data-menu="mailtpl" onclick="switchSidebar('mailtpl')"><span class="icon">✉️</span>邮件模板</div>
   </aside>
 
   <div class="proc-content">
@@ -761,6 +763,66 @@
       </div>
     </div>
   </div>  <!-- /proc-tab-mailcc -->
+
+  <!-- ================================================== -->
+  <!-- 审批人配置：备件采购智能体(emp-009)审批人，页面维护 -->
+  <!-- ================================================== -->
+  <div id="proc-tab-approver" class="proc-top-panel">
+    <div class="panel">
+      <h3>✅ 审批人配置</h3>
+      <p style="font-size:12px;color:var(--text2);margin:4px 0 14px">
+        维护备件采购智能体（emp-009）的<b>审批人</b>。报价汇总后会发信请审批人确认选家；
+        <b>只有此处配置的邮箱</b>回复「确认/同意」才会被识别为审批通过。此处配置<b>替代</b> ONT_APPROVERS 环境变量。
+      </p>
+
+      <div class="proc-field" style="max-width:900px;margin-bottom:18px;padding:14px;border:1px dashed rgba(94,215,255,.25);border-radius:10px;background:rgba(94,215,255,.03)">
+        <div style="font-weight:600;font-size:12.5px;color:var(--cyan);margin-bottom:10px">＋ 新增审批人</div>
+        <div style="display:grid;grid-template-columns:1fr 2fr auto;gap:12px;align-items:flex-end">
+          <div>
+            <label style="display:block;font-size:11px;color:var(--text2);margin-bottom:4px">姓名</label>
+            <input type="text" id="approverNewName" placeholder="如：李审批" style="width:100%">
+          </div>
+          <div>
+            <label style="display:block;font-size:11px;color:var(--text2);margin-bottom:4px">邮箱</label>
+            <input type="email" id="approverNewEmail" placeholder="如：approver@corp.com" style="width:100%">
+          </div>
+          <button class="btn btn-p btn-s" onclick="submitNewApprover()">加入</button>
+        </div>
+      </div>
+
+      <div class="proc-toolbar">
+        <span id="approverSummary" style="font-size:12px;color:var(--text2)"></span>
+      </div>
+
+      <table class="proc-table">
+        <thead>
+          <tr><th style="width:50px">#</th><th>姓名</th><th>邮箱</th><th style="width:90px">启用</th><th style="width:130px">创建时间</th><th style="width:80px">操作</th></tr>
+        </thead>
+        <tbody id="approverTbody"></tbody>
+      </table>
+    </div>
+  </div>  <!-- /proc-tab-approver -->
+
+  <!-- ================================================== -->
+  <!-- 智能体邮件模板配置：A-G，页面可改措辞 -->
+  <!-- ================================================== -->
+  <div id="proc-tab-mailtpl" class="proc-top-panel">
+    <div class="panel">
+      <h3>✉️ 智能体邮件模板配置</h3>
+      <p style="font-size:12px;color:var(--text2);margin:4px 0 14px">
+        修改备件采购智能体（emp-009）发出的 A–G 邮件<b>主题与正文措辞</b>。可用占位符：
+        <code>{project_no}</code> <code>{project_name}</code> <code>{part_type}</code> <code>{brand}</code>
+        <code>{pn}</code> <code>{spec}</code> <code>{count}</code> <code>{address}</code>
+        <code>{deadline}</code> <code>{task_no}</code> <code>{supplier}</code> <code>{suppliers}</code>
+        <code>{lowest_quote}</code> <code>{lowest_supplier}</code> <code>{approver_emails}</code><br>
+        <b>主题/正文留空则回退系统默认模板</b>（避免发出空邮件）；点「恢复默认」清空自定义内容。
+      </p>
+      <div class="proc-toolbar">
+        <span id="mailTplSummary" style="font-size:12px;color:var(--text2)"></span>
+      </div>
+      <div id="mailTplList"></div>
+    </div>
+  </div>  <!-- /proc-tab-mailtpl -->
 
   <!-- ================================================== -->
   <!-- 备件邮件询价（只读观察）：neuops 引擎写入 mail_inquiry_task，本页仅查看 -->

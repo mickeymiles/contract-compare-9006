@@ -104,7 +104,8 @@ function fmtStatus(s) {
 }
 
 // ============ 页面切换（左侧菜单导航，单入口 + 唯一性校验） ============
-const _SIDE_MENU_KEYS = ['tasks', 'ledger', 'mailinquiry', 'sparepart', 'supplier', 'contract', 'mailcc',
+const _SIDE_MENU_KEYS = ['tasks', 'ledger', 'mailinquiry', 'sparepart', 'supplier', 'approver', 'contract',
+  'mailcc', 'mailtpl',
   'ontEntities', 'ontKnowledge', 'ontActions', 'ontTasks', 'ontLedger', 'ontTopology'];
 // 「本体可观测」手风琴下的二级子菜单（一级菜单之外）
 const _ONT_MENU_KEYS = ['ontEntities', 'ontKnowledge', 'ontActions', 'ontTasks', 'ontLedger', 'ontTopology'];
@@ -188,6 +189,10 @@ function switchSidebar(name) {
     try { loadContractList(); } catch (e) { console.error(e); }
   } else if (name === 'mailcc') {
     try { loadMailCCList(); } catch (e) { console.error(e); }
+  } else if (name === 'approver') {
+    try { loadApproverList(); } catch (e) { console.error(e); }
+  } else if (name === 'mailtpl') {
+    try { loadMailTemplateList(); } catch (e) { console.error(e); }
   }
 }
 // 兼容旧函数名
@@ -1748,6 +1753,141 @@ async function confirmDeleteCC(id, name) {
   }
 }
 
+
+// ================================================================
+// 审批人配置（备件采购智能体 emp-009）：列表 / 新增 / 启停 / 删除
+// 替代 ONT_APPROVERS 环境变量，智能体直读本库 procurement_approver
+// ================================================================
+
+async function loadApproverList() {
+  try {
+    const d = await api('/approvers');
+    const rows = d.data || [];
+    const on = rows.filter(r => r.enabled).length;
+    setHTML('approverSummary', `共 ${rows.length} 个审批人（启用 ${on}）`);
+    const body = document.getElementById('approverTbody');
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="6" class="empty-tip">暂无审批人配置，在上方输入姓名+邮箱后点「加入」</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map((r, idx) => `
+      <tr>
+        <td>${idx + 1}</td>
+        <td><b>${escapeHtml(r.name)}</b></td>
+        <td style="color:#5ed7ff">${escapeHtml(r.email)}</td>
+        <td>
+          <label style="cursor:pointer">
+            <input type="checkbox" ${r.enabled ? 'checked' : ''} onchange="toggleApprover(${r.id}, this.checked)">
+            ${r.enabled ? '启用' : '停用'}
+          </label>
+        </td>
+        <td style="font-size:11px;color:var(--text2)">${escapeHtml(r.created_at || '')}</td>
+        <td>
+          <button class="btn btn-o btn-s" style="color:var(--red)"
+            onclick="confirmDeleteApprover(${r.id},${JSON.stringify(r.name).replace(/"/g, '&quot;')})">移除</button>
+        </td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    const body = document.getElementById('approverTbody');
+    if (body) {
+      body.innerHTML = `<tr><td colspan="6" class="empty-tip" style="color:var(--red)">加载失败: ${escapeHtml(e.message)}</td></tr>`;
+    }
+  }
+}
+
+async function submitNewApprover() {
+  const name = document.getElementById('approverNewName').value.trim();
+  const email = document.getElementById('approverNewEmail').value.trim();
+  if (!name || !email) { toast('姓名和邮箱必填', 'err'); return; }
+  try {
+    await api('/approvers', 'POST', { name, email, enabled: 1 });
+    toast('已新增审批人');
+    document.getElementById('approverNewName').value = '';
+    document.getElementById('approverNewEmail').value = '';
+    loadApproverList();
+  } catch (e) { toast('新增失败: ' + e.message, 'err'); }
+}
+
+async function toggleApprover(id, enabled) {
+  try {
+    await api(`/approvers/${id}`, 'PUT', { enabled: enabled ? 1 : 0 });
+    toast(enabled ? '已启用' : '已停用');
+    loadApproverList();
+  } catch (e) { toast('更新失败: ' + e.message, 'err'); loadApproverList(); }
+}
+
+async function confirmDeleteApprover(id, name) {
+  if (!confirm(`确认移除审批人『${name}』？移除后其回复将不再被识别为审批。`)) return;
+  try {
+    await api(`/approvers/${id}`, 'DELETE');
+    toast('已移除审批人');
+    loadApproverList();
+  } catch (e) { toast('移除失败: ' + e.message, 'err'); }
+}
+
+// ================================================================
+// 智能体邮件模板配置（A-G）：列表 / 编辑主题与正文 / 恢复默认
+// subject、body 留空 => 智能体回退系统默认模板（避免发出空邮件）
+// ================================================================
+
+async function loadMailTemplateList() {
+  try {
+    const d = await api('/mail-templates');
+    const rows = d.data || [];
+    const custom = rows.filter(r => (r.subject || '').trim() || (r.body || '').trim()).length;
+    setHTML('mailTplSummary', `共 ${rows.length} 个模板（其中 ${custom} 个已自定义）`);
+    const box = document.getElementById('mailTplList');
+    if (!rows.length) { box.innerHTML = '<div class="empty-tip">暂无模板</div>'; return; }
+    box.innerHTML = rows.map(r => {
+      const isCustom = (r.subject || '').trim() || (r.body || '').trim();
+      return `
+      <div style="border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:14px;margin-bottom:14px;background:rgba(255,255,255,.02)">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+          <span style="font-weight:600;font-size:14px;min-width:64px">模板 ${escapeHtml(r.tpl_key)}</span>
+          <span style="font-size:12px;color:var(--text2)">${escapeHtml(r.name || '')}</span>
+          <span style="flex:1"></span>
+          ${isCustom
+            ? '<span style="font-size:11px;color:var(--cyan)">已自定义</span>'
+            : '<span style="font-size:11px;color:var(--text2)">使用系统默认</span>'}
+          <button class="btn btn-o btn-s" onclick="saveMailTemplate('${r.tpl_key}')">保存</button>
+          <button class="btn btn-o btn-s" style="color:var(--red)" onclick="resetMailTemplate('${r.tpl_key}')">恢复默认</button>
+        </div>
+        <div style="margin-bottom:8px">
+          <label style="display:block;font-size:11px;color:var(--text2);margin-bottom:4px">邮件主题</label>
+          <input type="text" id="tplSubject_${r.tpl_key}" value="${escapeHtml(r.subject || '')}" style="width:100%" placeholder="留空则使用系统默认主题">
+        </div>
+        <div>
+          <label style="display:block;font-size:11px;color:var(--text2);margin-bottom:4px">邮件正文（支持占位符）</label>
+          <textarea id="tplBody_${r.tpl_key}" rows="8" style="width:100%;font-size:12px" placeholder="留空则使用系统默认正文">${escapeHtml(r.body || '')}</textarea>
+        </div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    const box = document.getElementById('mailTplList');
+    if (box) box.innerHTML = `<div class="empty-tip" style="color:var(--red)">加载失败: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function saveMailTemplate(key) {
+  const sEl = document.getElementById(`tplSubject_${key}`);
+  const bEl = document.getElementById(`tplBody_${key}`);
+  if (!sEl || !bEl) return;
+  try {
+    await api(`/mail-templates/${key}`, 'PUT', { subject: sEl.value, body: bEl.value });
+    toast(`模板 ${key} 已保存`);
+    loadMailTemplateList();
+  } catch (e) { toast('保存失败: ' + e.message, 'err'); }
+}
+
+async function resetMailTemplate(key) {
+  if (!confirm(`确认把模板 ${key} 恢复为系统默认？自定义内容将被清空。`)) return;
+  try {
+    await api(`/mail-templates/${key}/reset`, 'POST', {});
+    toast(`模板 ${key} 已恢复默认`);
+    loadMailTemplateList();
+  } catch (e) { toast('恢复失败: ' + e.message, 'err'); }
+}
 
 // ================================================================
 // 【需求①】采购台账表格：加载 / 渲染 / 筛选 / 统计
