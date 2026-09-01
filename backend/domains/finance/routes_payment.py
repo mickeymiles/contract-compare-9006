@@ -1,5 +1,7 @@
 """财经域 · 回款周期宽表 (R2 split from main.py)."""
-import io, os, json
+import io
+import os
+import json
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 from common.datasource_meta import _load_ds_meta, _ds_latest_path

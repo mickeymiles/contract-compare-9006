@@ -179,10 +179,11 @@ def test_plm_panorama_blocks_in_js(plm_html, plm_js):
 
 
 def test_plm_page_keeps_breadcrumb_to_portal(plm_html):
-    """独立页保留返回门户的面包屑。"""
-    assert "location.href='/'" in plm_html
-    assert '运营管理' in plm_html
-    assert '项目全生命周期管理' in plm_html
+    """独立页保留返回门户的面包屑（由 nav.config.js 的 renderBreadcrumb 渲染根节点）。"""
+    assert '项目全生命周期管理' in plm_html          # 页面身份（<title>）
+    assert 'id="breadcrumb"' in plm_html            # 面包屑容器
+    assert 'renderBreadcrumb' in plm_html           # 实际挂载面包屑渲染
+    assert 'PMO' in plm_html                        # 面包屑根节点（域）存在
 
 
 def test_common_css_has_zone_and_plm_tokens(css):

@@ -1,5 +1,6 @@
 """ETL 任务定义与注册（服务层，跨域共享）。"""
 from models import get_db, init_db
+import json
 import openpyxl
 from common.datasource_meta import _ds_latest_path
 
@@ -188,7 +189,7 @@ def run_etl_fund_multidim():
     """
     from datetime import datetime
     from collections import defaultdict
-    import json
+    from main import DIM_COLUMN_MAP, DIM_NAME_MAP, _fund_rows_with_dims
 
     rows = _fund_rows_with_dims()
     if not rows:

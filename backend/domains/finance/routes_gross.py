@@ -1,6 +1,8 @@
 """财经域 · 毛利率指标 (R2 split from main.py)."""
 from typing import Optional, Any, List, Dict, Tuple, Union
-import io, os, json
+import io
+import os
+import json
 from collections import defaultdict
 from datetime import datetime, date, timedelta
 from fastapi import APIRouter, Query

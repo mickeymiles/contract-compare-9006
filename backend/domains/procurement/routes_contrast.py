@@ -1,6 +1,10 @@
 """采购域 · 合同硬件对比 contrast (R2 split from main.py)."""
 from typing import Optional, Any, List, Dict, Union
-import io, os, json, re, shutil
+import io
+import os
+import json
+import re
+import shutil
 from datetime import datetime, date
 from fastapi import APIRouter, Query, File, UploadFile, Form, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse, Response

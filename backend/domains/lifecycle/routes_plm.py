@@ -1,13 +1,16 @@
 """生命周期域 · PLM /api/plm (R2 split).
 注：放宽迁移，个别依赖 main 的内部符号若缺失属可接受范围。"""
 from typing import Optional, Any, List, Dict, Union
-import io, os, json, re
+import io
+import os
+import json
+import re
 from fastapi import APIRouter, Query, File, UploadFile, Form, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse, Response
 from fastapi import File as FFile
 from fastapi.responses import Response as _RawResponse
 import urllib.parse
-from plm_models import *
+from plm_models import *  # noqa: F403
 import plm_models as plm
 from models import get_db
 

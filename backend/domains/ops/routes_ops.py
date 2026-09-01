@@ -1,6 +1,9 @@
 """运维域 · 备件询价 ops (R2 split from main.py)."""
 from typing import Optional, Any, List, Dict, Union
-import io, os, json, re
+import io
+import os
+import json
+import re
 from datetime import datetime, date
 from fastapi import APIRouter, Query, File, UploadFile, Form, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse, Response
@@ -15,6 +18,8 @@ from procurement_models import (create_task, get_task, list_tasks, update_task_q
    list_mail_cc, create_mail_cc, delete_mail_cc, list_spare_parts, get_spare_part,
    create_spare_part, update_spare_part, delete_spare_part, list_ledger_advanced)
 import procurement_models as pm
+from procurement_models import (list_op_logs, confirm_selection, input_test_result,
+   cancel_task, manual_update_supplier_quote, get_all_cc_emails, list_spare_part_categories)
 
 router = APIRouter(prefix="", tags=["ops"])
 
@@ -343,7 +348,7 @@ def api_proc_contracts_create(body: ProcContractBody):
 @router.put("/api/procurement/contracts/{contract_id}")
 def api_proc_contracts_update(contract_id: int, body: ProcContractUpdateBody):
     try:
-        c = update_contract(contract_id=contract_id, contract_no=body.contract_no,
+        c = proc_update_contract(contract_id=contract_id, contract_no=body.contract_no,
                             contract_name=body.contract_name, pm_name=body.pm_name,
                             pm_email=body.pm_email,
                             receiver_name=body.receiver_name, receiver_phone=body.receiver_phone,

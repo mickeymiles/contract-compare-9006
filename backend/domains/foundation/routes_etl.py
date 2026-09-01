@@ -1,5 +1,7 @@
 """基础支撑域 · ETL 调度 (R2 split from main.py)."""
-import asyncio, time, json
+import asyncio
+import time
+import json
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 from models import get_db
@@ -32,6 +34,7 @@ def etl_run(job_key: str):
         result = run_etl_payment_cycle()
     else:
         result = {'success': False, 'error': '该任务的计算逻辑尚未实现（骨架阶段）'}
+    from main import _record_execution
     _record_execution(job_key, result)
     return result
 
