@@ -305,6 +305,42 @@
   .mi-legend .lg-done i{background:var(--green)}
   .mi-legend .lg-cur i{background:var(--cyan)}
   .mi-legend .lg-pen i{background:var(--text3)}
+
+  /* ── 本体拓扑与一致性（地基视图） ── */
+  .ont-graph{width:100%;background:var(--bg1);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+  .ont-graph-legend{display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:var(--text2);margin:10px 0 2px}
+  .ont-graph-legend i{width:11px;height:11px;border-radius:3px;display:inline-block;margin-right:5px;vertical-align:-1px}
+  .ont-graph-legend .lg-c{background:var(--bg1);border:2px solid var(--cyan)}
+  .ont-graph-legend .lg-iso{background:var(--bg1);border:2px dashed var(--red)}
+  .ont-graph-legend .lg-e{background:#3a4a6b}
+  .ont-graph-legend .lg-s{background:#16314a;border:1px solid var(--cyan)}
+  .ont-graph-legend .lg-a{background:#3a2a12;border:1px solid var(--orange)}
+  .ont-graph-legend .lg-pre{background:#5a6b8c}
+  .ont-graph-legend .lg-succ{background:var(--green)}
+  .ont-graph-info{background:var(--bg1);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--text2);min-height:42px;margin-top:8px;line-height:1.7}
+  .ont-graph-info b{color:var(--text)}
+  /* SVG 图形 */
+  .ont-svg{display:block;width:100%}
+  .ont-node circle{fill:#1c2942;stroke:var(--cyan);stroke-width:2}
+  .ont-node-concept text{fill:var(--text);font-size:11px;text-anchor:middle;font-weight:600;pointer-events:none}
+  .ont-node.ont-iso circle{stroke:var(--red);stroke-dasharray:3 3}
+  .ont-node.ont-iso text{fill:var(--red)}
+  .ont-edge line{stroke:#3a4a6b;stroke-width:1.4}
+  .ont-edge.ont-pre line{stroke:#5a6b8c;stroke-width:1.2;stroke-dasharray:4 3}
+  .ont-edge.ont-succ line{stroke:var(--green);stroke-width:1.4}
+  .ont-edge-label,.ont-edge-sub{fill:var(--text2);font-size:9px;text-anchor:middle;pointer-events:none}
+  .ont-node-status rect{fill:#16314a;stroke:var(--cyan);stroke-width:1}
+  .ont-node-status text{fill:var(--text);font-size:10px;pointer-events:none}
+  .ont-node-action rect{fill:#3a2a12;stroke:var(--orange);stroke-width:1}
+  .ont-node-action text{fill:#ffd9a0;font-size:10px;pointer-events:none}
+  .ont-node{cursor:pointer}
+  /* 一致性校验 */
+  .ont-health{display:flex;flex-direction:column;gap:8px}
+  .ont-health-item{padding:10px 12px;border-radius:8px;font-size:13px;border-left:3px solid var(--border);background:var(--bg1);line-height:1.6}
+  .ont-health-item.warn{border-color:var(--amber)}
+  .ont-health-item.error{border-color:var(--red)}
+  .ont-health-item.info{border-color:var(--text2);opacity:.82}
+  .ont-health-item b{color:var(--text)}
 </style>
 </head>
 <body>
@@ -337,6 +373,7 @@
         <div class="menu-item sub" data-menu="ontActions" onclick="switchSidebar('ontActions')"><span class="icon">⚡</span>动作</div>
         <div class="menu-item sub" data-menu="ontTasks" onclick="switchSidebar('ontTasks')"><span class="icon">🗂</span>任务列表</div>
         <div class="menu-item sub" data-menu="ontLedger" onclick="switchSidebar('ontLedger')"><span class="icon">🧾</span>台账</div>
+        <div class="menu-item sub" data-menu="ontTopology" onclick="switchSidebar('ontTopology')"><span class="icon">🕸</span>拓扑与一致性</div>
       </div>
     </div>
 
@@ -993,6 +1030,50 @@
       </div>
     </div>
   </div>  <!-- /proc-tab-ontLedger -->
+
+
+  <!-- ================================================== -->
+  <!-- Panel: 本体可观测 — 拓扑与一致性（地基视图） -->
+  <!-- ================================================== -->
+  <div id="proc-tab-ontTopology" class="proc-top-panel">
+    <div class="panel">
+      <h3>🕸 概念 × 关系拓扑图<span style="font-weight:400;color:var(--text2);font-size:11px">
+        &nbsp;·&nbsp;CONCEPTS 为节点、RELATIONS 为边；红圈虚线 = 无任何关系连接的概念（地基薄弱点）</span></h3>
+      <div class="ont-sub">悬停节点高亮其关系；孤立概念一目了然，是补强本体的优先项。</div>
+      <div class="proc-toolbar">
+        <span style="flex:1"></span>
+        <button class="btn btn-o btn-s" onclick="refreshOntPanel('ontTopology')">🔄 刷新</button>
+      </div>
+      <div id="ontConceptGraph" class="ont-graph"></div>
+      <div class="ont-graph-legend">
+        <span><i class="lg-c"></i>已连接概念</span>
+        <span><i class="lg-iso"></i>孤立概念（无关系）</span>
+        <span><i class="lg-e"></i>关系边</span>
+      </div>
+      <div id="ontConceptInfo" class="ont-graph-info">悬停任一概念节点查看其语义与关系。</div>
+    </div>
+
+    <div class="panel">
+      <h3>🔄 动作 – 状态映射图<span style="font-weight:400;color:var(--text2);font-size:11px">
+        &nbsp;·&nbsp;左=状态（规则前置/注册表后继），右=动作；虚线=规则前置、绿线=注册表后继</span></h3>
+      <div class="ont-sub">动作如何驱动采购生命周期的"地图"；命名不一致会导致链条在图上断开。</div>
+      <div id="ontActionGraph" class="ont-graph"></div>
+      <div class="ont-graph-legend">
+        <span><i class="lg-s"></i>状态</span>
+        <span><i class="lg-a"></i>动作</span>
+        <span><i class="lg-pre"></i>规则前置</span>
+        <span><i class="lg-succ"></i>注册表后继</span>
+      </div>
+      <div id="ontActionInfo" class="ont-graph-info">悬停任一动作查看其前置状态与后继状态。</div>
+    </div>
+
+    <div class="panel">
+      <h3>🩺 声明 ↔ 执行 一致性校验<span style="font-weight:400;color:var(--text2);font-size:11px">
+        &nbsp;·&nbsp;孤儿声明 / 规则悬空 / 状态词表漂移 / 声明与运行时驱动器架构债</span></h3>
+      <div class="ont-sub">把"纸面本体"与"真实运转"之间的裂缝显性化，作为后续打牢地基的清单。</div>
+      <div id="ontHealth" class="ont-health"><div class="ont-empty">加载中...</div></div>
+    </div>
+  </div>  <!-- /proc-tab-ontTopology -->
 
   </div>  <!-- /proc-content -->
 </div>  <!-- /proc-layout -->
