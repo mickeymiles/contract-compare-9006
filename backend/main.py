@@ -45,6 +45,11 @@ app.include_router(ops_router)
 app.include_router(finance_payment_router)
 app.include_router(procurement_contrast_router)
 
+# ── 本体可观测（emp-009 本体轨）── 引擎已从 neuops-agent-demo 迁入本工程，
+# 本进程自建 contract_ontology.db、自跑常驻循环，不再依赖外部 9007。
+from ontology_engine.routes import router as ontology_emp009_router
+app.include_router(ontology_emp009_router)
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, '..', 'uploads')
 FRONTEND_DIR = os.path.join(BASE_DIR, '..', 'frontend')
@@ -69,6 +74,7 @@ NO_CACHE_PATHS = frozenset((
     '/common.css', '/plm.app.js', '/procurement.app.js', '/contrast.app.js', '/core.app.js', '/finance.app.js',
     '/gross.app.js',
     '/finance-cycle.app.js', '/finance-fund.app.js', '/finance-cost.app.js', '/nav.config.js', '/china.json',
+    '/ontology.app.js',
 ))
 NO_CACHE_SUFFIXES = ('.css', '.js')
 
@@ -820,6 +826,31 @@ def startup():
     # 主数据域 core（R3）— 建表
     from core import project as _core
     _core.init_core_db()
+    # 本体可观测（emp-009 本体轨）— ABox 库建表（contract_ontology.db，与业务库分离避免写锁争用）
+    try:
+        from ontology_engine import schema as _ont_schema
+        _ont_schema.ensure_core_tables()
+    except Exception as e:
+        print(f"[ontology] 建表跳过: {e}")
+
+
+@app.on_event("startup")
+async def startup_ontology_scheduler():
+    """本体轨 emp-009 常驻循环：按治理开关 + 数字员工启停状态决定是否拉起。幂等。"""
+    try:
+        from ontology_engine import runtime as _ont_runtime
+        await _ont_runtime.sync_scheduler()
+    except Exception as e:
+        print(f"[ontology] 调度器未启动: {e}")
+
+
+@app.on_event("shutdown")
+def shutdown_ontology_scheduler():
+    try:
+        from ontology_engine import runtime as _ont_runtime
+        _ont_runtime.stop_now()
+    except Exception:
+        pass
 
 
 # ===================== 供应商列名 =====================
@@ -1167,8 +1198,10 @@ def api_mail_inquiry_task_get(task_id: str):
 
 
 # ===================== 本体可观测（Ontology，只读） =====================
-# 数据来源：neuops-agent-demo(9007) 的本体轨 —— 实例直读 neuops_ontology.db，
-# 本体定义(CONCEPTS/ACTIONS/RULES…)走 9007 /spec 转发并缓存。详见 ontology_gateway.py。
+# 数据来源：本工程 ontology_engine（与 9006 同进程）——
+# 实例直读本工程的 contract_ontology.db（ONT_DB_PATH），
+# 本体定义(CONCEPTS/ACTIONS/RULES…)进程内直取 ontology_engine 模块字面量。
+# 详见 ontology_gateway.py 顶部「迁移说明」。
 @app.get("/api/ontology/overview")
 def api_ontology_overview():
     """本体轨概览：o_* 各表行数、库文件状态、本体定义来源（http/cache/source）。"""
@@ -2934,6 +2967,13 @@ def core_app_js():
 @app.get("/nav.config.js")
 def nav_config_js():
     return FileResponse(os.path.join(FRONTEND_DIR, 'nav.config.js'))
+
+
+@app.get("/ontology.app.js")
+def ontology_app_js():
+    # 本体可观测（emp-009 本体轨）前端逻辑，已从 procurement 运维页迁出到主数据域。
+    return FileResponse(os.path.join(FRONTEND_DIR, 'ontology.app.js'))
+
 
 @app.get("/dev")
 def dev_page(feature: str = ''):

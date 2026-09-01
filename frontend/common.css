@@ -476,3 +476,102 @@ tr:hover td{background:rgba(79,140,255,.04)}
   .app-content{padding:14px 16px 30px}
   .app-topbar{padding:10px 16px}
 }
+
+/* ================================================================
+ * 本体可观测（Ontology）—— 系统 › 主数据 › 本体可观测
+ * 从 procurement.html 内联 <style> 迁出（面板已搬到 core.html），
+ * 提到共享层，供 core.html 使用；procurement 侧不再包含本体面板。
+ * ================================================================ */
+/* 面板容器：仅靠 .active 切换 */
+.core-panel{display:none}
+.core-panel.active{display:block;animation:fadeIn .22s ease}
+/* 空表提示 / 数字列 / 工具栏（原 .empty-tip / .proc-toolbar 的共享副本） */
+.empty-tip{text-align:center;padding:40px 20px;color:var(--text2);font-size:13px}
+table td.num,table th.num{text-align:right;font-variant-numeric:tabular-nums}
+.ont-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
+.ont-toolbar input,.ont-toolbar select{background:#111a2d;color:var(--text);border:1px solid rgba(255,255,255,.08);padding:6px 10px;border-radius:8px;font-size:12.5px;outline:none}
+.ont-toolbar input:focus,.ont-toolbar select:focus{border-color:var(--cyan)}
+.ont-toolbar label{font-size:11.5px;color:var(--text2);margin-right:2px}
+/* 概览指标条 */
+.ont-stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:10px;margin-bottom:14px}
+.ont-stat{background:var(--bg3);border:1px solid var(--border);border-radius:9px;padding:10px 12px}
+.ont-stat .k{font-size:11px;color:var(--text2);margin-bottom:4px}
+.ont-stat .v{font-size:17px;color:var(--cyan);font-weight:600}
+.ont-stat .v.warn{color:var(--orange)}
+.ont-stat .v.err{color:var(--red)}
+.ont-stat .v.mute{color:var(--text2)}
+/* 定义/规则卡片 */
+.ont-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:12px}
+.ont-card{background:var(--bg1);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
+.ont-card h4{margin:0 0 6px;font-size:13px;color:var(--cyan);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ont-card .def{font-size:12px;color:var(--text);line-height:1.65;margin-bottom:8px}
+.ont-line{font-size:12px;line-height:1.7;margin:4px 0;display:flex;gap:8px}
+.ont-line .tag{flex:0 0 auto;color:var(--text2);font-size:11px;min-width:56px}
+.ont-line .body{flex:1;min-width:0;color:var(--text);word-break:break-word}
+.ont-line ul{margin:0;padding-left:16px}
+.ont-line.cond .tag{color:var(--cyan2)}
+.ont-line.eff .tag{color:var(--green)}
+.ont-line.inv .tag{color:var(--red)}
+.ont-line.inv .body{color:var(--red)}
+.ont-sec-title{font-size:13px;color:#fff;margin:20px 0 8px;padding-left:9px;border-left:3px solid var(--cyan)}
+.ont-sub{font-size:12px;color:var(--text2);margin:2px 0 12px;line-height:1.6}
+.ont-empty{text-align:center;padding:26px;color:var(--text2);font-size:12.5px}
+.ont-mono{font-family:var(--mono);font-size:11.5px}
+.ont-code{font-family:var(--mono);font-size:11px;color:var(--cyan2);background:var(--bg3);
+  border:1px solid var(--border);border-radius:6px;padding:2px 7px;display:inline-block;
+  word-break:break-all;max-width:100%}
+.ont-chip{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;margin:2px 4px 2px 0;
+  background:rgba(94,215,255,.1);color:var(--cyan2);border:1px solid rgba(94,215,255,.25);white-space:nowrap}
+.ont-chip.g{background:rgba(0,230,118,.1);color:var(--green);border-color:rgba(0,230,118,.3)}
+.ont-chip.r{background:rgba(255,82,82,.12);color:var(--red);border-color:rgba(255,82,82,.3)}
+.ont-chip.o{background:rgba(255,145,0,.12);color:var(--orange);border-color:rgba(255,145,0,.3)}
+.ont-chip.m{background:rgba(125,141,176,.14);color:var(--text2);border-color:var(--border)}
+.ont-pre{font-family:var(--mono);font-size:11px;color:var(--text2);background:var(--bg3);
+  border:1px solid var(--border);border-radius:6px;padding:6px 8px;margin:4px 0 0;
+  max-height:132px;overflow:auto;white-space:pre-wrap;word-break:break-all}
+/* ── 拓扑与一致性（地基视图） ── */
+.ont-graph{width:100%;background:var(--bg1);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.ont-graph-legend{display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:var(--text2);margin:10px 0 2px}
+.ont-graph-legend i{width:11px;height:11px;border-radius:3px;display:inline-block;margin-right:5px;vertical-align:-1px}
+.ont-graph-legend .lg-c{background:var(--bg1);border:2px solid var(--cyan)}
+.ont-graph-legend .lg-iso{background:var(--bg1);border:2px dashed var(--red)}
+.ont-graph-legend .lg-e{background:#3a4a6b}
+.ont-graph-legend .lg-s{background:#16314a;border:1px solid var(--cyan)}
+.ont-graph-legend .lg-a{background:#3a2a12;border:1px solid var(--orange)}
+.ont-graph-legend .lg-pre{background:#5a6b8c}
+.ont-graph-legend .lg-succ{background:var(--green)}
+.ont-graph-info{background:var(--bg1);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--text2);min-height:42px;margin-top:8px;line-height:1.7}
+.ont-graph-info b{color:var(--text)}
+.ont-svg{display:block;width:100%}
+.ont-node circle{fill:#1c2942;stroke:var(--cyan);stroke-width:2}
+.ont-node-concept text{fill:var(--text);font-size:11px;text-anchor:middle;font-weight:600;pointer-events:none}
+.ont-node.ont-iso circle{stroke:var(--red);stroke-dasharray:3 3}
+.ont-node.ont-iso text{fill:var(--red)}
+.ont-edge line{stroke:#3a4a6b;stroke-width:1.4}
+.ont-edge.ont-pre line{stroke:#5a6b8c;stroke-width:1.2;stroke-dasharray:4 3}
+.ont-edge.ont-succ line{stroke:var(--green);stroke-width:1.4}
+.ont-edge-label,.ont-edge-sub{fill:var(--text2);font-size:9px;text-anchor:middle;pointer-events:none}
+.ont-node-status rect{fill:#16314a;stroke:var(--cyan);stroke-width:1}
+.ont-node-status text{fill:var(--text);font-size:10px;pointer-events:none}
+.ont-node-action rect{fill:#3a2a12;stroke:var(--orange);stroke-width:1}
+.ont-node-action text{fill:#ffd9a0;font-size:10px;pointer-events:none}
+.ont-node{cursor:pointer}
+/* 一致性校验 */
+.ont-health{display:flex;flex-direction:column;gap:8px}
+.ont-health-item{padding:10px 12px;border-radius:8px;font-size:13px;border-left:3px solid var(--border);background:var(--bg1);line-height:1.6}
+.ont-health-item.warn{border-color:var(--amber)}
+.ont-health-item.error{border-color:var(--red)}
+.ont-health-item.info{border-color:var(--text2);opacity:.82}
+.ont-health-item b{color:var(--text)}
+/* 页面 Loading 遮罩（与 procurement 同款，提到共享层供 core 复用） */
+.page-loading{position:fixed;inset:0;background:rgba(8,16,32,.55);backdrop-filter:blur(3px);
+  display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;
+  z-index:999998;opacity:0;pointer-events:none;transition:opacity .15s ease}
+.page-loading.show{opacity:1;pointer-events:auto}
+.page-loading .pl-spinner{width:42px;height:42px;border-radius:50%;
+  border:3px solid rgba(94,215,255,.22);border-top-color:var(--cyan);
+  animation:plSpin .8s linear infinite}
+@keyframes plSpin{to{transform:rotate(360deg)}}
+.page-loading .pl-text{color:#fff;font-size:14px;letter-spacing:.5px;
+  text-shadow:0 1px 4px rgba(0,0,0,.5);min-width:80px;text-align:center}
+.page-loading .pl-sub{color:rgba(255,255,255,.7);font-size:11px;margin-top:-6px}

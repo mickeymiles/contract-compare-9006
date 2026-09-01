@@ -14,29 +14,299 @@
     <nav class="topmenu" id="topMenu"></nav>
   </div>
 
-  <!-- 主体：左=当前域内嵌手风琴；右=页面 -->
+  <!-- 主体：左=当前域内嵌手风琴；右=页面（多面板，靠 .core-panel.active 切换） -->
   <div class="app-body">
     <aside class="nav-rail" id="navRail"></aside>
 
     <main class="app-main app-content">
-      <!-- 项目主数据 -->
-      <div class="section-hdr">
-        <span class="icon lg" id="projTitleIcon"></span>
-        <h2>项目主数据</h2>
-        <span class="hdr-sub" id="hdrSub"></span>
-        <div class="hdr-actions">
-          <button class="btn btn-o btn-s" id="btnImportProj" onclick="document.getElementById('importFile').click()">📥 导入合同Excel</button>
-          <input type="file" id="importFile" accept=".xlsx,.xls" style="display:none" onchange="Core.importProjects(this)">
-          <button class="btn btn-c btn-s" id="btnNewProject" onclick="Core.openProjectModal()">＋ 新建项目</button>
+      <!-- ================= Panel: 项目主数据 ================= -->
+      <div id="panel-project" class="core-panel active">
+        <div class="section-hdr">
+          <span class="icon lg" id="projTitleIcon"></span>
+          <h2>项目主数据</h2>
+          <span class="hdr-sub" id="hdrSub"></span>
+          <div class="hdr-actions">
+            <button class="btn btn-o btn-s" id="btnImportProj" onclick="document.getElementById('importFile').click()">📥 导入合同Excel</button>
+            <input type="file" id="importFile" accept=".xlsx,.xls" style="display:none" onchange="Core.importProjects(this)">
+            <button class="btn btn-c btn-s" id="btnNewProject" onclick="Core.openProjectModal()">＋ 新建项目</button>
+          </div>
         </div>
+        <div class="fbar">
+          <input id="kw" placeholder="搜索 项目号 / 名称" style="min-width:220px"
+                 onkeydown="if(event.key==='Enter')Core.reload()">
+          <button class="btn btn-o btn-s" onclick="Core.reload()">搜索</button>
+        </div>
+        <div class="twrap"><table class="obj-table" id="projTbl"></table></div>
       </div>
-      <div class="fbar">
-        <input id="kw" placeholder="搜索 项目号 / 名称" style="min-width:220px"
-               onkeydown="if(event.key==='Enter')Core.reload()">
-        <button class="btn btn-o btn-s" onclick="Core.reload()">搜索</button>
-      </div>
-      <div class="twrap"><table class="obj-table" id="projTbl"></table></div>
-      </main>
+
+      <!-- ================================================== -->
+      <!-- Panel: 本体可观测 — 实体与关系（TBox 概念/关系 + ABox 实例）-->
+      <!-- ================================================== -->
+      <div id="panel-ontEntities" class="core-panel">
+        <div class="panel">
+          <h3>🔗 实体与关系<span style="font-weight:400;color:var(--text2);font-size:11px">
+            &nbsp;·&nbsp;TBox 概念/关系 + ABox 实例，数据源本工程 ontology_engine + contract_ontology.db</span></h3>
+          <div class="ont-toolbar">
+            <span style="flex:1"></span>
+            <button class="btn btn-o btn-s" onclick="refreshOntPanel('ontEntities')">🔄 刷新</button>
+          </div>
+          <div id="ontOverview" class="ont-stat-grid">
+            <div class="ont-stat"><div class="k">加载中</div><div class="v mute">-</div></div>
+          </div>
+
+          <div class="ont-sec-title">TBox · 概念（Concepts）</div>
+          <div class="twrap">
+            <table>
+              <thead><tr>
+                <th style="width:180px">概念</th><th>语义说明</th><th style="width:110px">实例数</th>
+              </tr></thead>
+              <tbody id="ontConceptsTbody"><tr><td colspan="3" class="empty-tip">加载中...</td></tr></tbody>
+            </table>
+          </div>
+
+          <div class="ont-sec-title">TBox · 关系（Relations）</div>
+          <div class="twrap">
+            <table>
+              <thead><tr>
+                <th style="width:340px">关系签名</th><th>语义说明</th>
+              </tr></thead>
+              <tbody id="ontRelationsTbody"><tr><td colspan="2" class="empty-tip">加载中...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>📦 ABox · 任务实例（o_task）</h3>
+          <div class="twrap">
+            <table>
+              <thead><tr>
+                <th>Task ID</th><th>备件</th><th class="num">数量</th>
+                <th>状态</th><th>内部流</th><th>外部流</th>
+                <th>供应商</th><th>发起邮箱</th><th>创建时间</th>
+              </tr></thead>
+              <tbody id="ontInstTasksTbody"><tr><td colspan="9" class="empty-tip">加载中...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>👤 ABox · 人员 / 邮件 / 报价 / 预会话</h3>
+          <div class="ont-sub">同一批实例按实体类型分块展示；空表说明本体轨尚未写入该实体。</div>
+          <div id="ontInstOthers"></div>
+        </div>
+      </div>  <!-- /panel-ontEntities -->
+
+
+      <!-- ================================================== -->
+      <!-- Panel: 本体可观测 — 知识（动作定义 / 不变量 / 规则集） -->
+      <!-- ================================================== -->
+      <div id="panel-ontKnowledge" class="core-panel">
+        <div class="panel">
+          <h3>📚 知识层<span style="font-weight:400;color:var(--text2);font-size:11px">
+            &nbsp;·&nbsp;动作定义（条件/效果/不变量）+ 全局不变量 + 声明式规则集，来源 <span id="ontKnowSource" class="ont-mono">-</span></span></h3>
+          <div class="ont-toolbar">
+            <span style="flex:1"></span>
+            <button class="btn btn-o btn-s" onclick="refreshOntPanel('ontKnowledge')">🔄 刷新</button>
+          </div>
+
+          <div class="ont-sec-title">动作定义（本体声明）</div>
+          <div class="ont-sub">每个动作 = 定义 + 前置条件 + 效果 + 不变量 + 幂等性，是智能体决策的约束边界。</div>
+          <div id="ontActionDefs" class="ont-cards"><div class="ont-empty">加载中...</div></div>
+
+          <div class="ont-sec-title">全局不变量（INVARIANTS）</div>
+          <div class="ont-sub">跨动作恒定成立的语义护栏，校验器在执行前统一裁决。</div>
+          <div id="ontInvariants"><div class="ont-empty">加载中...</div></div>
+
+          <div class="ont-sec-title">声明式规则集（RULES）</div>
+          <div class="ont-sub">condition ⇒ 动作可执行；由 knowledge.py 的极小表达式求解器求值。</div>
+          <div class="twrap">
+            <table>
+              <thead><tr>
+                <th style="width:200px">规则 ID</th><th style="width:180px">目标动作</th>
+                <th style="width:380px">条件表达式</th><th>说明</th>
+              </tr></thead>
+              <tbody id="ontRulesTbody"><tr><td colspan="4" class="empty-tip">加载中...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>  <!-- /panel-ontKnowledge -->
+
+
+      <!-- ================================================== -->
+      <!-- Panel: 本体可观测 — 动作（注册表 + 执行历史） -->
+      <!-- ================================================== -->
+      <div id="panel-ontActions" class="core-panel">
+        <div class="panel">
+          <h3>⚡ 动作注册表（ACTION_REGISTRY）</h3>
+          <div class="ont-sub">
+            统计列来自 <span class="ont-mono">o_audit_log</span>：<span class="ont-chip g">执行</span>真实落库动作、
+            <span class="ont-chip">对照</span>align: 阶段 A 只读比对、<span class="ont-chip m">空转</span>noop: 决策但未执行。
+          </div>
+          <div class="ont-toolbar">
+            <span style="flex:1"></span>
+            <button class="btn btn-o btn-s" onclick="refreshOntPanel('ontActions')">🔄 刷新</button>
+          </div>
+          <div class="twrap">
+            <table>
+              <thead><tr>
+                <th style="width:200px">动作 ID</th><th style="width:90px">类型</th><th>说明</th>
+                <th style="width:150px">后继状态</th>
+                <th style="width:90px" class="num">执行</th>
+                <th style="width:90px" class="num">对照</th>
+                <th style="width:90px" class="num">空转</th>
+                <th style="width:150px">最近发生</th>
+              </tr></thead>
+              <tbody id="ontRegistryTbody"><tr><td colspan="8" class="empty-tip">加载中...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>🧾 执行历史（o_audit_log，仅追加）</h3>
+          <div class="ont-toolbar">
+            <label>动作：</label>
+            <input type="text" id="ontAuditAction" placeholder="动作名模糊匹配" style="min-width:180px"
+                   oninput="ontAuditTimer&&clearTimeout(ontAuditTimer);ontAuditTimer=setTimeout(loadOntAudit,300)">
+            <label>业务 ID：</label>
+            <input type="text" id="ontAuditBizId" placeholder="如 OT-XXXX" style="min-width:160px"
+                   oninput="ontAuditTimer&&clearTimeout(ontAuditTimer);ontAuditTimer=setTimeout(loadOntAudit,300)">
+            <label>关键词：</label>
+            <input type="text" id="ontAuditKeyword" placeholder="操作人 / 备注 / 快照" style="min-width:180px"
+                   oninput="ontAuditTimer&&clearTimeout(ontAuditTimer);ontAuditTimer=setTimeout(loadOntAudit,300)">
+            <span style="flex:1"></span>
+            <button class="btn btn-o btn-s" onclick="resetOntAuditFilters()">清空筛选</button>
+            <button class="btn btn-o btn-s" onclick="loadOntAudit()">🔄 刷新</button>
+          </div>
+          <div class="twrap">
+            <table>
+              <thead><tr>
+                <th style="width:60px">#</th><th style="width:150px">动作</th><th style="width:150px">业务 ID</th>
+                <th style="width:110px">操作者</th><th style="width:150px">时间</th>
+                <th style="width:420px">内容快照</th><th>备注</th>
+              </tr></thead>
+              <tbody id="ontAuditTbody"><tr><td colspan="7" class="empty-tip">加载中...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>  <!-- /panel-ontActions -->
+
+
+      <!-- ================================================== -->
+      <!-- Panel: 本体可观测 — 任务列表（o_task） -->
+      <!-- ================================================== -->
+      <div id="panel-ontTasks" class="core-panel">
+        <div class="panel">
+          <h3>🗂 本体任务列表（o_task）</h3>
+          <div class="ont-sub">内部流 / 外部流双流状态 + 报价截止 + 选中供应商 + 关键里程碑（B 询价 / D 审批 / E 订货 / G 结算）。</div>
+          <div class="ont-toolbar">
+            <label>状态：</label>
+            <select id="ontTaskStatus" onchange="loadOntTasks()" style="min-width:170px">
+              <option value="">全部状态</option>
+            </select>
+            <label>关键词：</label>
+            <input type="text" id="ontTaskKeyword" placeholder="Task ID / 发起邮箱 / 供应商 / 备件" style="min-width:220px"
+                   oninput="ontTaskTimer&&clearTimeout(ontTaskTimer);ontTaskTimer=setTimeout(loadOntTasks,300)">
+            <span style="flex:1"></span>
+            <button class="btn btn-o btn-s" onclick="resetOntTaskFilters()">清空筛选</button>
+            <button class="btn btn-o btn-s" onclick="loadOntTasks()">🔄 刷新</button>
+          </div>
+          <div class="twrap">
+            <table>
+              <thead><tr>
+                <th>Task ID</th><th>项目 / 备件</th><th class="num">数量</th>
+                <th>状态</th><th>内部流</th><th>外部流</th>
+                <th style="width:140px">报价截止</th><th>选中供应商</th>
+                <th class="num">报价</th><th>里程碑</th><th>创建时间</th>
+              </tr></thead>
+              <tbody id="ontTasksTbody"><tr><td colspan="11" class="empty-tip">加载中...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>  <!-- /panel-ontTasks -->
+
+
+      <!-- ================================================== -->
+      <!-- Panel: 本体可观测 — 台账（结算 / 闭环记录） -->
+      <!-- ================================================== -->
+      <div id="panel-ontLedger" class="core-panel">
+        <div class="panel">
+          <h3>🧾 本体台账（闭环结算记录）</h3>
+          <p style="font-size:12px;color:var(--text2);margin:4px 0 14px">
+            本体轨没有独立的结算表，这里由「终态 <span class="ont-mono">o_task</span>（CLOSED / CLOSED_ABORT / CLOSED_MANUAL）
+            + 审计流水」推导：供应商取选中供应商，单价取其有效报价，闭环时间取
+            <span class="ont-mono">engineerFinalClose</span> 审计时间。
+          </p>
+          <div class="ont-toolbar">
+            <span style="flex:1"></span>
+            <button class="btn btn-o btn-s" onclick="loadOntLedger()">🔄 刷新</button>
+          </div>
+          <div class="twrap">
+            <table>
+              <thead><tr>
+                <th>Task ID</th><th>项目编号</th><th>项目名称</th><th>备件</th>
+                <th class="num">数量</th><th>选中供应商</th><th class="num">单价(元)</th>
+                <th class="num" style="color:#ff7089">金额(元)</th>
+                <th>快递单号</th><th>闭环时间</th><th>终态</th><th style="min-width:240px">工程师反馈</th>
+              </tr></thead>
+              <tbody id="ontLedgerTbody"><tr><td colspan="12" class="empty-tip">加载中...</td></tr></tbody>
+              <tfoot>
+                <tr style="background:rgba(94,215,255,.04);color:#fff;font-weight:600">
+                  <td colspan="4" style="text-align:right">合计：<span id="ontLedgerCount">0</span> 条</td>
+                  <td class="num" id="ontLedgerQtySum">-</td>
+                  <td colspan="2"></td>
+                  <td class="num" id="ontLedgerAmtSum" style="color:#ff7089">-</td>
+                  <td colspan="4"></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      </div>  <!-- /panel-ontLedger -->
+
+
+      <!-- ================================================== -->
+      <!-- Panel: 本体可观测 — 拓扑与一致性（地基视图） -->
+      <!-- ================================================== -->
+      <div id="panel-ontTopology" class="core-panel">
+        <div class="panel">
+          <h3>🕸 概念 × 关系拓扑图<span style="font-weight:400;color:var(--text2);font-size:11px">
+            &nbsp;·&nbsp;CONCEPTS 为节点、RELATIONS 为边；红圈虚线 = 无任何关系连接的概念（地基薄弱点）</span></h3>
+          <div class="ont-sub">悬停节点高亮其关系；孤立概念一目了然，是补强本体的优先项。</div>
+          <div class="ont-toolbar">
+            <span style="flex:1"></span>
+            <button class="btn btn-o btn-s" onclick="refreshOntPanel('ontTopology')">🔄 刷新</button>
+          </div>
+          <div id="ontConceptGraph" class="ont-graph"></div>
+          <div class="ont-graph-legend">
+            <span><i class="lg-c"></i>已连接概念</span>
+            <span><i class="lg-iso"></i>孤立概念（无关系）</span>
+            <span><i class="lg-e"></i>关系边</span>
+          </div>
+          <div id="ontConceptInfo" class="ont-graph-info">悬停任一概念节点查看其语义与关系。</div>
+        </div>
+
+        <div class="panel">
+          <h3>🔄 动作 – 状态映射图<span style="font-weight:400;color:var(--text2);font-size:11px">
+            &nbsp;·&nbsp;左=状态（规则前置/注册表后继），右=动作；虚线=规则前置、绿线=注册表后继</span></h3>
+          <div class="ont-sub">动作如何驱动采购生命周期的"地图"；命名不一致会导致链条在图上断开。</div>
+          <div id="ontActionGraph" class="ont-graph"></div>
+          <div class="ont-graph-legend">
+            <span><i class="lg-s"></i>状态</span>
+            <span><i class="lg-a"></i>动作</span>
+            <span><i class="lg-pre"></i>规则前置</span>
+            <span><i class="lg-succ"></i>注册表后继</span>
+          </div>
+          <div id="ontActionInfo" class="ont-graph-info">悬停任一动作查看其前置状态与后继状态。</div>
+        </div>
+
+        <div class="panel">
+          <h3>🩺 声明 ↔ 执行 一致性校验<span style="font-weight:400;color:var(--text2);font-size:11px">
+            &nbsp;·&nbsp;孤儿声明 / 规则悬空 / 状态词表漂移 / 声明与运行时驱动器架构债</span></h3>
+          <div class="ont-sub">把"纸面本体"与"真实运转"之间的裂缝显性化，作为后续打牢地基的清单。</div>
+          <div id="ontHealth" class="ont-health"><div class="ont-empty">加载中...</div></div>
+        </div>
+      </div>  <!-- /panel-ontTopology -->
+    </main>
   </div>
 </div>
 
@@ -69,7 +339,15 @@
   </div>
 </div>
 
+<!-- 全局页面 Loading 遮罩（本体面板拉数时使用，样式在 common.css） -->
+<div id="pageLoading" class="page-loading" aria-hidden="true">
+  <div class="pl-spinner"></div>
+  <div class="pl-text" id="pageLoadingText">加载中...</div>
+  <div class="pl-sub" id="pageLoadingSub" style="display:none"></div>
+</div>
+
 <script src="/nav.config.js"></script>
+<script src="/ontology.app.js"></script>
 <script src="/core.app.js"></script>
 </body>
 </html>

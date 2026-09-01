@@ -1,18 +1,22 @@
 """本体可观测（Ontology）API 守卫测试。
 
-覆盖三件事，都不依赖 9007 在跑：
+覆盖三件事，都不依赖外部 9007 在跑（迁移后引擎与本工程同进程）：
   1. /api/ontology/* 路由已注册到 9006 主应用（改名/漏挂会立刻红灯）；
   2. 各端点的返回契约是 {"success": True, "data": ...}；
-  3. TBox 定义在 9007 未启动时仍能从源码解析出来（可观测页不该因邻居挂掉而空白）。
+  3. TBox 定义由本进程 ontology_engine 模块字面量直接提供（不依赖 HTTP / 缓存 / 源码回落）。
 
-依赖本体库文件（默认 /Users/macbook/AI-Agent/neuops-agent-demo/neuops_ontology.db）的用例
-在文件缺失时跳过——那是另一台机器的产物，CI 上不一定有。
+依赖本体库文件（默认工程根 contract_ontology.db）的用例在文件缺失时跳过 ——
+CI 上本体库不一定存在，可观测页本身也对缺库做了降级。
 """
 
 import os
 import sys
 
 import pytest
+
+# 测试期间彻底关闭本体轨常驻循环，避免 TestClient 启动钩子拉起后台线程 / 外发邮件。
+os.environ.setdefault("ONT_SCHEDULER", "0")
+os.environ.setdefault("ONT_MODE", "off")
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
 
@@ -23,14 +27,12 @@ import main  # noqa: E402
 
 # 需要真实本体库的用例：库不存在则跳过
 requires_db = pytest.mark.skipif(
-    not os.path.exists(ont.ONT_9007_DB_PATH),
-    reason=f"本体库不存在：{ont.ONT_9007_DB_PATH}",
+    not os.path.exists(ont.ONT_DB_PATH),
+    reason=f"本体库不存在：{ont.ONT_DB_PATH}",
 )
-# 需要 9007 源码目录的用例（源码回落用）
-requires_src = pytest.mark.skipif(
-    not os.path.isdir(os.path.join(ont.ONT_9007_DIR, 'app', 'ontology')),
-    reason=f"9007 源码目录不存在：{ont.ONT_9007_DIR}",
-)
+# 本体定义现已进程内直取 ontology_engine 字面量，无需外部 9007 源码目录，故不再跳过。
+requires_src = pytest.mark.skipif(False, reason="spec 现已进程内直取，无需外部源码")
+
 
 EXPECTED_ROUTES = (
     '/api/ontology/overview',
@@ -84,7 +86,7 @@ class TestApiContract:
             assert d['data'][key], f"spec 缺少 {key}"
 
     def test_claim_state_contract(self, client):
-        """认领健康度：即使 9007 是老库（无 o_scan_state/claim_status）也必须 200 + 降级标记。"""
+        """认领健康度：即便本体库缺失也必须 200 + 降级标记。"""
         d = client.get('/api/ontology/claim-state').json()
         assert d['success'] is True
         data = d['data']
@@ -115,7 +117,7 @@ class TestApiContract:
         assert d['success'] is True
         assert d['data']['invariants']
         assert d['data']['rules']
-        # 每个动作定义都要有 定义/条件/效果/不变量/幂等 五段
+        # 每个动作定义都要有 定义/条件/效果 三段
         for aid, spec in d['data']['actions'].items():
             assert '定义' in spec and '条件' in spec and '效果' in spec, f"{aid} 定义不完整"
 
@@ -156,25 +158,3 @@ class TestApiContract:
         assert d['success'] is True
         for row in d['data']:
             assert row['close_status'].upper().startswith('CLOSED')
-
-
-class TestSpecSourceFallback:
-    """9007 未启动时，TBox 仍要能从源码解析出来。"""
-
-    def setup_method(self):
-        ont._SPEC_CACHE.update(at=0.0, data=None)
-
-    @requires_src
-    def test_spec_from_source(self):
-        data, source = ont.spec(force=True)
-        assert source == 'source'
-        assert len(data['concepts']) == 12
-        assert len(data['relations']) == 10
-        assert len(data['rules']) == 11
-        assert len(data['invariants']) == 4
-
-    @requires_src
-    def test_spec_cached(self):
-        ont.spec(force=True)
-        _, source = ont.spec()
-        assert source == 'cache'

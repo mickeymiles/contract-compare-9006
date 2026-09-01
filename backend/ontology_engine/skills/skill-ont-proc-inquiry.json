@@ -1,0 +1,28 @@
+{
+  "skill_id": "skill-ont-proc-inquiry",
+  "name": "本体化备件询价决策（emp-009）",
+  "version": "V0.1.0",
+  "trigger_intent": "本体轨（NO-012）备件询价场景：基于实体+规则+动作注册表，由 LLM 在规则约束内自主决策下一步",
+  "exit_condition": "任务闭环 | 规则校验持续拒绝且无合法动作",
+  "owner": "运维平台战队",
+  "biz_domain": "备件询价（本体化）",
+  "decision_paradigm": "LLM 自主决策 + 声明式规则约束（precondition/invariant/rule）",
+  "allowed_actions": [
+    "requestMissingFields", "createTask", "distributeInquiry",
+    "receiveSupplierQuote", "finalizeQuoteCollection", "submitApproval",
+    "processApprovalDecision", "confirmOrderToSupplier", "receiveTrackingNumber",
+    "requestTrackingNo", "engineerFinalClose", "abortTask", "manualCloseTask"
+  ],
+  "rule_items": [
+    "create_required", "req_2_request_missing", "distribute_ready",
+    "finalize_quote", "no_valid_quote_abort", "submit_approval",
+    "approval_valid", "order_ready", "ship_no", "ask_tracking", "close_confirm"
+  ],
+  "deterministic_tool_binding": {
+    "send_mail": "app.ontology.mail_gateway.send_mail",
+    "read_inbox": "app.ontology.mail_gateway.read_inbox",
+    "persist_quote": "app.ontology.store.audit",
+    "duration_calc": "现轨确定性代码(不交 LLM)"
+  },
+  "note": "与 skill-proc-mail-inquiry 并存；此技能属 012 本体轨，服务于 emp-009，不改动现轨 008。"
+}

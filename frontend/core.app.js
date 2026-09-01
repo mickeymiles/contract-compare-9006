@@ -175,16 +175,85 @@ function closeModal(id) {
 }
 function reload() { return loadProjects(); }
 
+/* ================================================================
+ * 面板路由（系统域单页多面板）
+ * 主数据「项目」+ 本体可观测 6 个面板同页共存，靠 .core-panel.active 切换。
+ * 入口来自 nav.config.js 的 /core?panel=xxx；同页内点击拦截为无刷新切换。
+ * 本体面板的渲染逻辑在 ontology.app.js（window.loadOntPanel）。
+ * ================================================================ */
+var PANELS = {
+  project:      { link: 'sys-project',       crumb: ['系统', '主数据', '项目'],           title: '项目主数据 · 经营业务工作台' },
+  ontEntities:  { link: 'sys-ont-entities',  crumb: ['系统', '本体可观测', '实体与关系'],   title: '本体 · 实体与关系' },
+  ontKnowledge: { link: 'sys-ont-knowledge', crumb: ['系统', '本体可观测', '知识'],         title: '本体 · 知识' },
+  ontActions:   { link: 'sys-ont-actions',   crumb: ['系统', '本体可观测', '动作'],         title: '本体 · 动作' },
+  ontTasks:     { link: 'sys-ont-tasks',     crumb: ['系统', '本体可观测', '任务列表'],     title: '本体 · 任务列表' },
+  ontLedger:    { link: 'sys-ont-ledger',    crumb: ['系统', '本体可观测', '台账'],         title: '本体 · 台账' },
+  ontTopology:  { link: 'sys-ont-topology',  crumb: ['系统', '本体可观测', '拓扑与一致性'], title: '本体 · 拓扑与一致性' }
+};
+
+function switchPanel(name, opts) {
+  opts = opts || {};
+  var meta = PANELS[name];
+  if (!meta) { console.warn('[core] 未知面板：' + name); return; }
+  var el = document.getElementById('panel-' + name);
+  if (!el) { console.warn('[core] 面板容器 #panel-' + name + ' 不存在'); return; }
+  document.querySelectorAll('.core-panel').forEach(function (p) { p.classList.remove('active'); });
+  el.classList.add('active');
+  NC.renderBreadcrumb(document.getElementById('breadcrumb'), meta.crumb);
+  NC.renderAccordion(document.getElementById('navRail'), {
+    rootTitle: '经营业务工作台', domainLabel: '系统', activeKey: 'sys', activeLink: meta.link
+  });
+  document.title = meta.title;
+  if (!opts.keepUrl) {
+    try { history.replaceState(null, '', '/core?panel=' + name); } catch (e) {}
+  }
+  if (name === 'project') {
+    var first = !window._projLoaded;
+    window._projLoaded = true;
+    reload().then(function () { if (first) toast('数据已加载', true); })
+      .catch(function () { toast('加载失败', false); });
+  } else if (typeof window.loadOntPanel === 'function') {
+    window.loadOntPanel(name);
+  } else {
+    console.error('[core] ontology.app.js 未加载，本体面板无法渲染');
+  }
+}
+
+/* 侧栏 /core?panel=xxx 链接拦截：同页切换，免整页刷新。 */
+function bindPanelLinks() {
+  var rail = document.getElementById('navRail');
+  if (!rail) return;
+  rail.addEventListener('click', function (ev) {
+    var a = ev.target.closest && ev.target.closest('a.acc-link');
+    if (!a) return;
+    var href = a.getAttribute('href') || '';
+    var m = href.match(/^\/core\?panel=([A-Za-z]+)$/);
+    if (!m || !PANELS[m[1]]) return;
+    ev.preventDefault();
+    switchPanel(m[1]);
+  });
+}
+
+function currentPanelFromUrl() {
+  var p = new URLSearchParams(location.search).get('panel') || 'project';
+  return PANELS[p] ? p : 'project';
+}
+
 function init() {
   document.getElementById('projTitleIcon').innerHTML = NC.ICONS.project;
-  NC.renderBreadcrumb(document.getElementById('breadcrumb'), ['系统', '主数据', '项目']);
   NC.renderTopMenu(document.getElementById('topMenu'), { activeKey: 'sys' });
-  NC.renderAccordion(document.getElementById('navRail'), { rootTitle: '经营业务工作台', domainLabel: '系统', activeKey: 'sys', activeLink: 'sys-project' });
-  reload().then(function () { toast('数据已加载', true); }).catch(function () { toast('加载失败', false); });
+  bindPanelLinks();
+  var panel = currentPanelFromUrl();
+  // 项目列表始终预载一次（切回主数据面板即时可见），本体面板按需加载。
+  if (panel !== 'project') {
+    window._projLoaded = true;
+    reload().catch(function () {});
+  }
+  switchPanel(panel, { keepUrl: true });
 }
 
 window.Core = {
-  reload: reload, closeModal: closeModal,
+  reload: reload, closeModal: closeModal, switchPanel: switchPanel,
   openProjectModal: openProjectModal, saveProject: saveProject, editProject: editProject, delProject: delProject,
   importProjects: importProjects
 };

@@ -1,34 +1,31 @@
 # -*- coding: utf-8 -*-
-"""本体可观测（Ontology）数据网关 — 为 9006 的 /api/ontology/* 提供只读数据。
+"""本体可观测（Ontology）数据网关 — 为 /api/ontology/* 提供只读数据。
 
-数据来源两路，互不干扰：
-  1. ABox（实例事实）：直读 neuops-agent-demo 的 `neuops_ontology.db`（o_* 七张表）。
-     只读模式打开（mode=ro），与 9007 的 WAL 写入不冲突，9007 挂掉时仍可看历史数据。
-  2. TBox（本体定义）：CONCEPTS / RELATIONS / ACTIONS / INVARIANTS / RULES /
-     ACTION_REGISTRY 都是 Python 字面量、不落库，只能从 9007 取。优先走
-     `/api/ontology-emp009/spec` HTTP 转发并按 TTL 缓存；9007 未启动时回落到
-     直接 AST 解析 9007 源码目录（同机部署时才可用），仍失败则向上抛错由路由层兜底。
+迁移说明（本体可观测整体迁入本工程）
+──────────────────────────────────
+迁移前：本体轨住在 neuops-agent-demo(9007)，本模块是个**跨工程外挂视图** ——
+ABox 直读对方工程目录下的 `neuops_ontology.db`，TBox 走 HTTP 打 9007 的 `/spec`，
+9007 没起时还要退化到 AST 解析对方源码。对方一挂，可观测页就只剩空壳。
+
+迁移后：引擎（TBox + 规则 + 动作 + 邮件 + 常驻循环）已在本工程 `ontology_engine/`，
+本体库也由本工程自建自写（工程根 `contract_ontology.db`）。因此本模块简化为：
+  1. ABox（实例事实）：只读打开本工程自己的本体库（mode=ro，与引擎的 WAL 写入不冲突）。
+  2. TBox（本体定义）：**进程内直接取** ontology_engine 的模块字面量，
+     不再有 HTTP 往返、TTL 缓存与 AST 回落这三层脚手架。
 
 当前只提供只读查询。写入口预留见文件末尾「编辑扩展预留」一节。
 """
 
-import ast
+import copy
 import json
 import os
 import sqlite3
 import time
 
-import httpx
+from ontology_engine import schema as _ont_schema
 
-# trust_env=False：9007 在本机，若继承 shell 的 HTTP_PROXY 会被代理拦成 502，必须绕开
-_HTTP = httpx.Client(trust_env=False, timeout=5)
-
-# ── 9007 侧位置配置（可用环境变量覆盖，便于换机器/容器部署）──
-ONT_9007_DIR = os.getenv("ONT_9007_DIR", "/Users/macbook/AI-Agent/neuops-agent-demo")
-ONT_9007_DB_PATH = os.getenv("ONT_9007_DB_PATH", os.path.join(ONT_9007_DIR, "neuops_ontology.db"))
-NEUOPS_BASE = os.getenv("NEUOPS_BASE", "http://127.0.0.1:9007")
-# TBox 是静态定义，缓存 5 分钟足够，避免每次翻页都打 9007
-_SPEC_TTL = float(os.getenv("ONT_SPEC_TTL", "300"))
+# 本体库路径：与引擎写入端同一个文件（引擎侧 ONT_DB_PATH 可覆盖，这里跟随）
+ONT_DB_PATH = _ont_schema.ONT_DB_PATH
 
 # o_* 表清单：概览页统计用
 ONT_TABLES = ["o_task", "o_person", "o_email", "o_supplier_quote",
@@ -45,10 +42,14 @@ _DB_ERR = {"missing": False, "error": ""}
 # 基础工具
 # ─────────────────────────────────────────────────────────────
 def _conn():
-    """只读连接本体库。文件不存在时显式抛错，由 _rows 捕获降级为空结果。"""
-    if not os.path.exists(ONT_9007_DB_PATH):
-        raise sqlite3.OperationalError(f"本体库不存在: {ONT_9007_DB_PATH}")
-    conn = sqlite3.connect(f"file:{ONT_9007_DB_PATH}?mode=ro", uri=True, timeout=5)
+    """只读连接本体库。文件不存在时显式抛错，由 _rows 捕获降级为空结果。
+
+    引擎会在应用启动期建库（见 main.py 的 startup），所以正常运行时文件必然存在；
+    这里保留存在性校验，避免 sqlite3 在路径配错时静默创建空库。
+    """
+    if not os.path.exists(ONT_DB_PATH):
+        raise sqlite3.OperationalError(f"本体库不存在: {ONT_DB_PATH}")
+    conn = sqlite3.connect(f"file:{ONT_DB_PATH}?mode=ro", uri=True, timeout=5)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -110,53 +111,15 @@ def _tracking_of(task, meta):
 
 
 # ─────────────────────────────────────────────────────────────
-# TBox：本体定义（HTTP 转发 + 缓存 + 源码回落）
+# TBox：本体定义（进程内直取）
 # ─────────────────────────────────────────────────────────────
-_SPEC_CACHE = {"at": 0.0, "data": None}
-# AST 从源码提取的目标：模块相对路径 -> 要取的顶层变量名
-_SPEC_SOURCE_TARGETS = {
-    "app/ontology/ontology.py": ("CONCEPTS", "RELATIONS", "ACTIONS", "INVARIANTS"),
-    "app/ontology/knowledge.py": ("RULES",),
-    "app/ontology/actions.py": ("ACTION_REGISTRY",),
-}
-
-
-def _spec_from_http():
-    r = _HTTP.get(f"{NEUOPS_BASE}/api/ontology-emp009/spec")
-    r.raise_for_status()
-    return r.json()
-
-
-def _spec_from_source():
-    """9007 未启动时，直接 AST 解析其源码取字面量定义（同机部署才可用）。
-
-    只取顶层 `NAME = <字面量>` 赋值，不求值任何表达式，因此导入 9007 模块所需
-    的依赖（app.config 等）一概不需要。
-    """
-    spec = {}
-    for rel, names in _SPEC_SOURCE_TARGETS.items():
-        path = os.path.join(ONT_9007_DIR, rel)
-        with open(path, encoding="utf-8") as f:
-            tree = ast.parse(f.read(), filename=path)
-        wanted = set(names)
-        for node in tree.body:
-            # 后续同名赋值覆盖前面的（与 Python 语义一致，如 _RULES_BY_TARGET 无关则不受影响）
-            if not isinstance(node, ast.Assign):
-                continue
-            for tgt in node.targets:
-                if isinstance(tgt, ast.Name) and tgt.id in wanted:
-                    spec[tgt.id] = ast.literal_eval(node.value)
-    missing = [n for names in _SPEC_SOURCE_TARGETS.values() for n in names if n not in spec]
-    if missing:
-        raise RuntimeError(f"源码中未找到定义: {', '.join(missing)}")
-    return {"success": True, "service": "emp-009",
-            "concepts": spec["CONCEPTS"], "relations": spec["RELATIONS"],
-            "actions": spec["ACTIONS"], "invariants": spec["INVARIANTS"],
-            "rules": spec["RULES"], "action_registry": spec["ACTION_REGISTRY"]}
+# CONCEPTS / RELATIONS / ACTIONS / INVARIANTS / RULES / ACTION_REGISTRY 都是
+# Python 字面量、不落库。迁移后它们与本模块同进程，直接 import 即可 ——
+# 不再需要 HTTP 转发、TTL 缓存与 AST 源码解析这三层跨进程脚手架。
 
 
 def _empty_spec():
-    """9007 不可达 / 源码目录不存在时的空 TBox，保证可观测页始终能渲染（不 500）。"""
+    """引擎模块异常时的空 TBox，保证可观测页始终能渲染（不 500）。"""
     return {"success": True, "service": "emp-009",
             "concepts": {}, "relations": {}, "actions": {},
             "invariants": [], "rules": [], "action_registry": {},
@@ -164,26 +127,26 @@ def _empty_spec():
 
 
 def spec(force: bool = False):
-    """取本体定义。返回 (data, source)；source ∈ http | cache | source | unavailable。
+    """取本体定义。返回 (data, source)；source ∈ local | unavailable。
 
-    任何失败（9007 未起、源码目录不存在、定义缺失）都降级为 unavailable 空 TBox，
-    不再向上抛错导致 500——可观测页是「只读业务呈现」，缺失时显示空概念即可。
+    `force` 参数保留（前端「刷新」按钮会传）但已无实际作用：进程内直取本就是实时的。
+    引擎模块导入异常时降级为 unavailable 空 TBox，不向上抛错导致 500——
+    可观测页是「只读业务呈现」，缺失时显示空概念即可。
     """
-    if not force and _SPEC_CACHE["data"] and (time.time() - _SPEC_CACHE["at"]) < _SPEC_TTL:
-        return _SPEC_CACHE["data"], "cache"
-    data, source = _empty_spec(), "unavailable"
     try:
-        data = _spec_from_http()
-        source = "http"
+        from ontology_engine import actions as _acts
+        from ontology_engine import knowledge as _know
+        from ontology_engine import ontology as _onto
+        data = {
+            "success": True, "service": "emp-009",
+            "concepts": _onto.CONCEPTS, "relations": _onto.RELATIONS,
+            "actions": _onto.ACTIONS, "invariants": _onto.INVARIANTS,
+            "rules": _know.RULES, "action_registry": _acts.ACTION_REGISTRY,
+        }
+        source = "local"
     except Exception:
-        # 9007 没起：退回源码解析（同机部署才可用）
-        try:
-            data = _spec_from_source()
-            source = "source"
-        except Exception:
-            data, source = _empty_spec(), "unavailable"
+        data, source = _empty_spec(), "unavailable"
     data["fetched_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    _SPEC_CACHE.update(at=time.time(), data=data)
     return data, source
 
 
@@ -218,18 +181,30 @@ def overview():
         spec_ok = False
         spec_error = f"{type(e).__name__}: {e}"
 
+    # 引擎运行态：治理开关 + 数字员工启停 —— 迁移后引擎同进程，概览页可直接展示
+    engine = {"governor": {}, "agent": {}, "error": ""}
+    try:
+        from ontology_engine import agent_registry as _reg
+        from ontology_engine import execution as _exec
+        engine["governor"] = _exec.governor()
+        engine["agent"] = _reg.state()
+    except Exception as e:
+        engine["error"] = f"{type(e).__name__}: {e}"
+
     return {
-        "db_path": ONT_9007_DB_PATH,
+        "db_path": ONT_DB_PATH,
         "db_ok": db_ok,
         "db_error": db_error,
         "db_mtime": (time.strftime("%Y-%m-%d %H:%M:%S",
-                                   time.localtime(os.path.getmtime(ONT_9007_DB_PATH)))
-                     if os.path.exists(ONT_9007_DB_PATH) else ""),
+                                   time.localtime(os.path.getmtime(ONT_DB_PATH)))
+                     if os.path.exists(ONT_DB_PATH) else ""),
         "counts": counts,
         "spec_source": spec_source,
         "spec_ok": spec_ok,
         "spec_error": spec_error,
-        "neuops_base": NEUOPS_BASE,
+        # 本体轨已迁入本工程、与本服务同进程，不再有外部 neuops 依赖
+        "engine": "local",
+        "engine_state": engine,
     }
 
 
@@ -241,7 +216,7 @@ def claim_state():
 
     `unclaimed` 是已登记但任务未建成的邮件（claim_status=pending/failed），
     下一轮扫描会自动重试；数量长期不降说明存在稳定失败，需人工介入。
-    `watermark` 是 9007 上次成功扫完收件箱的时刻，用于停机后补扫防漏单。
+    `watermark` 是引擎上次成功扫完收件箱的时刻，用于停机后补扫防漏单。
     老库无 o_scan_state / claim_status 时降级为空值，不报错。
     """
     watermark_ts, unclaimed = 0, []
@@ -321,7 +296,11 @@ def knowledge():
 # ─────────────────────────────────────────────────────────────
 def actions():
     data, source = spec()
-    registry = data.get("action_registry", {})
+    # 必须深拷贝：迁移后 spec() 返回的是**引擎模块里的活字典**（ACTION_REGISTRY），
+    # 下面会往每个动作里塞 _stats 统计字段。若直接改，统计结果会永久污染引擎的注册表，
+    # 并从 /spec、/knowledge 等其它端点漏出去。（迁移前数据来自 HTTP JSON，每次都是新对象，
+    # 所以原代码就地修改是安全的 —— 这是「跨进程改同进程」必须补的一刀。）
+    registry = copy.deepcopy(data.get("action_registry", {}))
     # o_audit_log 里的 action 带前缀（align: / noop:），归一化后统计真实动作调用次数
     hist = _rows("SELECT action, COUNT(*) AS n, MAX(operate_time) AS last_time"
                  " FROM o_audit_log GROUP BY action")
@@ -493,8 +472,9 @@ def ledger(limit: int = 200):
 # 后续要支持编辑时，在这下面补写入函数（UPDATE/INSERT + 写 o_audit_log），
 # 再到 main.py 挂 POST/PUT 路由即可。注意两条约束：
 #   1. o_audit_log 是仅追加表，任何修改都要补一条审计，不要 UPDATE/DELETE；
-#   2. 本体库是 9007 的写入端，9006 若要写需用可写连接（去掉 mode=ro）并与
-#      9007 的 WAL 锁协调，否则容易 database is locked。
+#   2. 本体库的写入端是同进程的 ontology_engine（常驻循环）。要写请复用
+#      `ontology_engine.store` 的写函数，不要在这里另开可写连接 ——
+#      两个写者争 SQLite 写锁容易 database is locked，且绕过 store 就绕过了审计。
 #
 # def update_task_field(task_id: str, field: str, value, operator: str = 'web'):
 #     raise NotImplementedError('本体可观测当前为只读面板')

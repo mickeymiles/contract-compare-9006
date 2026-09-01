@@ -78,7 +78,17 @@
       { sub: '主数据', links: [
         { id: 'sys-opp', label: '商机', href: '/dev?feature=商机', icon: 'opp' },
         { id: 'sys-contract', label: '合同', href: '/dev?feature=合同', icon: 'contract' },
-        { id: 'sys-project', label: '项目', href: '/core', icon: 'project' }
+        { id: 'sys-project', label: '项目', href: '/core?panel=project', icon: 'project' }
+      ] },
+      // 本体可观测（Ontology）：引擎 + ABox 库已迁入本工程（backend/ontology_engine），
+      // 原挂在「运维 › 备件采购」下、读 neuops 9007，现整体迁到系统域、主数据之下。
+      { sub: '本体可观测', links: [
+        { id: 'sys-ont-entities',  label: '实体与关系',   href: '/core?panel=ontEntities',  icon: 'ops' },
+        { id: 'sys-ont-knowledge', label: '知识',         href: '/core?panel=ontKnowledge', icon: 'datasource' },
+        { id: 'sys-ont-actions',   label: '动作',         href: '/core?panel=ontActions',   icon: 'refresh' },
+        { id: 'sys-ont-tasks',     label: '任务列表',     href: '/core?panel=ontTasks',     icon: 'project' },
+        { id: 'sys-ont-ledger',    label: '台账',         href: '/core?panel=ontLedger',    icon: 'receipt' },
+        { id: 'sys-ont-topology',  label: '拓扑与一致性', href: '/core?panel=ontTopology',  icon: 'chart' }
       ] }
     ]}
   ];
