@@ -1106,20 +1106,43 @@ function _kvrows(rows) {
 }
 // —— 整体流程：把 内部邮件流 + 外部供应商流 交错合并为"一条纵向流程" ——
 // 角色：工程师 / 智能体 / 审批人 / 供应商；每个节点注明"谁做什么 + 发给/抄送谁"
+// 智能体（emp-009）实际写入的外部流枚举 → 统一流程节点序号。
+// 注意：引擎实际用的是 INVITE_QUOTE / ORDER_CONFIRM / R_PROC_DONE，
+// 早期这里只认 R_WAIT_QUOTES / R_ORDER 等，导致下单后进度条倒退回第 1 步。
+const PROC_EXT_RANK = {
+  R_INIT:1, R_SEND:1,
+  INVITE_QUOTE:2, R_WAIT_QUOTES:2,
+  R_DECIDING:3, R_APPROVAL:3, R_WAIT_APPROVAL:3,
+  R_ORDER:4, R_WAIT_ORDER:4, ORDER_CONFIRM:4,
+  R_WAIT_SHIPPING:5, R_WAIT_ENGINEER_CLOSE:5,
+  R_PROC_DONE:6,                 // 当前版本终态：供应商回传单号即结束
+  R_WAIT_ACCEPTANCE:6,
+  R_WAIT_SETTLE:7, R_CLOSED:7, R_SETTLE:7,
+};
+// 当前版本（未启用收货验收/结算）的收口态
+function procDone(t) {
+  const e = String(t.external_status || '').toUpperCase();
+  return e === 'R_PROC_DONE';
+}
 function procTerminated(t) {
   const e = String(t.external_status || '').toUpperCase();
-  return e === 'R_ABORT' || String(t.task_status || '') === '任务已取消';
+  // 引擎写的是 CLOSED_ABORT / CLOSED_MANUAL（历史代码只认不存在的 R_ABORT）
+  return e === 'R_ABORT' || e === 'CLOSED_ABORT' || e === 'CLOSED_MANUAL'
+      || String(t.task_status || '') === '任务已取消';
 }
 function _unifiedCurrentLabel(t) {
   const i = String(t.internal_status || '').toUpperCase();
   const e = String(t.external_status || '').toUpperCase();
   const map = {
-    R_SEND:'发询价函', R_WAIT_QUOTES:'供应商报价', R_DECIDING:'比价定标',
-    R_ORDER:'下达订货', R_WAIT_SHIPPING:'发货回执', R_WAIT_ACCEPTANCE:'收货验收',
-    R_WAIT_SETTLE:'结算通知', R_CLOSED:'结算通知',
+    R_SEND:'发询价函', INVITE_QUOTE:'供应商报价', R_WAIT_QUOTES:'供应商报价',
+    R_DECIDING:'比价定标', R_APPROVAL:'内部审批', R_WAIT_APPROVAL:'内部审批',
+    R_ORDER:'下达订货', R_WAIT_ORDER:'下达订货', ORDER_CONFIRM:'等待供应商发货',
+    R_WAIT_SHIPPING:'发货回执', R_PROC_DONE:'流程结束（当前版本）',
+    R_WAIT_ACCEPTANCE:'收货验收', R_WAIT_SETTLE:'结算通知', R_CLOSED:'结算通知',
   };
   if (procTerminated(t)) return '已终止';
-  if (i === 'R_CLOSED') return '结算通知 · 已闭环';
+  if (procDone(t)) return '流程结束（当前版本）';
+  if (i === 'R_CLOSED') return '流程结束（当前版本）';
   return map[e] || '发起询价';
 }
 function renderUnifiedFlow(t) {
@@ -1131,13 +1154,16 @@ function renderUnifiedFlow(t) {
   const isClosed = intI === 'R_CLOSED' || ts === '流程闭环';
   const isSettle = isClosed && (extI === 'R_WAIT_SETTLE' || extI === 'R_CLOSED');
   const aborted = procTerminated(t);
-  // 外部供应商流推进度基准
-  const extRank = {R_SEND:1,R_WAIT_QUOTES:2,R_DECIDING:3,R_ORDER:4,R_WAIT_SHIPPING:5,R_WAIT_ACCEPTANCE:6,R_WAIT_SETTLE:7,R_CLOSED:7}[extI] || 1;
+  const done = procDone(t) || (isClosed && !isSettle);   // 当前版本：单号已回传 = 流程结束
+  // 外部供应商流推进度基准（枚举见 PROC_EXT_RANK）
+  const extRank = PROC_EXT_RANK[extI] || 1;
   const inq = Array.isArray(t.suppliers_json) ? t.suppliers_json : [];
   const quotes = Array.isArray(t.quotes_json) ? t.quotes_json : [];
   const sel = t.selected_supplier || {};
   const lowestName = t.lowest_supplier || (sel && sel.name) || '';
-  const shipped = !!t.shipped_no;
+  // 物流单号：业务主表权威列是 logistics_no，shipped_no 只是别名（老库有该列但从不写入）
+  const trackNo = t.shipped_no || t.logistics_no || '';
+  const shipped = !!trackNo;
   const engList = esc((t.inquiry_to_list||[]).join('、')) || '—';
 
   // 逐节点状态：0=未开始 1=当前 2=已完成
@@ -1186,7 +1212,7 @@ function renderUnifiedFlow(t) {
       detail: detailOf([['发给', esc((sel&&sel.email)||'-')], ['抄送', engList || '工程师+审批人+抄送'], ['目标供应商', esc(t.target_supplier||lowestName||'-')]]) },
     { title:'发货回执', who:'供应商', color:'var(--orange)',
       desc:'选中供应商在订货线程回执快递单号，智能体登记物流信息。',
-      detail: detailOf([['物流单号', t.shipped_no?'<b style="font-family:var(--mono);color:#5ed7ff">'+esc(t.shipped_no)+'</b>':'—']]) },
+      detail: detailOf([['物流单号', trackNo?'<b style="font-family:var(--mono);color:#5ed7ff">'+esc(trackNo)+'</b>':'—']]) },
     { title:'收货验收', who:'工程师', color:'var(--green)', reserved: true,
       desc:'【后续扩展 · 当前未启用】工程师收货并完成通电/联调验收、回执"备件更换完成"的环节。当前版本流程在供应商回传快递单号后即视为完成，该节点暂不在自动流程内。' },
     { title:'结算通知', who:'智能体', color:'var(--purple)', reserved: true,
@@ -1203,12 +1229,16 @@ function renderUnifiedFlow(t) {
       state: 3,
       detail: detailOf([['终止说明', ts==='任务已取消' ? esc(t.cancel_reason||'-') : (intI==='R_CLOSED'?'审批全部拒绝':'无报价中止')], ['终止时间', esc(t.updated_at||'-')]]),
     }, nodes.length);
-  } else if (shipped || extRank >= 6) {
+  } else if (done || shipped || extRank >= 6) {
     // 终端说明：当前版本流程在"供应商回传单号"即结束（更换/结算为后续扩展）
     html += dualStepCard({
       title: '流程结束（当前版本）', who: '系统', color: 'var(--cyan)',
       desc: '供应商回传快递单号即视为本次采购完成。更换完成通知、结算通知（G）为后续扩展功能，当前版本未启用——如需闭环结算，待后续版本接入。',
       terminal: true,
+      detail: detailOf([
+        ['物流单号', trackNo ? '<b style="font-family:var(--mono);color:#5ed7ff">'+esc(trackNo)+'</b>' : '—'],
+        ['结束时间', esc(t.close_time || t.updated_at || '-')],
+      ]),
     }, nodes.length);
   }
   html += `</div>`;
@@ -2691,7 +2721,7 @@ function renderMailInquiryDetail(t) {
     ['最低报价供应商', t.lowest_supplier ? `<b style="color:var(--green)">${escapeHtml(t.lowest_supplier)} · ${escapeHtml(t.lowest_quote || '-')}</b>` : '-'],
     ['目标供应商', escapeHtml(t.target_supplier || '-')],
     ['审批状态', mailApprovalHtml(t)],
-    ['快递单号', t.shipped_no ? `<b style="color:#5ed7ff">${escapeHtml(t.shipped_no)}</b>` : '-'],
+    ['快递单号', (t.shipped_no || t.logistics_no) ? `<b style="color:#5ed7ff">${escapeHtml(t.shipped_no || t.logistics_no)}</b>` : '-'],
     ['发起人邮箱', t.from_email || '-'],
     ['线程 Message-ID', t.thread_msg_id ? `<span style="font-family:var(--mono);font-size:11px">${escapeHtml(t.thread_msg_id)}</span>` : '-'],
     ['创建 / 更新', `${t.created_at || '-'} / ${t.updated_at || '-'}`],
