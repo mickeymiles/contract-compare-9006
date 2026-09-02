@@ -11,6 +11,19 @@
  * 本文件自备 DOM/转义/遮罩工具（ont* 前缀），不与 core.app.js 抢全局名。
  * ================================================================ */
 
+// 执行历史 action 中文映射：让 009 的代码动作变成人话，便于判断"做了什么、对不对"
+const ONT_ACTION_LABELS = {
+  createTask: '创建询价任务', distributeInquiry: '发送询价函', submitApproval: '发起审批汇总',
+  confirmOrderToSupplier: '下达订货', receiveTrackingNumber: '登记快递单号',
+  requestTrackingNo: '索取发货单号', requestShippingTracking: '回复发货单号',
+  requestQuoteClarification: '催补报价', requestMissingFields: '催补询价信息',
+  receiveSupplierQuote: '收到供应商报价', finalizeQuoteCollection: '报价收尾',
+  waitForSupplierShipment: '等待供应商发货', engineerFinalClose: '结算闭环',
+  abortTask: '中止任务', manualCloseTask: '手动关闭',
+  propose: '决策提议', claim: '认领询邮', select: '确认选型',
+  test_pass: '验收通过', test_fail: '验收失败', cancel: '取消任务',
+};
+
 /* ---------- 本模块自备工具（前缀 ont，避免与宿主页脚本冲突） ---------- */
 const ONT$ = (id) => document.getElementById(id);
 
@@ -381,14 +394,16 @@ async function loadOntAudit() {
   }
 }
 
-/** 审计 action 带 align:/noop: 前缀，拆出来着色。 */
+/** 审计 action 带 align:/noop: 前缀，拆出来着色，并附中文动作说明。 */
 function ontActionChip(action) {
   const raw = String(action || '-');
   if (raw.includes(':')) {
     const [prefix, name] = raw.split(':', 2);
-    return `${ontChip(prefix, prefix === 'noop' ? 'm' : '')} <span class="ont-code">${ontEsc(name)}</span>`;
+    const label = ONT_ACTION_LABELS[name] || '';
+    return `${ontChip(prefix, prefix === 'noop' ? 'm' : '')} <span class="ont-code">${ontEsc(name)}</span>${label ? ` <span style="color:var(--text2);font-size:11px">· ${ontEsc(label)}</span>` : ''}`;
   }
-  return `${ontChip('执行', 'g')} <span class="ont-code">${ontEsc(raw)}</span>`;
+  const label = ONT_ACTION_LABELS[raw] || '';
+  return `${ontChip('执行', 'g')} <span class="ont-code">${ontEsc(raw)}</span>${label ? ` <span style="color:var(--text2);font-size:11px">· ${ontEsc(label)}</span>` : ''}`;
 }
 
 function ontSnap(obj) {

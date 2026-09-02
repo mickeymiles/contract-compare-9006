@@ -1059,6 +1059,26 @@ function procApproval(t) {
 }
 // 双流步骤卡片（垂直时间线样式：左轨道线 + 节点圆点 + 序号，前后卡片用线串起来）
 function dualStepCard(st, i = 0) {
+  // 后续扩展（当前未启用）：虚线灰显，明确告知用户该节点暂不在流程内
+  if (st.reserved) {
+    return `<div class="dual-step">
+      <div class="dual-node" style="background:rgba(125,141,176,.12);border-color:var(--border);color:var(--text3)"><span class="dual-num">${i + 1}</span></div>
+      <div class="dual-card"><div class="step-card" style="border-style:dashed;opacity:.72">
+        <div class="step-title">${st.title} <span class="badge badge-o" style="background:rgba(125,141,176,.18);color:var(--text2)">后续扩展 · 未启用</span></div>
+        <div class="step-desc">${st.desc}</div>
+      </div></div>
+    </div>`;
+  }
+  // 流程结束（当前版本终态）：区别于"已完成"，用琥珀色收尾说明
+  if (st.terminal) {
+    return `<div class="dual-step">
+      <div class="dual-node" style="background:rgba(0,229,255,.14);border-color:var(--cyan);color:var(--cyan)"><span class="dual-num">${i + 1}</span></div>
+      <div class="dual-card"><div class="step-card" style="border-color:rgba(0,229,255,.5);background:rgba(0,229,255,.04)">
+        <div class="step-title">${st.title} <span class="badge badge-o" style="background:rgba(0,229,255,.15);color:var(--cyan)">当前版本终态</span></div>
+        <div class="step-desc">${st.desc}</div>
+      </div></div>
+    </div>`;
+  }
   const cls = { 0:'', 1:'current', 2:'done', 3:'failed' }[st.state] || '';
   const nodeCls = (st.state === 2 ? 'done' : st.state === 1 ? 'current' : st.state === 3 ? 'failed' : '');
   const badge = st.state === 2 ? ' <span class="badge badge-proc-closed">✅ 已完成</span>'
@@ -1167,16 +1187,14 @@ function renderUnifiedFlow(t) {
     { title:'发货回执', who:'供应商', color:'var(--orange)',
       desc:'选中供应商在订货线程回执快递单号，智能体登记物流信息。',
       detail: detailOf([['物流单号', t.shipped_no?'<b style="font-family:var(--mono);color:#5ed7ff">'+esc(t.shipped_no)+'</b>':'—']]) },
-    { title:'收货验收', who:'工程师', color:'var(--green)',
-      desc:'工程师收货并完成通电/联调验收，回执"备件更换完成"，作为验收通过依据。',
-      detail: detailOf([['验收状态', isClosed?'<b style="color:var(--green)">工程师验收通过</b>':'待工程师验收'], ['测试结果', esc(t.test_result||'待测试')]]) },
-    { title:'结算通知', who:'智能体', color:'var(--purple)',
-      desc:'验收通过后，智能体在订货线程向供应商追加结算通知（G），并抄送内部，流程正式闭环。',
-      detail: detailOf([['结算状态', isSettle?'<b style="color:var(--green)">已闭环 · 等待结算完成</b>':'进行中'], ['闭环时间', esc(t.updated_at||'-')]]) },
+    { title:'收货验收', who:'工程师', color:'var(--green)', reserved: true,
+      desc:'【后续扩展 · 当前未启用】工程师收货并完成通电/联调验收、回执"备件更换完成"的环节。当前版本流程在供应商回传快递单号后即视为完成，该节点暂不在自动流程内。' },
+    { title:'结算通知', who:'智能体', color:'var(--purple)', reserved: true,
+      desc:'【后续扩展 · 当前未启用】验收通过后向供应商追加结算通知（G）并抄送内部的环节。当前版本未接入结算邮件，待后续版本扩展。' },
   ];
 
   let html = `<div class="dual-timeline">${nodes.map((n,i)=> dualStepCard({
-      title: n.title + role(n.who, n.color), desc: n.desc, state: aborted ? (i < _firstUnreachedIdx(st) ? 2 : 0) : st[i], detail: n.detail }, i)).join('')}`;
+      title: n.title + role(n.who, n.color), desc: n.desc, state: (n.reserved ? 0 : (aborted ? (i < _firstUnreachedIdx(st) ? 2 : 0) : st[i])), detail: n.detail, reserved: n.reserved }, i)).join('')}`;
   // 异常分支：已终止（全部拒绝 / 无报价中止 / 取消）
   if (aborted) {
     html += dualStepCard({
@@ -1184,6 +1202,13 @@ function renderUnifiedFlow(t) {
       desc:'无可行报价 / 审批全部拒绝 / 任务取消，流程在此中止，不再推进结算。',
       state: 3,
       detail: detailOf([['终止说明', ts==='任务已取消' ? esc(t.cancel_reason||'-') : (intI==='R_CLOSED'?'审批全部拒绝':'无报价中止')], ['终止时间', esc(t.updated_at||'-')]]),
+    }, nodes.length);
+  } else if (shipped || extRank >= 6) {
+    // 终端说明：当前版本流程在"供应商回传单号"即结束（更换/结算为后续扩展）
+    html += dualStepCard({
+      title: '流程结束（当前版本）', who: '系统', color: 'var(--cyan)',
+      desc: '供应商回传快递单号即视为本次采购完成。更换完成通知、结算通知（G）为后续扩展功能，当前版本未启用——如需闭环结算，待后续版本接入。',
+      terminal: true,
     }, nodes.length);
   }
   html += `</div>`;
@@ -1273,6 +1298,31 @@ function renderStepFlow() {
   setHTML('detailStepFlow', html);
 }
 
+// 操作日志 action 中文映射：让 009 / 页面操作从"代码"变成"人话"
+const PROC_ACTION_LABELS = {
+  createTask:        { name: '创建询价任务', desc: '工程师发起采购申请，建立任务' },
+  distributeInquiry: { name: '发送询价函', desc: '向各供应商发出询价邮件（B）' },
+  submitApproval:    { name: '发起审批汇总', desc: '向审批人发出报价汇总（D），等待确认' },
+  confirmOrderToSupplier: { name: '下达订货', desc: '向中选供应商发出订货确认（E）' },
+  receiveTrackingNumber: { name: '登记快递单号', desc: '收到供应商发货单号并登记物流' },
+  requestTrackingNo: { name: '索取发货单号', desc: '供应商称已发货但缺单号，回信索取一次' },
+  requestShippingTracking: { name: '回复发货单号', desc: '收到含糊单号邮件，请供应商回复发货快递单号' },
+  requestQuoteClarification: { name: '催补报价', desc: '供应商报价解析失败，催其补全后重发' },
+  requestMissingFields: { name: '催补询价信息', desc: '询价信息不完整，请工程师补全' },
+  receiveSupplierQuote: { name: '收到供应商报价', desc: '供应商回邮报价，已自动解析登记' },
+  finalizeQuoteCollection: { name: '报价收尾', desc: '报价收集阶段收尾（无操作）' },
+  waitForSupplierShipment: { name: '等待供应商发货', desc: '已下单，等待供应商发货通知（不发信）' },
+  engineerFinalClose: { name: '结算闭环', desc: '验收通过，发结算通知（G）并闭环' },
+  abortTask:         { name: '中止任务', desc: '无可行报价/审批拒绝，任务中止' },
+  manualCloseTask:   { name: '手动关闭', desc: '后台操作员手动关闭任务' },
+  propose:           { name: '决策提议', desc: '本轮决策器提议的下一步动作（对照用）' },
+  claim:             { name: '认领询邮', desc: '智能体认领工程师发起邮件并建立任务' },
+  select:            { name: '确认选型', desc: '页面确认成交供应商与单价' },
+  test_pass:         { name: '验收通过', desc: '工程师录入现场测试通过' },
+  test_fail:         { name: '验收失败', desc: '工程师录入现场测试失败' },
+  cancel:            { name: '取消任务', desc: '任务被取消' },
+};
+
 async function loadOpLogs() {
   showPageLoading('加载操作日志...');
   try {
@@ -1284,13 +1334,20 @@ async function loadOpLogs() {
           return;
         }
         setHTML('opLogBody',
-          '<table><thead><tr><th>时间</th><th>操作人</th><th>动作</th><th>备注</th></tr></thead><tbody>' +
-          logs.map(l => `<tr>
-            <td style="font-size:11px">${escapeHtml(l.action_time||'')}</td>
-            <td>${escapeHtml(l.operator||'')}</td>
-            <td><span class="badge badge-o">${escapeHtml(l.action||'')}</span></td>
-            <td style="font-size:11px">${escapeHtml(l.remark || '')}</td>
-          </tr>`).join('') + '</tbody></table>'
+          '<table><thead><tr><th>时间</th><th>操作人</th><th>动作</th><th>说明</th><th>备注</th></tr></thead><tbody>' +
+          logs.map(l => {
+            const lab = PROC_ACTION_LABELS[String(l.action||'').replace(/^noop:/,'').replace(/^block:/,'')] || { name: l.action, desc: '' };
+            const ok = String(l.action||'').startsWith('noop:') ? '<span class="badge badge-o" style="background:rgba(125,141,176,.18);color:var(--text2)">未执行</span>'
+                      : String(l.action||'').startsWith('block:') ? '<span class="badge badge-o" style="background:rgba(255,82,82,.16);color:var(--red)">被拦截</span>'
+                      : '<span class="badge badge-proc-closed">已执行</span>';
+            return `<tr>
+              <td style="font-size:11px">${escapeHtml(l.action_time||'')}</td>
+              <td>${escapeHtml(l.operator||'')}</td>
+              <td><span class="badge badge-o">${escapeHtml(lab.name)}</span>${ok}</td>
+              <td style="font-size:11px;color:var(--text2)">${escapeHtml(lab.desc||'')}</td>
+              <td style="font-size:11px">${escapeHtml(l.remark || '')}</td>
+            </tr>`;
+          }).join('') + '</tbody></table>'
         );
       } catch (e) {
         console.error('oplog 加载失败', e);
