@@ -199,6 +199,43 @@ def init_procurement_db():
     """)
     c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_proc_approver_email ON procurement_approver(email)")
 
+    # 4.3 智能体已处理邮件去重表（业务化执行链路用）
+    #     取代本体轨 o_email：以 email_message_id 唯一键防重复认领，
+    #     是「不靠时间水位、只靠唯一键」去重策略的落点。
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS procurement_mail_seen (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email_message_id TEXT NOT NULL,
+            task_id TEXT DEFAULT '',
+            direction TEXT DEFAULT 'in',
+            subject TEXT DEFAULT '',
+            from_email TEXT DEFAULT '',
+            claim_status TEXT DEFAULT 'claimed',
+            claim_error TEXT DEFAULT '',
+            received_at TEXT DEFAULT (datetime('now','localtime')),
+            updated_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_proc_mail_seen_mid "
+              "ON procurement_mail_seen(email_message_id)")
+
+    # 4.4 智能体运行状态（扫描水位等键值；业务化执行链路用）
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS procurement_agent_state (
+            state_key TEXT PRIMARY KEY,
+            state_value TEXT DEFAULT '',
+            updated_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+
+    # 4.5 业务化执行链路所需列（幂等补列，已存在不重复添加）
+    #     spare_info 承载智能体运行时上下文（邮件线程 id、报价、抄送名单等），
+    #     业务字段单独映射到同名列供页面展示，整体再存一份供流程回读还原。
+    _ensure_columns(c, "procurement_task", (
+        "spare_info", "session_id", "threat_msg_id",
+        "close_feedback", "mode", "close_time", "status",
+    ))
+
     # 4.2 智能体邮件模板配置（A-G；页面可改措辞。subject/body 留空则回退 skill 默认模板，避免发空邮件）
     c.execute("""
         CREATE TABLE IF NOT EXISTS procurement_mail_template (
