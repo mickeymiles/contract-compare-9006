@@ -236,6 +236,20 @@ def init_procurement_db():
         "close_feedback", "mode", "close_time", "status",
     ))
 
+    # 4.6 发起人白名单（智能体只处理白名单内发件人的询价邮件）
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS procurement_requester (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT DEFAULT '',
+            email TEXT NOT NULL,
+            enabled INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            updated_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_proc_requester_email "
+              "ON procurement_requester(email)")
+
     # 4.2 智能体邮件模板配置（A-G；页面可改措辞。subject/body 留空则回退 skill 默认模板，避免发空邮件）
     c.execute("""
         CREATE TABLE IF NOT EXISTS procurement_mail_template (
@@ -1489,12 +1503,46 @@ def get_all_approver_emails():
 # ============================================================
 
 def list_mail_templates():
+    """返回**当前生效**的 A–G 模板（页面自定义 ∪ 系统默认）。
+
+    页面自定义库只保存被改过的字段（留空表示沿用默认），直接读表会看到
+    "空白"，用户无从判断实际会发出什么。这里以系统默认内容为基线，
+    用自定义的非空字段覆盖，再标注 is_custom 供页面提示。
+    """
+    try:
+        from mail_tpl_default import DEFAULT_MAIL_TEMPLATES
+    except Exception:
+        try:
+            from .mail_tpl_default import DEFAULT_MAIL_TEMPLATES
+        except Exception:
+            DEFAULT_MAIL_TEMPLATES = {}
+
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT * FROM procurement_mail_template ORDER BY tpl_key ASC")
-    rows = c.fetchall()
+    c.execute("SELECT * FROM procurement_mail_template")
+    custom = {r["tpl_key"]: dict(r) for r in c.fetchall()}
     conn.close()
-    return [dict(r) for r in rows]
+
+    out = []
+    for key in (sorted(DEFAULT_MAIL_TEMPLATES.keys()) or sorted(custom.keys())):
+        base = dict(DEFAULT_MAIL_TEMPLATES.get(key) or {"name": "", "subject": "", "body": ""})
+        row = custom.get(key) or {}
+        eff = {
+            "tpl_key": key,
+            "name": row.get("name") or base.get("name") or key,
+            "subject": row.get("subject") or base.get("subject") or "",
+            "body": row.get("body") or base.get("body") or "",
+            "enabled": row.get("enabled", 1),
+        }
+        eff["default_subject"] = base.get("subject") or ""
+        eff["default_body"] = base.get("body") or ""
+        eff["is_custom"] = bool(
+            (row.get("subject") and row.get("subject") != base.get("subject"))
+            or (row.get("body") and row.get("body") != base.get("body"))
+        )
+        eff["updated_at"] = row.get("updated_at") or ""
+        out.append(eff)
+    return out
 
 
 def get_mail_template(tpl_key):
@@ -1590,3 +1638,106 @@ def seed_procurement_master():
 
     conn.commit()
     conn.close()
+
+
+# ============================================================
+# 发起人白名单（procurement_requester）
+#   智能体只处理白名单内发件人的询价邮件，避免广告/垃圾邮件被误认领。
+#   支持整邮箱（a@b.com）与域名（@b.com）两种写法。
+#   **列表为空 = 不限制**（与 9007 _requester_allowed 的行为保持一致）。
+# ============================================================
+
+def list_requesters(*, keyword=None, only_enabled=False, limit=500):
+    conn = get_db()
+    c = conn.cursor()
+    sql = "SELECT * FROM procurement_requester"
+    params, conds = [], []
+    if keyword:
+        conds.append("(name LIKE ? OR email LIKE ?)")
+        like = f"%{keyword}%"
+        params += [like, like]
+    if only_enabled:
+        conds.append("enabled=1")
+    if conds:
+        sql += " WHERE " + " AND ".join(conds)
+    sql += " ORDER BY id ASC LIMIT ?"
+    params.append(limit)
+    rows = c.execute(sql, params).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_requester(requester_id):
+    conn = get_db()
+    c = conn.cursor()
+    r = c.execute("SELECT * FROM procurement_requester WHERE id=?", (requester_id,)).fetchone()
+    conn.close()
+    return dict(r) if r else None
+
+
+def create_requester(*, name="", email="", enabled=1):
+    if not (email or "").strip():
+        raise ValueError("邮箱不能为空")
+    email = email.strip()
+    if "@" not in email:
+        raise ValueError("请填写完整邮箱（a@b.com）或域名（@b.com）")
+    conn = get_db()
+    c = conn.cursor()
+    dup = c.execute("SELECT id FROM procurement_requester WHERE lower(email)=lower(?)",
+                    (email,)).fetchone()
+    if dup:
+        conn.close()
+        raise ValueError(f"白名单中已存在：{email}")
+    cur = c.execute(
+        "INSERT INTO procurement_requester(name, email, enabled) VALUES (?,?,?)",
+        (name.strip(), email, 1 if enabled else 0))
+    rid = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return {"id": rid, "name": name.strip(), "email": email, "enabled": 1 if enabled else 0}
+
+
+def update_requester(requester_id, **fields):
+    allowed = ("name", "email", "enabled")
+    sets, params = [], []
+    for k, v in fields.items():
+        if k in allowed and v is not None:
+            if k == "email":
+                v = (v or "").strip()
+                if not v:
+                    raise ValueError("邮箱不能为空")
+            sets.append(f"{k}=?")
+            params.append(v)
+    if not sets:
+        return get_requester(requester_id)
+    params.append(requester_id)
+    conn = get_db()
+    c = conn.cursor()
+    c.execute(f"UPDATE procurement_requester SET {', '.join(sets)},"
+              f" updated_at=datetime('now','localtime') WHERE id=?", params)
+    conn.commit()
+    conn.close()
+    return get_requester(requester_id)
+
+
+def delete_requester(requester_id):
+    conn = get_db()
+    c = conn.cursor()
+    cur = c.execute("DELETE FROM procurement_requester WHERE id=?", (requester_id,))
+    n = cur.rowcount
+    conn.commit()
+    conn.close()
+    return {"deleted": n}
+
+
+def get_all_requester_emails(*, only_enabled=True):
+    """给智能体用：返回启用中的白名单条目（邮箱或域名）。"""
+    conn = get_db()
+    c = conn.cursor()
+    sql = "SELECT email FROM procurement_requester"
+    if only_enabled:
+        sql += " WHERE enabled=1"
+    sql += " ORDER BY id ASC"
+    rows = [r["email"] for r in c.execute(sql).fetchall() if (r["email"] or "").strip()]
+    conn.close()
+    return rows

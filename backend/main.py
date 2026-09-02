@@ -960,6 +960,9 @@ from procurement_models import (
     get_all_approver_emails,
     # ---- 智能体邮件模板配置（A-G，页面可改措辞）----
     list_mail_templates, get_mail_template, update_mail_template, reset_mail_template,
+    # ---- 发起人白名单（智能体只处理名单内发件人，空=不限制）----
+    list_requesters, get_requester, create_requester, update_requester,
+    delete_requester, get_all_requester_emails,
     get_mail_templates_map,
     # ---- 前端人工修改报价 ----
     manual_update_supplier_quote,
@@ -1175,6 +1178,53 @@ def api_proc_mail_template_reset(tpl_key: str):
     r = reset_mail_template(tpl_key.upper())
     if r is None:
         return JSONResponse({"success": False, "error": "模板不存在"}, status_code=404)
+    return {"success": True, "data": r}
+
+
+# ===================== 发起人白名单 =====================
+
+@app.get("/api/procurement/requesters")
+def api_proc_requesters_list(keyword: str = "", only_enabled: bool = False):
+    rows = list_requesters(keyword=keyword or None, only_enabled=only_enabled)
+    return {"success": True, "data": rows, "total": len(rows),
+            "note": "列表为空表示不限制发件人（任何人的询价邮件都会被处理）"}
+
+
+@app.get("/api/procurement/requesters/emails")
+def api_proc_requesters_emails(only_enabled: bool = True):
+    """给智能体（9007）读取启用中的白名单条目"""
+    return {"success": True, "data": get_all_requester_emails(only_enabled=only_enabled)}
+
+
+@app.post("/api/procurement/requesters")
+def api_proc_requesters_create(body: dict):
+    try:
+        r = create_requester(name=(body or {}).get("name", ""),
+                             email=(body or {}).get("email", ""),
+                             enabled=int((body or {}).get("enabled", 1) or 0))
+        return {"success": True, "data": r}
+    except ValueError as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+
+
+@app.put("/api/procurement/requesters/{requester_id}")
+def api_proc_requesters_update(requester_id: int, body: dict):
+    b = body or {}
+    try:
+        r = update_requester(requester_id, name=b.get("name"), email=b.get("email"),
+                             enabled=(None if b.get("enabled") is None else int(b["enabled"])))
+    except ValueError as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+    if not r:
+        return JSONResponse({"success": False, "error": "白名单条目不存在"}, status_code=404)
+    return {"success": True, "data": r}
+
+
+@app.delete("/api/procurement/requesters/{requester_id}")
+def api_proc_requesters_delete(requester_id: int):
+    r = delete_requester(requester_id)
+    if not r.get("deleted"):
+        return JSONResponse({"success": False, "error": "白名单条目不存在"}, status_code=404)
     return {"success": True, "data": r}
 
 

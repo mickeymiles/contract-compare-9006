@@ -105,7 +105,7 @@ function fmtStatus(s) {
 
 // ============ 页面切换（左侧菜单导航，单入口 + 唯一性校验） ============
 const _SIDE_MENU_KEYS = ['tasks', 'ledger', 'mailinquiry', 'sparepart', 'supplier', 'approver', 'contract',
-  'mailcc', 'mailtpl'];
+  'mailcc', 'mailtpl', 'requester'];
 // 注：「本体可观测」菜单已迁移至核心工作台（系统 › 主数据 › 本体可观测），
 // 由 frontend/ontology.app.js + core.html 承载，本运维页不再包含本体逻辑。
 
@@ -181,6 +181,8 @@ function switchSidebar(name) {
     try { loadApproverList(); } catch (e) { console.error(e); }
   } else if (name === 'mailtpl') {
     try { loadMailTemplateList(); } catch (e) { console.error(e); }
+  } else if (name === 'requester') {
+    try { loadRequesterList(); } catch (e) { console.error(e); }
   }
 }
 // 兼容旧函数名
@@ -1842,16 +1844,100 @@ async function confirmDeleteApprover(id, name) {
 // subject、body 留空 => 智能体回退系统默认模板（避免发出空邮件）
 // ================================================================
 
+// ============ 发起人白名单 ============
+async function loadRequesterList() {
+  try {
+    const d = await api('/requesters');
+    const rows = d.data || [];
+    const on = rows.filter(r => r.enabled).length;
+    setHTML('requesterSummary',
+      rows.length
+        ? `共 ${rows.length} 个白名单条目（启用 ${on}）`
+        : '白名单为空 —— 当前不限制发件人，任何人的询价邮件都会被处理');
+    const body = document.getElementById('requesterTbody');
+    if (!body) return;
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="6" class="empty-tip">暂无白名单条目，在上方填入邮箱或域名后点「加入」</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map((r, idx) => `
+      <tr>
+        <td>${idx + 1}</td>
+        <td><b>${escapeHtml(r.name || '')}</b></td>
+        <td style="color:#5ed7ff">${escapeHtml(r.email)}</td>
+        <td>
+          <label style="cursor:pointer">
+            <input type="checkbox" ${r.enabled ? 'checked' : ''} onchange="toggleRequester(${r.id}, this.checked)">
+            ${r.enabled ? '启用' : '停用'}
+          </label>
+        </td>
+        <td style="font-size:11px;color:var(--text2)">${escapeHtml(r.created_at || '')}</td>
+        <td>
+          <button class="btn btn-o btn-s" style="color:var(--red)"
+            onclick="confirmDeleteRequester(${r.id},${JSON.stringify(r.email).replace(/"/g, '&quot;')})">移除</button>
+        </td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    const body = document.getElementById('requesterTbody');
+    if (body) {
+      body.innerHTML = `<tr><td colspan="6" class="empty-tip" style="color:var(--red)">加载失败: ${escapeHtml(e.message)}</td></tr>`;
+    }
+  }
+}
+
+async function submitNewRequester() {
+  const nameEl = document.getElementById('requesterNewName');
+  const emailEl = document.getElementById('requesterNewEmail');
+  const name = (nameEl.value || '').trim();
+  const email = (emailEl.value || '').trim();
+  if (!email) { toast('邮箱或域名必填', 'err'); return; }
+  if (!email.includes('@')) { toast('请填写完整邮箱或 @域名', 'err'); return; }
+  try {
+    await api('/requesters', 'POST', { name, email, enabled: 1 });
+    toast('已加入白名单');
+    nameEl.value = ''; emailEl.value = '';
+    await loadRequesterList();
+  } catch (e) {
+    toast('新增失败: ' + e.message, 'err');
+  }
+}
+
+async function toggleRequester(id, enabled) {
+  try {
+    await api(`/requesters/${id}`, 'PUT', { enabled: enabled ? 1 : 0 });
+    toast(enabled ? '已启用' : '已停用');
+    await loadRequesterList();
+  } catch (e) {
+    toast('更新失败: ' + e.message, 'err');
+    await loadRequesterList();
+  }
+}
+
+async function confirmDeleteRequester(id, email) {
+  if (!confirm(`确定从白名单移除「${email}」？\n\n移除后该发件人的询价邮件将不再被智能体处理（若白名单因此为空，则不限制任何人）。`)) return;
+  try {
+    await api(`/requesters/${id}`, 'DELETE');
+    toast('已移除');
+    await loadRequesterList();
+  } catch (e) {
+    toast('删除失败: ' + e.message, 'err');
+  }
+}
+
 async function loadMailTemplateList() {
   try {
     const d = await api('/mail-templates');
     const rows = d.data || [];
-    const custom = rows.filter(r => (r.subject || '').trim() || (r.body || '').trim()).length;
-    setHTML('mailTplSummary', `共 ${rows.length} 个模板（其中 ${custom} 个已自定义）`);
+    // 后端返回的是「当前生效模板」= 页面自定义 ∪ 系统默认，
+    // 因此不能用「内容非空」判断自定义（默认内容也非空），必须用 is_custom 标记。
+    const custom = rows.filter(r => r.is_custom === true).length;
+    setHTML('mailTplSummary',
+      `共 ${rows.length} 个模板（其中 ${custom} 个已自定义，${rows.length - custom} 个沿用系统默认）`);
     const box = document.getElementById('mailTplList');
     if (!rows.length) { box.innerHTML = '<div class="empty-tip">暂无模板</div>'; return; }
     box.innerHTML = rows.map(r => {
-      const isCustom = (r.subject || '').trim() || (r.body || '').trim();
+      const isCustom = r.is_custom === true;
       return `
       <div style="border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:14px;margin-bottom:14px;background:rgba(255,255,255,.02)">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
@@ -1860,7 +1946,7 @@ async function loadMailTemplateList() {
           <span style="flex:1"></span>
           ${isCustom
             ? '<span style="font-size:11px;color:var(--cyan)">已自定义</span>'
-            : '<span style="font-size:11px;color:var(--text2)">使用系统默认</span>'}
+            : '<span style="font-size:11px;color:var(--text2)">系统默认（可直接修改后保存）</span>'}
           <button class="btn btn-o btn-s" onclick="saveMailTemplate('${r.tpl_key}')">保存</button>
           <button class="btn btn-o btn-s" style="color:var(--red)" onclick="resetMailTemplate('${r.tpl_key}')">恢复默认</button>
         </div>
