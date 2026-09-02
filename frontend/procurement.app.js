@@ -163,6 +163,7 @@ function switchSidebar(name) {
 
   // 各面板首次加载
   if (name === 'tasks') {
+    try { resetStatusFilter(); } catch (e) { console.error(e); }
     showPage('list');
   } else if (name === 'sparepart') {
     try { initSparePartCategoryFilter(); loadSparePartList(); } catch (e) { console.error(e); }
@@ -226,6 +227,22 @@ function filterStatus(btn) {
   btn.classList.remove('btn-o');
   btn.classList.add('btn-c');
   loadTaskList();
+}
+
+/** 重置状态筛选（切换菜单时调用）。
+ *  此前 currentStatusFilter 只在点击筛选按钮时赋值、从不重置，
+ *  导致用户点过某个状态后再切回「询价任务」，请求仍带旧筛选条件 → 列表为空。 */
+function resetStatusFilter() {
+  currentStatusFilter = '';
+  const all = document.querySelector('#statusFilter .btn[data-status=""]');
+  document.querySelectorAll('#statusFilter .btn').forEach(b => {
+    b.classList.remove('btn-c');
+    b.classList.add('btn-o');
+  });
+  if (all) {
+    all.classList.remove('btn-o');
+    all.classList.add('btn-c');
+  }
 }
 
 async function loadTaskList() {
