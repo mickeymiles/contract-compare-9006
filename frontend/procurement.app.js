@@ -190,17 +190,24 @@ function showPage(name) {
   // 严格互斥：一次性清空所有 .page 的 active，再只给目标加（避免出现列表+新建+详情同时显示）
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   let target = null;
+  // 面包屑：R2 重构后 HTML 已移除 #procCrumb，此处必须做空值防御。
+  // 否则 showPage 中间抛异常 → 后面 target.classList.add('active') 不执行
+  // → 所有 .page 都失去 active → 整个页面空白（点菜单/点查看都会触发）。
+  const _setCrumb = (text) => {
+    const el = $('procCrumb');
+    if (el) el.textContent = text;
+  };
   if (name === 'list') {
     target = $('page-proc-list');
-    $('procCrumb').textContent = '🛒 备品备件采购询比价';
+    _setCrumb('🛒 备品备件采购询比价');
     try { loadTaskList(); } catch (e) { console.error(e); }
   } else if (name === 'new') {
     target = $('page-proc-new');
-    $('procCrumb').textContent = '🛒 备品备件采购询比价 › 新建询价';
+    _setCrumb('🛒 备品备件采购询比价 › 新建询价');
     try { loadNewInquiryData(); } catch (e) { console.error(e); }
   } else if (name === 'detail') {
     target = $('page-proc-detail');
-    $('procCrumb').textContent = '🛒 备品备件采购询比价 › 任务详情';
+    _setCrumb('🛒 备品备件采购询比价 › 任务详情');
   }
   target && target.classList.add('active');
   __assertUniqueActive('.page.active', 'page');
