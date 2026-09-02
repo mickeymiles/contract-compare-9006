@@ -128,7 +128,7 @@ def test_metrics_gross_margin():
 def test_metrics_payment_cycle_from_milestone():
     from core import project_metrics as pm
     r = pm.payment_cycle('HT-DEMO-001')
-    assert r['source'] == 'plm_milestone'
+    assert r['source'] == 'plm'
     assert r['milestone_payback']['has_milestone'] is True
     assert r['cycle_days'] == 119  # 2026-05-14 实际回款 vs 2026-01-15 签订
     assert r['recv_date'] == '2026-05-14'

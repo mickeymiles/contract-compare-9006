@@ -24,6 +24,11 @@ async def api_core_import_contracts(file: UploadFile = File(...)):
         rows = read_total_contract_xlsx(tmp.name)
         r = upsert_total_contracts(rows)
         if r.get('success'):
+            # 主数据变更后清掉指标快照，强制下次访问重算（避免读到导入前的空快照）
+            try:
+                pm.invalidate_metric_snapshots()
+            except Exception:
+                pass
             return JSONResponse({
                 'success': True, 'rows': len(rows),
                 'imported': r.get('imported', 0), 'created': r.get('created', 0),
@@ -81,6 +86,11 @@ async def api_core_finance_import(kind: str = 'pay', file: UploadFile = File(...
         tmp.write(await file.read())
         tmp.close()
         r = finance_import.import_finance_xlsx(tmp.name, kind)
+        # 收付款明细变更后清掉资金相关指标快照，强制下次访问重算
+        try:
+            pm.invalidate_metric_snapshots()
+        except Exception:
+            pass
         return JSONResponse(r)
     except Exception as e:
         return JSONResponse({'success': False, 'error': str(e)})

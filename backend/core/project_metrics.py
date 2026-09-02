@@ -176,8 +176,9 @@ def _last_recv_from_detail(no: str) -> Optional[date]:
 def payment_cycle(contract_no: str) -> Dict[str, Any]:
     """回款周期（天）：= 最后一笔回款时间 − 合同签订时间。
 
-    回款时间优先级：PLM 回款里程碑实际/计划时间点 ＞ 主数据 last_received_date；
-    无则返回 NaN 与说明。
+    回款时间优先级：PLM 回款里程碑实际/计划时间点 ＞ finance_detail 收款明细 ＞
+    主数据 last_received_date（总合同表导入即填充，见 core.import_total_contract）＞
+    主数据 payback_cycle 字段（直接给定值时作为权威兜底）。均无则返回 NaN 与说明。
     """
     row = _main_by_no(contract_no)
     if not row:
@@ -189,11 +190,25 @@ def payment_cycle(contract_no: str) -> Dict[str, Any]:
     source = ''
     if ms['has_milestone']:
         recv_date = _d(ms['actual']) or _d(ms['plan'])
-        source = 'plm_milestone'
+        source = 'plm'
     if recv_date is None:
         recv_date = _last_recv_from_detail(contract_no)
         if recv_date is not None:
-            source = 'finance_detail.recv'
+            source = 'finance'
+    if recv_date is None:
+        # 兜底：主数据 last_received_date（总合同表导入即填充，见 import_total_contract）
+        lrd = _d(row.get('last_received_date'))
+        if lrd is not None:
+            recv_date = lrd
+            source = 'core'
+    # 主数据直接给定回款周期字段时，作为权威值兜底（无任何回款时间点来源时）
+    pc_direct = _f(row.get('payback_cycle'))
+    if recv_date is None and pc_direct is not None and pc_direct > 0:
+        return {'contract_no': contract_no, 'sign_date': row.get('sign_date'),
+                'last_received_date': row.get('last_received_date'),
+                'milestone_payback': ms, 'recv_date': None,
+                'cycle_days': int(round(pc_direct)), 'source': 'core',
+                'note': '采用主数据回款周期字段'}
     if sign is None or recv_date is None:
         return {'contract_no': contract_no, 'sign_date': row.get('sign_date'),
                 'last_received_date': row.get('last_received_date'),
@@ -512,6 +527,30 @@ def snapshot_get(key: str) -> Optional[Dict[str, Any]]:
         return {'payload': json.loads(r['result_json']), 'updated_at': r['updated_at']}
     finally:
         conn.close()
+
+
+def snapshot_delete(key: str) -> None:
+    """删除指标快照（导入新数据后清掉，强制下次访问重算）。"""
+    conn = get_conn()
+    try:
+        conn.execute("DELETE FROM analysis_snapshots WHERE job_key=?", (key,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+METRIC_SNAPSHOT_KEYS = ('metrics:payment-cycle', 'metrics:fund',
+                        'metrics:gross', 'metrics:cost-warning')
+
+
+def invalidate_metric_snapshots() -> None:
+    """导入主数据/收付款明细后调用：清除指标快照缓存。
+
+    避免前端默认读缓存时命中「导入前」的空快照，导致「数据已导入但指标算不出来」。
+    清掉后下次访问自动重算并写入新快照。
+    """
+    for k in METRIC_SNAPSHOT_KEYS:
+        snapshot_delete(k)
 
 
 def snapshot_put(key: str, payload: Any) -> str:
