@@ -836,7 +836,18 @@ def startup():
 
 @app.on_event("startup")
 async def startup_ontology_scheduler():
-    """本体轨 emp-009 常驻循环：按治理开关 + 数字员工启停状态决定是否拉起。幂等。"""
+    """（默认不拉起）本体轨 emp-009 常驻循环。
+
+    架构约定：**9007 是智能体执行平台**（用其数字员工体系 employees/employee_channels
+    控制 emp-009 的启停），**9006 只做配置页与查询页**。若本工程也自跑常驻循环，
+    会与 9007 同时扫描同一个收件箱，造成重复认领与重复发信。
+
+    因此默认关闭；仅在显式设置 ONT_ALLOW_LOCAL_RUNTIME=1 时才允许本进程拉起
+    （仅供本地单机联调，生产禁止）。
+    """
+    if os.getenv("ONT_ALLOW_LOCAL_RUNTIME", "0") != "1":
+        print("[ontology] 本工程为配置/查询端，不拉起常驻循环（智能体执行端为 9007）")
+        return
     try:
         from ontology_engine import runtime as _ont_runtime
         await _ont_runtime.sync_scheduler()
@@ -846,6 +857,8 @@ async def startup_ontology_scheduler():
 
 @app.on_event("shutdown")
 def shutdown_ontology_scheduler():
+    if os.getenv("ONT_ALLOW_LOCAL_RUNTIME", "0") != "1":
+        return
     try:
         from ontology_engine import runtime as _ont_runtime
         _ont_runtime.stop_now()

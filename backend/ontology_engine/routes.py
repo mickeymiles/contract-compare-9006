@@ -4,12 +4,34 @@
 """
 from fastapi import APIRouter, Request
 import asyncio
+import os
 import threading
 
 from . import store, actions as act, engine
 from .decision import build_fact_context, propose_action
 
 router = APIRouter(prefix="/api/ontology-emp009", tags=["ontology-emp009"])
+
+
+def _runtime_allowed() -> bool:
+    """本工程是否允许**执行**智能体动作（采集邮件 / 建任务 / 发信 / 改治理开关）。
+
+    架构约定：
+      - **9007 = 智能体执行平台**，用其数字员工体系（employees / employee_channels）
+        控制 emp-009 的启停；
+      - **9006 = 配置页 + 查询页**，只做参与方配置与本体可观测查询。
+
+    若本工程也执行智能体动作，会与 9007 同时扫描同一个收件箱，
+    造成**重复认领、重复发信**。故默认禁止，仅本地单机联调时
+    显式设 ONT_ALLOW_LOCAL_RUNTIME=1 才放行。
+    """
+    return os.getenv("ONT_ALLOW_LOCAL_RUNTIME", "0") == "1"
+
+
+def _deny_runtime():
+    return {"success": False,
+            "error": "本工程为配置/查询端，不允许执行智能体动作（执行端为 9007）；"
+                     "本地单机联调请设 ONT_ALLOW_LOCAL_RUNTIME=1"}
 
 # 进程级串行锁：run-full（可能含 LLM 决定）在 async 事件循环中经 to_thread 执行，串行化防并发重复发信。
 # 【修复】原用 asyncio.Lock：它在模块导入时绑定到当时的事件循环，
@@ -87,6 +109,8 @@ async def tick(request: Request):
     except Exception:
         body = {}
     dry_run = bool(body.get("dry_run", True))
+    if not _runtime_allowed():
+        dry_run = True  # 非执行端：强制只读对照，杜绝副作用
     from .legacy_track import list_tasks as legacy_list_tasks
     tasks = legacy_list_tasks(page_size=500)
     active = [t for t in tasks if (t.get("status") or "") not in ("REJECTED",)]
@@ -138,6 +162,8 @@ def claim_state():
 @router.post("/tasks/{task_id}/close")
 async def close_task(task_id: str, request: Request):
     """操作员手动关闭/取消本体轨任务（不进邮件链路）。供经营管理平台「台账/任务列表」调用。"""
+    if not _runtime_allowed():
+        return _deny_runtime()
     from . import execution
     body = {}
     try:
@@ -164,6 +190,8 @@ def get_governor():
 
 @router.post("/governor")
 async def set_governor(request: Request):
+    if not _runtime_allowed():
+        return _deny_runtime()
     body = await request.json()
     from . import execution
     llm_val = body.get("llm")
@@ -181,6 +209,8 @@ async def set_governor(request: Request):
 async def run_managed(request: Request):
     """受控执行：在 governor 放行下，采集新工程师询价→建 O_Task→发询价B。
     use_llm=true 走 LLM 决策。默认仅能力演示，governor=off 时不产生任何变更。"""
+    if not _runtime_allowed():
+        return _deny_runtime()
     body = await request.json()
     use_llm = bool(body.get("use_llm", False))
     from .ingest import fetch_new_inquiry_facts
@@ -219,6 +249,8 @@ async def run_full(request: Request):
 
     注意：决策可能调用 LLM（阻塞式 http），故放到线程池执行，避免冻结 async 事件循环；
     并用进程级锁串行化，防止「定时调度 + 手动触发」并发对同一任务重复发信。"""
+    if not _runtime_allowed():
+        return _deny_runtime()
     body = await request.json()
     use_llm = bool(body.get("use_llm", False))
     from . import orbit, mail_gateway as mg, execution
