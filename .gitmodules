@@ -1,0 +1,3 @@
+[submodule "ontos"]
+	path = ontos
+	url = git@github.com:mickeymiles/ontos.git
