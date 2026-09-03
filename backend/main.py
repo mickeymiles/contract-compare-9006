@@ -50,6 +50,12 @@ app.include_router(procurement_contrast_router)
 from ontology_engine.routes import router as ontology_emp009_router
 app.include_router(ontology_emp009_router)
 
+# ── 本体拓扑（v4 业务域：合同/项目/里程碑/收款/付款）──
+# TBox 定义实时取自 ontos submodule（domain_business.to_spec()），与 emp-009 本体轨
+# 相互独立：本路由只读取 v4 业务域，不触碰 emp-009 的 13 概念 TBox，零交叉影响。
+from routes_ontos import router as ontos_topology_router
+app.include_router(ontos_topology_router)
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, '..', 'uploads')
 FRONTEND_DIR = os.path.join(BASE_DIR, '..', 'frontend')
@@ -75,6 +81,7 @@ NO_CACHE_PATHS = frozenset((
     '/gross.app.js',
     '/finance-cycle.app.js', '/finance-fund.app.js', '/finance-cost.app.js', '/nav.config.js', '/china.json',
     '/ontology.app.js',
+    '/ontos-topology', '/ontos-topology.app.js',
 ))
 NO_CACHE_SUFFIXES = ('.css', '.js')
 
