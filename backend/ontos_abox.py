@@ -102,13 +102,63 @@ def payment_facts(no: str, alt_no: Optional[str] = None) -> List[Dict[str, Any]]
     return rows
 
 
-def milestone_payback(no: str) -> Dict[str, Any]:
-    """PMO 里程碑回款时间点（经 plm_milestone→plm_project→plm_contract 链路）。
+def milestone_payback(no: str, alt_no: Optional[str] = None) -> Dict[str, Any]:
+    """PMO 里程碑回款时间点（plm_milestone）。
 
-    注意：plm_milestone.plan_payback_date 是**计划**回款，payback_date 是导入的回款时间；
-    本函数把两者都返回，由调用方决定取用（默认本体以 finance_detail 为真实口径）。
+    ★重大修正（原实现不可用）：
+      原实现经 plm_milestone→plm_project→plm_contract 关联，而 **plm_contract
+      长期为 0 行**，INNER JOIN 空表 → 查询恒为 0 行 → 所有调用方都以为"没有
+      里程碑"，静默回退到财务明细。现改用 **plm_project.project_no** 直接关联
+      （67/67 项目可对上 core_project），绕开空表。
+
+    注意：plan_payback_date 是**计划**回款，payback_date 是导入的**实际**回款。
+    本函数返回全部日期列表（供 basis=last/first 选点），并保留单点字段以兼容旧调用方。
+
+    返回：{'has_milestone','plans','actuals','plan','actual','name','payback_amount'}
     """
-    return pm.milestone_payback_point(no)
+    conn = project_core.get_conn()
+    try:
+        keys = [k for k in (no, alt_no) if k]
+        if not keys:
+            keys = [no]
+        ph = ",".join("?" * len(keys))
+        rows = [dict(r) for r in conn.execute(
+            f"SELECT m.name, m.plan_payback_date, m.payback_date, m.payback_amount "
+            f"FROM plm_milestone m "
+            f"JOIN plm_project pp ON pp.id = m.project_id "
+            f"WHERE pp.project_no IN ({ph})", tuple(keys)).fetchall()]
+    finally:
+        conn.close()
+
+    plans, actuals = [], []
+    for r in rows:
+        p = _norm_date(r.get('plan_payback_date'))
+        a = _norm_date(r.get('payback_date'))
+        if p:
+            plans.append(p)
+        if a:
+            actuals.append(a)
+    plans.sort()
+    actuals.sort()
+
+    if not plans and not actuals:
+        return {'has_milestone': False, 'plans': [], 'actuals': [],
+                'plan': None, 'actual': None, 'payback_amount': None, 'name': ''}
+
+    # 单点字段：取各自最晚的一天（与 basis='last' 语义一致），保证旧调用方行为不变
+    name = ''
+    amount = None
+    for r in rows:
+        if _norm_date(r.get('plan_payback_date')) or _norm_date(r.get('payback_date')):
+            name = r.get('name') or ''
+            amount = r.get('payback_amount')
+    return {'has_milestone': True,
+            'plans': plans,
+            'actuals': actuals,
+            'plan': plans[-1] if plans else None,
+            'actual': actuals[-1] if actuals else None,
+            'payback_amount': amount,
+            'name': name}
 
 
 def _norm_date(v) -> Optional[str]:
@@ -148,14 +198,21 @@ def _norm_date(v) -> Optional[str]:
 # 场景：回款周期（ABox 事实 → ontos F-payment-cycle）
 # ═══════════════════════════════════════════════════════════════════════
 def abox_payment_cycle(no: str, basis: str = "last",
-                       prefer: str = "finance_detail") -> Dict[str, Any]:
+                       prefer: str = "milestone_plan") -> Dict[str, Any]:
     """回款周期场景：读 ABox 事实 → 调 ontos F-payment-cycle 计算。
 
-    basis  : 'last'(默认，对齐 9006 现网：最后一笔回款) | 'first'(首笔回款速度)。
-    prefer : 'finance_detail'(默认，用户口径：财经明细才是真实回款)
-             | 'milestone'(现网口径：优先里程碑回款时间点，缺则回落明细)。
+    basis  : 'last'(默认，取最晚的回款/计划回款日) | 'first'(取最早的一天)。
 
-    返回包含：本体计算结果 + 两个来源的回款日（便于核对口径差异）+ 缺数据说明。
+    prefer : ★'milestone_plan'(默认，2026-09-03 用户拍板口径)
+                 只按【里程碑的计划回款时间】(plm_milestone.plan_payback_date)
+                 计算，**不使用财务明细、也无任何回退**——无里程碑计划回款日
+                 即算不出(cycle_days=None)。
+                 注意：计划回款日常指向未来（"维护期"/"验收后1年"等），
+                 故该口径是【计划回款周期】，带预测性质。
+             'finance_detail'  财经收付款明细(kind='recv')，实际已发生回款。
+             'milestone'       里程碑优先、缺则回退财务明细（带回退，非默认）。
+
+    返回包含：本体计算结果 + 各来源回款日（便于核对口径差异）+ 缺数据说明。
     """
     biz = load_ontos()
     row = main_row(no)
@@ -167,17 +224,26 @@ def abox_payment_cycle(no: str, basis: str = "last",
     # 双键查询：明细行 project_no 已回填时，仅用合同号会落空，故补 project_no 作为备选键
     alt_no = row.get('project_no') or None
     recvs = receipt_facts(no, alt_no=alt_no)
-    ms = milestone_payback(no)
+    ms = milestone_payback(no, alt_no=alt_no)
 
     # 两个来源的回款日
     detail_dates = [r['received_date'] for r in recvs if r.get('received_date')]
     detail_last = max(detail_dates) if detail_dates else None
     detail_first = min(detail_dates) if detail_dates else None
-    ms_actual = _norm_date(ms.get('actual')) if ms.get('has_milestone') else None
-    ms_plan = _norm_date(ms.get('plan')) if ms.get('has_milestone') else None
+    ms_plans = ms.get('plans') or []
+    ms_actuals = ms.get('actuals') or []
+    ms_plan = ms_plans[-1] if ms_plans else None      # 最晚计划回款日
+    ms_actual = ms_actuals[-1] if ms_actuals else None
 
     # 按 prefer 选择主口径
-    if prefer == 'milestone':
+    if prefer == 'milestone_plan':
+        # ★默认：仅里程碑计划回款，无回退
+        picked = None
+        if ms_plans:
+            picked = max(ms_plans) if basis == 'last' else min(ms_plans)
+        receipts = [{'received_date': picked}] if picked else []
+        source = 'plm_milestone.plan' if picked else None
+    elif prefer == 'milestone':
         receipts = [{'received_date': ms_actual or ms_plan}] if (ms_actual or ms_plan) else recvs
         source = 'plm_milestone' if (ms_actual or ms_plan) else 'finance_detail'
     else:
@@ -200,15 +266,18 @@ def abox_payment_cycle(no: str, basis: str = "last",
             'finance_detail': {'count': len(recvs), 'first': detail_first, 'last': detail_last},
             'plm_milestone': {'has': bool(ms.get('has_milestone')),
                               'actual': ms_actual, 'plan': ms_plan,
+                              'plan_count': len(ms_plans),
+                              'plans': ms_plans,
                               'name': ms.get('name', '')},
             'maindata_last_received_date': _norm_date(row.get('last_received_date')),
         },
         'prefer': prefer,
+        'basis': basis,
     })
     return result
 
 
-def payment_cycle_all(basis: str = "last", prefer: str = "finance_detail",
+def payment_cycle_all(basis: str = "last", prefer: str = "milestone_plan",
                       limit: int = 500) -> Dict[str, Any]:
     """全量回款周期汇总：遍历主数据合同，逐条计算 + 统计（平均/分布/缺数据清单）。"""
     conn = project_core.get_conn()

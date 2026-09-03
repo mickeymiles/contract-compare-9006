@@ -232,12 +232,16 @@ def api_ontos_columns():
 # ─────────────────────────── 场景 · 回款周期 ───────────────────────────
 
 @router.get('/api/ontos/scenario/payment-cycle')
-def api_payment_cycle(no: str = '', basis: str = 'last', prefer: str = 'finance_detail'):
+def api_payment_cycle(no: str = '', basis: str = 'last', prefer: str = 'milestone_plan'):
     """回款周期场景（单个合同/项目）：ABox 读库 → 构造事实 → ontos F-payment-cycle。
 
     no    ：合同号或项目号（core_project 命中任一即可）
-    basis ：last(默认，对齐现网：最后一笔回款) | first(首笔回款速度)
-    prefer：finance_detail(默认，财经明细为真实回款) | milestone(现网口径：里程碑优先)
+    basis ：last(默认，取最晚的回款/计划回款日) | first(取最早的一天)
+    prefer：★milestone_plan(默认，2026-09-03 拍板) 只按里程碑【计划回款时间】
+            plm_milestone.plan_payback_date 计算，不使用财务明细、也无任何回退；
+            注意计划回款日常指向未来，故为【计划回款周期】。
+            finance_detail  财经明细实际已发生回款（对照口径）
+            milestone       里程碑优先、缺则回退财务明细（对照口径，带回退）
     """
     if not no:
         return JSONResponse(status_code=400, content={
@@ -262,7 +266,7 @@ def api_payment_cycle(no: str = '', basis: str = 'last', prefer: str = 'finance_
 
 
 @router.get('/api/ontos/scenario/payment-cycle/all')
-def api_payment_cycle_all(basis: str = 'last', prefer: str = 'finance_detail',
+def api_payment_cycle_all(basis: str = 'last', prefer: str = 'milestone_plan',
                           limit: int = 500):
     """回款周期场景（全量汇总）：逐条计算 + 平均/分布/缺数据清单。
 

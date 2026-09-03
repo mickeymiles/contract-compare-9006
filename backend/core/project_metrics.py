@@ -1049,18 +1049,24 @@ def _pc_cycle_fields(no):
 
 
 def _pc_enrich(records, target_year):
+    # ★统一入口（2026-09-03）：回款周期一律走本体 ontos F-payment-cycle，
+    # 与 /api/ontos/scenario/payment-cycle 及智能体问答(ontology_compute)共用同一份算法，
+    # 避免同一平台内多套口径并存。延迟导入以避免与 ontos_abox 循环依赖。
+    from ontos_abox import abox_payment_cycle, _norm_date
+
     out = []
     for r in records:
         no = _main_key(r)
         if not no:
             continue
-        sign = _d(r.get('sign_date'))
-        if not sign or sign.year != target_year:
+        # 用 _norm_date 而非 _d：core_project.sign_date 存的是 Excel 序列值
+        # （如 46234），_d 不解析会导致全部记录被 continue 掉、页面无数据。
+        sign = _norm_date(r.get('sign_date'))
+        if not sign or int(sign[:4]) != target_year:
             continue
-        cd, rd = _pc_cycle_fields(no)
-        if cd is None:
-            cd = 0
-            rd = ''
+        o = abox_payment_cycle(no, basis='last')
+        cd = o.get('cycle_days') if o.get('success') else None
+        rd = o.get('recv_date') or ''
         years = round(cd / 365, 4) if cd else 0
         if years < 0.5:
             zone = '0.5以内'
@@ -1074,7 +1080,7 @@ def _pc_enrich(records, target_year):
             zone = '3年以上'
         # _list_main_projects 未 select 区域/省份/部门，需按归集键补主数据维度
         m = _main_for_key(no) or {}
-        out.append({'contract_no': no, 'sign_date': sign.isoformat(),
+        out.append({'contract_no': no, 'sign_date': sign,
                     'dept': _si(m.get('biz_line') or m.get('dept')),
                     'region': _si(m.get('region')), 'province': _si(m.get('province')),
                     'amount': _f(r.get('sign_amount')) or 0,
@@ -1104,7 +1110,10 @@ def payment_cycle_result_full() -> Dict[str, Any]:
             else:
                 g['no_payment'] += 1
         return [{'name': k, 'count': v['count'],
-                 'avg_days': round(v['total_days'] / v['count']) if v['count'] > 0 else 0,
+                 # ★均值只对有周期值的记录求（除以 with_payment 而非 count），
+                 # 否则"算不出"的会被当成 0 天计入分母，把区域均值整体拉低。
+                 'avg_days': (round(v['total_days'] / v['with_payment'])
+                              if v['with_payment'] > 0 else 0),
                  'with_payment': v['with_payment'], 'no_payment': v['no_payment'],
                  'amount': round(v['total_amount'])}
                 for k, v in sorted(st.items(), key=lambda x: -x[1]['count'])]
@@ -1124,8 +1133,12 @@ def payment_cycle_result_full() -> Dict[str, Any]:
     def _calc_metrics(lst):
         count = len(lst)
         total_amount = sum(r['amount'] for r in lst)
-        total_cycle = sum(r['cycle_days'] for r in lst)
-        avg_cycle = round(total_cycle / count, 1) if count > 0 else 0
+        # ★统一入口后 cycle_days 可能为 None（无里程碑计划回款 = 算不出）。
+        # 求和与均值只统计有值的记录，不可把"算不出"当 0 天计入——那会拉低
+        # 平均值、污染分布（正是旧 ETL 宽表 82% 填 0 的老毛病）。
+        days = [r['cycle_days'] for r in lst if r.get('cycle_days') is not None]
+        total_cycle = sum(days)
+        avg_cycle = round(total_cycle / len(days), 1) if days else 0
         avg_years = round(avg_cycle / 365, 2) if avg_cycle > 0 else 0
         zones = [0, 0, 0, 0, 0]
         for r in lst:
@@ -1142,7 +1155,8 @@ def payment_cycle_result_full() -> Dict[str, Any]:
                 zones[3] += 1
             else:
                 zones[4] += 1
-        return {'project_count': count, 'contract_amount': round(total_amount / 10000, 2),
+        return {'project_count': count, 'valid_count': len(days),
+                'contract_amount': round(total_amount / 10000, 2),
                 'cumulative_days': total_cycle, 'avg_days': avg_cycle,
                 'avg_years': avg_years, 'zones': zones}
 
