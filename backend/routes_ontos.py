@@ -227,3 +227,60 @@ def api_ontos_columns():
         'datasets': datasets,
         'entity_dataset': ENTITY_DATASET,
     }
+
+
+# ─────────────────────────── 场景 · 回款周期 ───────────────────────────
+
+@router.get('/api/ontos/scenario/payment-cycle')
+def api_payment_cycle(no: str = '', basis: str = 'last', prefer: str = 'finance_detail'):
+    """回款周期场景（单个合同/项目）：ABox 读库 → 构造事实 → ontos F-payment-cycle。
+
+    no    ：合同号或项目号（core_project 命中任一即可）
+    basis ：last(默认，对齐现网：最后一笔回款) | first(首笔回款速度)
+    prefer：finance_detail(默认，财经明细为真实回款) | milestone(现网口径：里程碑优先)
+    """
+    if not no:
+        return JSONResponse(status_code=400, content={
+            'success': False, 'error': 'missing_param',
+            'message': '缺少参数 no（合同号或项目号）'})
+    try:
+        from ontos_abox import abox_payment_cycle
+    except Exception as exc:
+        return JSONResponse(status_code=503, content={
+            'success': False, 'error': 'abox_unavailable',
+            'message': f'ABox 读取层不可用：{exc}'})
+    try:
+        return abox_payment_cycle(no, basis=basis, prefer=prefer)
+    except ImportError as exc:
+        return JSONResponse(status_code=503, content={
+            'success': False, 'error': 'ontos_unavailable',
+            'message': f'无法导入 ontos：{exc}'})
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={
+            'success': False, 'error': 'scenario_error',
+            'message': f'回款周期计算失败：{exc}'})
+
+
+@router.get('/api/ontos/scenario/payment-cycle/all')
+def api_payment_cycle_all(basis: str = 'last', prefer: str = 'finance_detail',
+                          limit: int = 500):
+    """回款周期场景（全量汇总）：逐条计算 + 平均/分布/缺数据清单。
+
+    主数据为空时返回明确状态（提示先导入总合同表），不静默返回空列表。
+    """
+    try:
+        from ontos_abox import payment_cycle_all
+    except Exception as exc:
+        return JSONResponse(status_code=503, content={
+            'success': False, 'error': 'abox_unavailable',
+            'message': f'ABox 读取层不可用：{exc}'})
+    try:
+        return payment_cycle_all(basis=basis, prefer=prefer, limit=limit)
+    except ImportError as exc:
+        return JSONResponse(status_code=503, content={
+            'success': False, 'error': 'ontos_unavailable',
+            'message': f'无法导入 ontos：{exc}'})
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={
+            'success': False, 'error': 'scenario_error',
+            'message': f'回款周期汇总失败：{exc}'})
