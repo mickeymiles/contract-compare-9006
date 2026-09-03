@@ -88,6 +88,85 @@ async function api(path, method = 'GET', body = null, loadingMsg = null) {
   }
 }
 
+/* ── 任务活动状态（红绿灯）─────────────────────────────────────────
+   口径与智能体决策层（emp-009 decision.py）保持一致：
+   · 只有「询价收集」阶段（尚未选型）才适用报价截止时间；进入审批/下单之后
+     deadline 不再有意义（后端同样只在 S2 阶段判超时中止）。
+   · 终态（流程闭环 / 已取消 / 已中止）一律灰灯且不闪烁。
+   · 越需要人工关注，闪得越快：绿(呼吸) < 蓝(呼吸) < 黄(1.2s) < 红(0.7s)。 */
+const ACT_COLLECTING = ['R_INIT', 'R_SEND', 'INVITE_QUOTE', 'R_WAIT_QUOTES'];
+const ACT_WAIT_APPROVAL = ['R_DECIDING', 'R_APPROVAL', 'R_WAIT_APPROVAL'];
+const ACT_WAIT_SHIP = ['R_ORDER', 'R_WAIT_ORDER', 'ORDER_CONFIRM', 'R_WAIT_SHIPPING'];
+const ACT_STALL_MS = 24 * 3600 * 1000;      // 审批/下单阶段停滞阈值
+const ACT_HOUR = 3600 * 1000;
+
+function _parseTs(s) {
+  if (!s) return 0;
+  const t = Date.parse(String(s).replace(/-/g, '/').replace('T', ' '));
+  return isNaN(t) ? 0 : t;
+}
+
+function taskActivity(t) {
+  const ts = String(t.task_status || '');
+  const ext = String(t.external_status || '').toUpperCase();
+  const sta = String(t.status || '').toUpperCase();
+  // 终态：页面已取消 / 流程闭环 / 智能体已置 CLOSED
+  if (['流程闭环', '任务已取消'].includes(ts) || sta === 'CLOSED'
+      || ['CLOSED_ABORT', 'CLOSED_MANUAL', 'R_PROC_DONE', 'R_CLOSED', 'R_SETTLE'].includes(ext)) {
+    return { c: 'grey', label: '已结束', tip: ts === '任务已取消' ? '任务已取消，智能体已停止处理'
+                                                                : '任务已结束，智能体不再处理' };
+  }
+  const now = Date.now();
+  if (ACT_COLLECTING.includes(ext)) {
+    const dl = _parseTs(t.reply_deadline || t.inquiry_deadline);
+    if (dl) {
+      if (now > dl) return { c: 'red', label: '报价已超时',
+        tip: '报价截止已过，等待智能体收口（超时且无报价将自动中止）' };
+      if (dl - now < ACT_HOUR) return { c: 'amber', label: '临期',
+        tip: '距报价截止不足 1 小时' };
+    }
+    return { c: 'blue', label: '等待报价', tip: '询价已发出，等待供应商回邮报价' };
+  }
+  if (ACT_WAIT_APPROVAL.includes(ext)) {
+    const up = _parseTs(t.updated_at);
+    if (up && now - up > ACT_STALL_MS) return { c: 'red', label: '审批停滞',
+      tip: '审批汇总发出已超过 24 小时仍未收到结果，需人工跟催' };
+    return { c: 'blue', label: '等待审批', tip: '报价汇总已发出，等待审批人确认选型' };
+  }
+  if (ACT_WAIT_SHIP.includes(ext)) {
+    const up = _parseTs(t.updated_at);
+    if (up && now - up > ACT_STALL_MS * 3) return { c: 'red', label: '久未发货',
+      tip: '已下单超过 3 天供应商仍未回传物流单号，需人工跟催' };
+    return { c: 'blue', label: '等待发货', tip: '订货已下达，等待供应商回传快递单号' };
+  }
+  return { c: 'green', label: '推进中', tip: '智能体正在处理该任务' };
+}
+
+function fmtActivity(t) {
+  const a = taskActivity(t);
+  return `<span class="act-light" title="${escapeHtml(a.tip)}">`
+    + `<i class="act-dot act-${a.c}"></i>`
+    + `<span class="act-txt act-${a.c}-txt">${a.label}</span></span>`;
+}
+
+const ACT_LEGEND = [
+  ['green', '推进中', '智能体正在处理该任务'],
+  ['blue', '等待外部', '等待供应商报价 / 审批人确认 / 供应商发货'],
+  ['amber', '临期', '距报价截止不足 1 小时'],
+  ['red', '需关注', '报价已超时，或审批/发货长时间停滞'],
+  ['grey', '已结束', '流程闭环或已取消，智能体不再处理'],
+];
+
+function renderActLegend(counts) {
+  const el = document.getElementById('actLegend');
+  if (!el) return;
+  el.innerHTML = ACT_LEGEND.map(([c, label, tip]) => {
+    const n = (counts && counts[c]) ? `<b style="color:var(--text)">${counts[c]}</b>` : '0';
+    return `<span class="act-light" title="${tip}"><i class="act-dot act-${c}"></i>`
+      + `<span class="act-txt">${label} ${n}</span></span>`;
+  }).join('') + '<span style="margin-left:auto;color:var(--text2)">闪烁越快 = 越需要关注</span>';
+}
+
 function fmtStatus(s) {
   const m = {
     '询比价进行中': ['运行中', 'badge-proc-running'],
@@ -95,7 +174,7 @@ function fmtStatus(s) {
     '全部供应商超时': ['全部超时', 'badge-proc-timeout-a'],
     '已选型确认': ['已选型', 'badge-proc-confirm'],
     '供应商发货中': ['发货中', 'badge-proc-shipping'],
-    '流程闭环': ['已闭环', 'badge-proc-closed'],
+    '流程闭环': ['已关闭', 'badge-proc-closed'],
     '收货测试失败': ['测试失败', 'badge-proc-failed'],
     '任务已取消': ['已取消', 'badge-proc-canceled'],
   };
@@ -254,19 +333,25 @@ function resetStatusFilter() {
   }
 }
 
-async function loadTaskList() {
-  showPageLoading('加载任务列表...');
-  try {
-    const path = currentStatusFilter ? `/tasks?status=${encodeURIComponent(currentStatusFilter)}` : '/tasks';
-    const d = await api(path, 'GET', null, false);
-    const rows = d.data || [];
-    const body = $('taskListBody');
-    if (!rows.length) {
-      body.innerHTML = '<tr><td colspan="9" class="empty-tip">暂无询比价任务，点击「＋ 发起新询价」开始</td></tr>';
-      return;
-    }
-    body.innerHTML = rows.map(t => `
+async function fetchTaskRows() {
+  const path = currentStatusFilter ? `/tasks?status=${encodeURIComponent(currentStatusFilter)}` : '/tasks';
+  const d = await api(path, 'GET', null, false);
+  return d.data || [];
+}
+
+function renderTaskRows(rows) {
+  const body = $('taskListBody');
+  // 红绿灯汇总（图例带各色计数）
+  const counts = {};
+  rows.forEach(t => { const c = taskActivity(t).c; counts[c] = (counts[c] || 0) + 1; });
+  renderActLegend(counts);
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="10" class="empty-tip">暂无询比价任务，点击「＋ 发起新询价」开始</td></tr>';
+    return;
+  }
+  body.innerHTML = rows.map(t => `
       <tr>
+        <td>${fmtActivity(t)}</td>
         <td style="font-family:var(--mono);font-size:11px">${t.task_id}</td>
         <td style="font-family:var(--mono)">${escapeHtml(t.contract_no || '')}</td>
         <td>${escapeHtml(t.spare_part_model || '')}</td>
@@ -280,10 +365,36 @@ async function loadTaskList() {
         </td>
       </tr>
     `).join('');
+}
+
+// 红绿灯要反映实时状态：列表页每 30s 静默刷新一次（不弹遮罩、不打断操作）。
+// 离开列表页后循环自然终止，再次进入由 loadTaskList 重启。
+let _taskListTimer = null;
+function scheduleTaskListRefresh() {
+  if (_taskListTimer) clearTimeout(_taskListTimer);
+  _taskListTimer = setTimeout(async () => {
+    _taskListTimer = null;
+    const page = document.getElementById('page-proc-list');
+    const loading = document.getElementById('pageLoading');
+    if (!page || !page.classList.contains('active')) return;              // 不在列表页 → 停止
+    if (loading && loading.classList.contains('show')) {                   // 正忙 → 稍后再试
+      scheduleTaskListRefresh();
+      return;
+    }
+    try { renderTaskRows(await fetchTaskRows()); } catch (_) { /* 静默：保持上一帧 */ }
+    scheduleTaskListRefresh();
+  }, 30000);
+}
+
+async function loadTaskList() {
+  showPageLoading('加载任务列表...');
+  try {
+    renderTaskRows(await fetchTaskRows());
   } catch (e) {
-    $('taskListBody').innerHTML = `<tr><td colspan="9" class="empty-tip" style="color:var(--red)">加载失败: ${escapeHtml(e.message)}</td></tr>`;
+    $('taskListBody').innerHTML = `<tr><td colspan="10" class="empty-tip" style="color:var(--red)">加载失败: ${escapeHtml(e.message)}</td></tr>`;
   } finally {
     hidePageLoading();
+    scheduleTaskListRefresh();
   }
 }
 
@@ -944,7 +1055,7 @@ async function loadDetail() {
           const fb = $('detailFlowBadge');
           if (fb) {
             const _badge = (label, color, bg) => `<b class="badge badge-o" style="background:${bg};color:${color}">${escapeHtml(label)}</b>`;
-            fb.innerHTML = `当前节点 <b style="color:var(--amber)">${escapeHtml(_unifiedCurrentLabel(t))}</b>　`
+            fb.innerHTML = `${fmtActivity(t)}　当前节点 <b style="color:var(--amber)">${escapeHtml(_unifiedCurrentLabel(t))}</b>　`
               + _badge('内部 '+ (t.internal_status||'R_INIT'), 'var(--purple)', 'rgba(179,136,255,.16)')
               + `　` + _badge('外部 '+ (t.external_status||'R_SEND'), 'var(--cyan)', 'rgba(0,229,255,.13)');
           }
@@ -1137,12 +1248,12 @@ function _unifiedCurrentLabel(t) {
     R_SEND:'发询价函', INVITE_QUOTE:'供应商报价', R_WAIT_QUOTES:'供应商报价',
     R_DECIDING:'比价定标', R_APPROVAL:'内部审批', R_WAIT_APPROVAL:'内部审批',
     R_ORDER:'下达订货', R_WAIT_ORDER:'下达订货', ORDER_CONFIRM:'等待供应商发货',
-    R_WAIT_SHIPPING:'发货回执', R_PROC_DONE:'流程结束（当前版本）',
+    R_WAIT_SHIPPING:'发货回执', R_PROC_DONE:'已关闭',
     R_WAIT_ACCEPTANCE:'收货验收', R_WAIT_SETTLE:'结算通知', R_CLOSED:'结算通知',
   };
   if (procTerminated(t)) return '已终止';
-  if (procDone(t)) return '流程结束（当前版本）';
-  if (i === 'R_CLOSED') return '流程结束（当前版本）';
+  if (procDone(t)) return '已关闭';
+  if (i === 'R_CLOSED') return '已关闭';
   return map[e] || '发起询价';
 }
 function renderUnifiedFlow(t) {
@@ -1152,9 +1263,10 @@ function renderUnifiedFlow(t) {
   const extI = String(t.external_status || '').toUpperCase();
   const { approved, rejected } = procApproval(t);
   const isClosed = intI === 'R_CLOSED' || ts === '流程闭环';
-  const isSettle = isClosed && (extI === 'R_WAIT_SETTLE' || extI === 'R_CLOSED');
   const aborted = procTerminated(t);
-  const done = procDone(t) || (isClosed && !isSettle);   // 当前版本：单号已回传 = 流程结束
+  // 当前版本：单号已回传（R_PROC_DONE）或已闭环 = 流程结束、任务已关闭
+  // （此前需排除"结算中"态才认可闭环；结算属后续扩展，不再参与判定）
+  const done = procDone(t) || isClosed;
   // 外部供应商流推进度基准（枚举见 PROC_EXT_RANK）
   const extRank = PROC_EXT_RANK[extI] || 1;
   const inq = Array.isArray(t.suppliers_json) ? t.suppliers_json : [];
@@ -1167,15 +1279,15 @@ function renderUnifiedFlow(t) {
   const engList = esc((t.inquiry_to_list||[]).join('、')) || '—';
 
   // 逐节点状态：0=未开始 1=当前 2=已完成
-  const st = [2,0,0,0,0,0,0,0,0];
+  // 【当前版本】供应商回传快递单号即任务结束：流程共 7 个节点，
+  // 「收货验收」「结算通知」属后续扩展，不参与当前流程，已从流程图移除。
+  const st = [2,0,0,0,0,0,0];
   st[1] = extRank >= 2 ? 2 : 1;                                                  // 发询价函
   st[2] = (extRank >= 3 || quotes.length) ? 2 : (extRank === 2 ? 1 : 0);         // 供应商报价
   st[3] = (extRank >= 4 || lowestName) ? 2 : (extRank === 3 ? 1 : 0);            // 比价定标
   st[4] = (approved || rejected) ? 2 : (extRank >= 4 || intI === 'R_APPROVAL' ? 1 : 0); // 内部审批
   st[5] = (extRank >= 5 || t.e_mail_msg_id) ? 2 : (extRank === 4 ? 1 : 0);       // 下达订货
-  st[6] = (shipped || extRank >= 6) ? 2 : (extRank === 5 ? 1 : 0);               // 发货回执
-  st[7] = isClosed ? 2 : (extRank >= 6 ? 1 : 0);                                 // 收货验收
-  st[8] = isSettle ? 2 : (isClosed ? 1 : 0);                                     // 结算通知
+  st[6] = (shipped || extRank >= 6) ? 2 : (extRank === 5 ? 1 : 0);               // 发货回执（= 当前版本终点）
 
   const role = (who, color) => `<span style="font-size:11px;color:${color};font-weight:600;margin-left:6px">● ${esc(who)}</span>`;
   const detailOf = (rows) => `<div style="display:flex;flex-direction:column;gap:2px">${rows.map(([k,v]) => `
@@ -1211,12 +1323,8 @@ function renderUnifiedFlow(t) {
       desc:'智能体在选中供应商报价线程追加确认采购内容，发订货确认（E）给选中供应商。',
       detail: detailOf([['发给', esc((sel&&sel.email)||'-')], ['抄送', engList || '工程师+审批人+抄送'], ['目标供应商', esc(t.target_supplier||lowestName||'-')]]) },
     { title:'发货回执', who:'供应商', color:'var(--orange)',
-      desc:'选中供应商在订货线程回执快递单号，智能体登记物流信息。',
+      desc:'选中供应商在订货线程回执快递单号，智能体登记物流信息。**当前版本到此即任务结束**：单号回传后任务标记「已关闭」，智能体不再推进。',
       detail: detailOf([['物流单号', trackNo?'<b style="font-family:var(--mono);color:#5ed7ff">'+esc(trackNo)+'</b>':'—']]) },
-    { title:'收货验收', who:'工程师', color:'var(--green)', reserved: true,
-      desc:'【后续扩展 · 当前未启用】工程师收货并完成通电/联调验收、回执"备件更换完成"的环节。当前版本流程在供应商回传快递单号后即视为完成，该节点暂不在自动流程内。' },
-    { title:'结算通知', who:'智能体', color:'var(--purple)', reserved: true,
-      desc:'【后续扩展 · 当前未启用】验收通过后向供应商追加结算通知（G）并抄送内部的环节。当前版本未接入结算邮件，待后续版本扩展。' },
   ];
 
   let html = `<div class="dual-timeline">${nodes.map((n,i)=> dualStepCard({
@@ -1230,10 +1338,10 @@ function renderUnifiedFlow(t) {
       detail: detailOf([['终止说明', ts==='任务已取消' ? esc(t.cancel_reason||'-') : (intI==='R_CLOSED'?'审批全部拒绝':'无报价中止')], ['终止时间', esc(t.updated_at||'-')]]),
     }, nodes.length);
   } else if (done || shipped || extRank >= 6) {
-    // 终端说明：当前版本流程在"供应商回传单号"即结束（更换/结算为后续扩展）
+    // 终端说明：当前版本「供应商回传单号」即任务结束，标记已关闭
     html += dualStepCard({
-      title: '流程结束（当前版本）', who: '系统', color: 'var(--cyan)',
-      desc: '供应商回传快递单号即视为本次采购完成。更换完成通知、结算通知（G）为后续扩展功能，当前版本未启用——如需闭环结算，待后续版本接入。',
+      title: '任务结束 · 已关闭', who: '系统', color: 'var(--cyan)',
+      desc: '供应商回传快递单号即视为本次采购完成，任务标记「已关闭」，智能体不再推进该任务。',
       terminal: true,
       detail: detailOf([
         ['物流单号', trackNo ? '<b style="font-family:var(--mono);color:#5ed7ff">'+esc(trackNo)+'</b>' : '—'],

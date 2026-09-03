@@ -774,8 +774,37 @@ def input_test_result(*, task_id, test_result, remark='', operator=''):
     return _row_to_task(task_row)
 
 
+def _notify_agent_close(task_id, reason='', operator=''):
+    """通知智能体执行端（9007）把任务置为终态 —— best-effort，失败不影响页面取消。
+
+    页面取消只改 `task_status`，智能体侧 `status` / `external_status` 若不置位，
+    drive() 每 60s 仍会扫描该任务（僵尸）。9007 的 `reclaim_canceled()` 有兜底，
+    这里只是让取消**即时**生效，不做强依赖。
+    """
+    base = os.getenv('AGENT_9007_BASE', 'http://127.0.0.1:9007').strip()
+    if not base:
+        return False
+    import urllib.request
+    url = "%s/api/ontology-emp009/tasks/%s/close" % (base.rstrip('/'), task_id)
+    payload = json.dumps({"operator": operator or "web",
+                          "reason": reason or "页面取消任务"}).encode('utf-8')
+    try:
+        req = urllib.request.Request(url, data=payload, method='POST',
+                                     headers={'Content-Type': 'application/json'})
+        with urllib.request.urlopen(req, timeout=2) as r:
+            return 200 <= r.status < 300
+    except Exception as e:  # 智能体未启动/不可达：静默降级，由 9007 侧兜底收口
+        print("[cancel] 通知智能体关闭任务失败（不影响页面取消）: %s %s: %s"
+              % (task_id, type(e).__name__, e), flush=True)
+        return False
+
+
 def cancel_task(*, task_id, cancel_reason, operator=''):
-    """任务取消（Skill-09 调用）：状态 → 任务已取消，不写台账"""
+    """任务取消（Skill-09 调用）：状态 → 任务已取消，不写台账
+
+    同时 best-effort 通知智能体（9007）把该任务置为终态，避免"页面已取消、
+    智能体还在推进"的僵尸任务。
+    """
     conn = get_db()
     c = conn.cursor()
     now = _now_iso()
@@ -786,6 +815,7 @@ def cancel_task(*, task_id, cancel_reason, operator=''):
     _add_op_log(c, task_id, operator, 'cancel_task', f"取消原因: {cancel_reason}")
     conn.commit()
     conn.close()
+    _notify_agent_close(task_id, cancel_reason, operator)
     return get_task(task_id)
 
 
