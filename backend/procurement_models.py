@@ -327,12 +327,10 @@ def init_procurement_db():
             UNIQUE(email)
         )
     """)
-    c.execute("SELECT COUNT(*) FROM procurement_mail_cc")
-    if c.fetchone()[0] == 0:
-        c.executemany("INSERT INTO procurement_mail_cc(name, email) VALUES (?,?)", [
-            ('项目管理（张启明）', 'rich-miles@163.com'),
-            ('运维结算组',         'biquanzhi@163.com'),
-        ])
+    # 全局邮件抄送为页面维护的运行配置：**不做任何默认种子**。
+    # 旧逻辑在表空（用户清空抄送）时每次重启都自动补 2 条默认抄送，
+    # 导致"系统重启后抄送里冒出 2 个邮箱"。用户删了就该保持删除状态。
+    c.execute("SELECT COUNT(*) FROM procurement_mail_cc").fetchone()  # 仅为触发建表连接，不插入
 
     # 7. 备品备件主数据（基础数据，不绑定合同）
     c.execute("""
@@ -1629,12 +1627,7 @@ def seed_procurement_master():
             ('SP-0001', '示例备件-继电器', 'JL-12-AC220V', 'XX品牌', '个', '电气类')
         )
 
-    # 全局邮件抄送（1 条示例）
-    if c.execute("SELECT COUNT(*) AS n FROM procurement_mail_cc").fetchone()['n'] == 0:
-        c.execute(
-            "INSERT INTO procurement_mail_cc(name,email) VALUES(?,?)",
-            ('采购监督', 'audit@example.com')
-        )
+    # 全局邮件抄送：不做默认种子（用户在「抄送」页清空后，重启不得自动复活）
 
     conn.commit()
     conn.close()
