@@ -284,3 +284,65 @@ def api_payment_cycle_all(basis: str = 'last', prefer: str = 'finance_detail',
         return JSONResponse(status_code=500, content={
             'success': False, 'error': 'scenario_error',
             'message': f'回款周期汇总失败：{exc}'})
+
+
+# ─────────────────────────── 通用计算分发（权威计算面） ───────────────────────────
+from pydantic import BaseModel
+
+
+class OntosComputeReq(BaseModel):
+    """通用计算请求：function=函数名(或 F-xxx)，params=参数字典。"""
+    function: str
+    params: dict = {}
+
+
+@router.post('/api/ontos/compute')
+def api_ontos_compute_post(req: OntosComputeReq):
+    """通用本体计算（权威计算面）：入参 function + params，内部调 ontos 纯函数 F-*。
+
+    固化(9006) 与 探索(demo) 共用同一份算法：本端点直接 import ontos.domain_business.dispatch；
+    demo 经 9010 网关转发到本端点，或直调共享 ontos 子模块，杜绝口径漂移。
+    """
+    return _do_ontos_compute(req.function, req.params)
+
+
+@router.get('/api/ontos/compute')
+def api_ontos_compute_get(function: str = '', params: str = '{}'):
+    """通用计算（GET 变体）：params 为 JSON 字符串。"""
+    import json as _json
+    try:
+        p = _json.loads(params) if params else {}
+    except Exception:
+        p = {}
+    return _do_ontos_compute(function, p)
+
+
+def _do_ontos_compute(function: str, params: dict):
+    if not function:
+        return JSONResponse(status_code=400, content={
+            'success': False, 'error': 'missing_function',
+            'message': '缺少 function 参数（可选：%s）' % ', '.join(
+                f['id'] for f in _list_compute_ids())})
+    if ONTOS_ROOT not in sys.path:
+        sys.path.insert(0, ONTOS_ROOT)
+    try:
+        from ontos import domain_business as biz
+    except ImportError as exc:
+        return JSONResponse(status_code=503, content={
+            'success': False, 'error': 'ontos_unavailable',
+            'message': f'无法导入 ontos：{exc}'})
+    try:
+        return biz.dispatch(function, params)
+    except Exception as exc:  # pragma: no cover
+        return JSONResponse(status_code=500, content={
+            'success': False, 'error': 'dispatch_error', 'message': str(exc)})
+
+
+def _list_compute_ids():
+    if ONTOS_ROOT not in sys.path:
+        sys.path.insert(0, ONTOS_ROOT)
+    try:
+        from ontos import domain_business as biz
+        return biz.list_compute_functions()
+    except Exception:
+        return []
