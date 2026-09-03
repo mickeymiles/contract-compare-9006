@@ -1067,24 +1067,33 @@ def _pc_enrich(records, target_year):
         o = abox_payment_cycle(no, basis='last')
         cd = o.get('cycle_days') if o.get('success') else None
         rd = o.get('recv_date') or ''
-        years = round(cd / 365, 4) if cd else 0
-        if years < 0.5:
-            zone = '0.5以内'
-        elif years < 1:
-            zone = '0.5-1年'
-        elif years < 2:
-            zone = '1年以上'
-        elif years < 3:
-            zone = '2年以上'
+        note = (o.get('note') or '').strip()
+        anomaly = bool(o.get('anomaly')) or (cd is not None and cd < 0) or ('异常' in note)
+        # ★语义：负周期为数据异常（回款早于签约），不可落入正常时间桶，
+        # 否则会被 years<0.5 误判为"0.5年以内"，污染分布与区域均值。
+        if anomaly:
+            years = 0
+            zone = '异常(回款早于签约)'
         else:
-            zone = '3年以上'
+            years = round(cd / 365, 4) if cd else 0
+            if years < 0.5:
+                zone = '0.5以内'
+            elif years < 1:
+                zone = '0.5-1年'
+            elif years < 2:
+                zone = '1年以上'
+            elif years < 3:
+                zone = '2年以上'
+            else:
+                zone = '3年以上'
         # _list_main_projects 未 select 区域/省份/部门，需按归集键补主数据维度
         m = _main_for_key(no) or {}
         out.append({'contract_no': no, 'sign_date': sign,
                     'dept': _si(m.get('biz_line') or m.get('dept')),
                     'region': _si(m.get('region')), 'province': _si(m.get('province')),
                     'amount': _f(r.get('sign_amount')) or 0,
-                    'last_payback_date': rd, 'cycle_days': cd, 'years': years, 'zone': zone})
+                    'last_payback_date': rd, 'cycle_days': cd, 'years': years, 'zone': zone,
+                    'anomaly': anomaly, 'note': note})
     return out
 
 

@@ -253,9 +253,15 @@ def abox_payment_cycle(no: str, basis: str = "last",
 
     result = biz.functions.call('F-payment-cycle', sign_date=sign_date,
                                 receipts=receipts, basis=basis, recv_source=source)
+    # ★语义不变量端到端透出：负周期（回款早于签约）= 数据异常，单独标记，
+    # 不再被下游当成"0.5年以内"的正常周期污染分布。
+    _cyc = result.get('cycle_days')
+    _note = (result.get('note') or '').strip()
+    anomaly = (_cyc is not None and _cyc < 0) or ('异常' in _note)
     result.update({
         'no': no,
         'success': True,
+        'anomaly': anomaly,
         'project_no': row.get('project_no'),
         'contract_no': row.get('contract_no'),
         'name': row.get('name'),

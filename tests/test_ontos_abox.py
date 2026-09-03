@@ -227,6 +227,8 @@ def test_receipt_before_sign_flagged(stub_db):
     r = abox_payment_cycle("C001")
     assert r["cycle_days"] == -59
     assert "异常" in (r.get("note") or "")
+    # ★端到端异常标志：负周期必须显式标为 anomaly，避免下游误桶为"0.5年以内"
+    assert r.get("anomaly") is True
 
 
 def test_no_main_data(stub_db):
