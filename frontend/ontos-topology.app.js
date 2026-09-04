@@ -91,7 +91,9 @@
     NODES=[]; EDGES_=[]; byId={};
     (SPEC.entities||[]).forEach(e=>{
       const n={id:e.id||e.name, en:e.name, label:e.cn||e.name,
-        kind:e.kind||'top', desc:e.desc||'', attrs:e.attributes||[]};
+        kind:e.kind||'top', desc:e.desc||'', attrs:e.attributes||[],
+        // 同时保留 attributes 键：详情/编辑面板按 item['attributes'] 读取（否则属性表不渲染）
+        attributes:e.attributes||[]};
       NODES.push(n); byId[n.id]=n;
     });
     const seen={};
@@ -103,7 +105,7 @@
     EDGES_.forEach(e=>{
       [e.s,e.t].forEach(id=>{
         if(!byId[id]){
-          const n={id,en:id,label:id,kind:'external',desc:'范围外占位：被关系引用但不在当前实体集内。',attrs:[]};
+          const n={id,en:id,label:id,kind:'external',desc:'范围外占位：被关系引用但不在当前实体集内。',attrs:[],attributes:[]};
           NODES.push(n); byId[id]=n;
         }
       });
