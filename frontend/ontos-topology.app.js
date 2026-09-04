@@ -545,8 +545,8 @@
       '<div style="font-size:12px;color:var(--text2);line-height:1.8">'+
       '当前本体共 <b style="color:var(--cyan2)">'+NODES.length+'</b> 个节点（含外部占位）、'+
       '<b style="color:var(--cyan2)">'+EDGES_.length+'</b> 条关系。<br>'+
-      '图谱以力导向布局展示实体间关系；点击节点可跳转至该实体的可编辑定义。<br>'+
-      '右上角可在 <b>Graph / Table</b> 间切换。</div></div>';
+    '图谱以力导向布局展示实体间关系；<b style="color:var(--cyan2)">点击任意节点</b>会高亮其上下游并列出关系，点空白处重置。<br>'+
+    '右上角可在 <b>Graph / Table</b> 间切换。</div></div>';
   }
 
   /* ── G6 图谱 ─────────────────────────────────── */
@@ -574,6 +574,14 @@
           labelCfg:{autoRotate:true,
             style:{fill:HEX.text2,fontSize:9,fontWeight:500,
               background:{fill:HEX.bg2,padding:[2,4,2,4],radius:3}}}},
+        nodeStateStyles:{
+          active:{lineWidth:2.4, shadowColor:'rgba(34,211,238,.55)', shadowBlur:14, opacity:1},
+          inactive:{opacity:0.12}
+        },
+        edgeStateStyles:{
+          active:{opacity:0.95, stroke:HEX.cyan2, lineWidth:1.8},
+          inactive:{opacity:0.06, stroke:HEX.text2}
+        },
       });
       graph.node(node=>{
         const k=node.kind;
@@ -588,14 +596,70 @@
       try{ minimapInst=new G6.Minimap({size:[180,120]}); graph.addPlugin(minimapInst); }catch(e){}
       graph.on('node:click',e=>{
         const id=e.item.getModel().id;
-        if(byId[id]&&byId[id].kind!=='external'){ openGroup('entity'); selectItem('entity',id); }
-        else { openGroup('entity'); selectItem('entity',id); }
+        focusNode(id);   // 点节点 = 显示上下游关系，不跳转
       });
-      graph.on('canvas:click',()=>{});
+      graph.on('canvas:click',()=>{
+        if(graph){
+          graph.getNodes().forEach(node=>{ graph.setItemState(node,'active',false); graph.setItemState(node,'inactive',false); });
+          graph.getEdges().forEach(edge=>{ graph.setItemState(edge,'active',false); graph.setItemState(edge,'inactive',false); });
+        }
+        renderTopologyInfo();   // 重置中间面板
+      });
     } catch(err){
       console.error('G6 init failed', err);
       showError('G6 图谱初始化失败', String(err&&err.message||err));
     }
+  }
+
+  /* 点节点：高亮上下游 + 中间面板列出关系（不跳转） */
+  function focusNode(id){
+    const n=byId[id]; if(!n) return;
+    const downstream=EDGES_.filter(e=>e.s===id);              // 从此出发
+    const upstream=EDGES_.filter(e=>e.t===id && e.s!==id);     // 指向此处
+    if(graph){
+      graph.getNodes().forEach(node=>{
+        const nid=node.getModel().id;
+        const related = downstream.some(e=>e.t===nid) || upstream.some(e=>e.s===nid);
+        const on=(nid===id)||related;
+        graph.setItemState(node,'active',on);
+        graph.setItemState(node,'inactive',!on);
+      });
+      graph.getEdges().forEach(edge=>{
+        const m=edge.getModel();
+        const on=(m.source===id)||(m.target===id);
+        graph.setItemState(edge,'active',on);
+        graph.setItemState(edge,'inactive',!on);
+      });
+      try{ graph.focusItem(id,true); }catch(e){}
+    }
+    renderNodeRelations(n, upstream, downstream);
+  }
+
+  function relRow(pred, label, id){
+    return '<div class="rel-row" data-id="'+esc(id)+'"><span class="p">'+esc(pred)+'</span>'+
+      '<span class="lab">'+esc(label)+'</span><span class="id">'+esc(id)+'</span></div>';
+  }
+
+  function renderNodeRelations(n, upstream, downstream){
+    const d=document.getElementById('detail');
+    let html='<div class="list-h">'+esc(n.label)+'</div>';
+    html+='<div style="font-family:var(--mono);font-size:11px;color:var(--text2);margin:0 4px 12px">'+
+      esc(n.id)+' · '+esc(n.kind)+'</div>';
+    html+='<div class="ed-readonly"><h4>下游 · 从此出发（'+downstream.length+'）</h4>';
+    if(downstream.length) downstream.forEach(e=>{ html+=relRow(e.p, labelOf(e.t), e.t); });
+    else html+='<div style="color:var(--text2);font-size:11px">（无）</div>';
+    html+='</div>';
+    html+='<div class="ed-readonly"><h4>上游 · 指向此处（'+upstream.length+'）</h4>';
+    if(upstream.length) upstream.forEach(e=>{ html+=relRow(e.p, labelOf(e.s), e.s); });
+    else html+='<div style="color:var(--text2);font-size:11px">（无）</div>';
+    html+='</div>';
+    html+='<div class="rel-jump" id="rel-jump">查看该实体定义 →</div>';
+    d.innerHTML=html;
+    d.querySelectorAll('.rel-row').forEach(row=>{
+      row.addEventListener('click',()=>focusNode(row.dataset.id));  // 关系可继续钻取
+    });
+    const j=document.getElementById('rel-jump');
+    if(j) j.addEventListener('click',()=>{ openGroup('entity'); selectItem('entity', n.id); });
   }
 
   function renderTable(){
