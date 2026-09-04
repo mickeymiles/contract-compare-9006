@@ -1820,25 +1820,42 @@ def project_contract_fourcalc(keyword='', limit=2000):
         def _cnt(pred):
             return sum(1 for x in rows if pred(x))
 
+        # —— 四算总览：五阶段「覆盖体检」。每阶段一行：是否已接入数据源 / 覆盖单元数 / 成本合计。
+        #    语义：展示「四算算到哪个阶段、覆盖多少、缺哪些数据源」，与成本预警(另一场景)分离。
         n_budget = _cnt(lambda x: x['budget_cost'] is not None)
         n_act = _cnt(lambda x: x['accounting_cost'] is not None)
         n_fin = _cnt(lambda x: x['finalizable'])
-        n_warn = _cnt(lambda x: x['cost_warning_status'] in ('预警', '超支'))
+        # 各阶段成本合计（仅该阶段有源的累计；源缺则合计 None，覆盖 0）
+        def _stage_sum(key):
+            vals = [x['costs'][key] for x in rows if x['costs'][key] is not None]
+            return (sum(vals), len(vals)) if vals else (None, 0)
+
+        est_sum, est_n = _stage_sum('概算')
+        bud_sum, bud_n = _stage_sum('基准预算')
+        prod_sum, prod_n = _stage_sum('生产预算')
+        acc_sum, acc_n = _stage_sum('核算')
+        stage_coverage = [
+            {'stage': '概算',     'source': '待接入售前投标源', 'covered': est_n,  'total': est_sum},
+            {'stage': '基准预算', 'source': '累计实施成本预估', 'covered': bud_n,  'total': bud_sum},
+            {'stage': '生产预算', 'source': '未落地(拆里程碑)', 'covered': prod_n, 'total': prod_sum},
+            {'stage': '核算',     'source': '累计实施成本实际', 'covered': acc_n,  'total': acc_sum},
+            {'stage': '决算',     'source': '无独立决算列，以已完工近似', 'covered': n_fin, 'total': None},
+        ]
         return {
             'success': True, 'total': len(rows), 'data': rows,
             'summary': {
                 '业务单元': '%d 个' % len(rows),
-                '有预算成本': '%d 个' % n_budget,
-                '有核算成本': '%d 个' % n_act,
-                '已完工(可决算)': '%d 个' % n_fin,
-                '成本预警/超支': '%d 个' % n_warn,
                 '签单收入合计': '¥%s' % format(round(total_amt), ','),
-                '预算成本合计': '¥%s' % format(round(total_bud), ','),
-                '核算成本合计': '¥%s' % format(round(total_act), ','),
+                '有预算成本(基准预算)': '%d 个' % n_budget,
+                '有核算成本(核算)': '%d 个' % n_act,
+                '已完工(近似决算条件)': '%d 个' % n_fin,
             },
-            'stages': list(COST_BASELINE_CALC_TYPES),   # 五阶段列顺序(读本体枚举)
+            'stage_coverage': stage_coverage,          # 四算总览主体
+            'stages': list(COST_BASELINE_CALC_TYPES),  # 五阶段列顺序(读本体枚举)
             'cost_basis': ('基准预算成本=累计实施成本预估；核算成本=累计实施成本实际(均≡分项汇总)。'
-                           '硬件/集成型合同实施成本大头未含其中，故毛利率请勿用预算/核算成本反推。'),
+                           '概算/生产预算/决算 尚未接入独立数据源，故四算目前实算到「基准预算→核算」两级。'
+                           '硬件/集成型合同实施成本大头未含其中，故毛利率请勿用预算/核算成本反推。'
+                           '成本预警(预算 vs 核算超支)属另一场景，见「成本预警」页。'),
         }
     finally:
         conn.close()

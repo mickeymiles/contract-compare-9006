@@ -5,7 +5,8 @@
  * 语义：行=业务单元(合同)；列=签单收入 + 五阶段成本(概算/基准预算/生产预算/核算/决算)。
  *   - 预算=累计实施成本预估、核算=累计实施成本实际（均≡分项汇总，见工作记忆）
  *   - 概算/生产预算/决算 当前无独立数据源 → 数值 '-'（列仍保留）
- *   - 成本预警状态 = 本体 F-project-cost-warning（预算 vs 核算）
+ *   - 核算vs预算对标徽章：核算成本相对基准预算的偏差（预算内/接近/超），属四算内部对比，
+ *     不承担「成本预警」场景告警（该场景独立于「成本预警」页）。
  * 本页无任何录入/锁定/种子按钮 —— 值是"取出"，不是"录入"。
  */
 (function (root) {
@@ -44,12 +45,13 @@
   var PAGE_SIZE = 12;
   var COST_BASIS_NOTE = '';
 
-  /* 预警状态徽章 */
+  /* 核算 vs 基准预算 对标徽章（四算内部对比；不承担成本预警场景告警） */
   var WARN_META = { '正常': 'badge-s', '预警': 'badge-o', '超支': 'badge-e' };
+  var WARN_LBL = { '正常': '预算内', '预警': '接近预算', '超支': '超预算' };
   function warnBadge(s) {
     if (!s) return '<span class="badge badge">—</span>';
     var b = WARN_META[s] || 'badge-c';
-    return '<span class="badge ' + b + '">' + s + '</span>';
+    return '<span class="badge ' + b + '" title="核算成本相对基准预算的偏差">' + (WARN_LBL[s] || s) + '</span>';
   }
 
   function money(v) {
@@ -64,56 +66,50 @@
     return f ? '<span class="badge badge-s">已完工</span>' : '<span class="badge badge">未完</span>';
   }
 
-  /* ════ 总览 tab：汇总卡 + 预警状态分布 + 饼图 ════ */
-  function renderOverview(summary, warnCount, hostEl) {
+  /* ════ 总览 tab：四算阶段覆盖体检 + 汇总卡（与成本预警场景分离） ════ */
+  function renderOverview(summary, stageCoverage, hostEl) {
     var h = '';
+    // 汇总小卡：业务单元 / 签单收入 / 有预算 / 有核算 / 已完工(近似决算条件)
     if (summary) {
-      var s = summary;
       var cards = [];
-      Object.keys(s).forEach(function (k) {
-        var v = s[k];
-        var cls = '';
-        if (k.indexOf('超支') >= 0 || k.indexOf('预警') >= 0) cls = ' r';
-        else if (k.indexOf('收入') >= 0 || k.indexOf('成本') >= 0) cls = ' c';
-        cards.push('<div class="card"><div class="lbl">' + k + '</div><div class="val' + cls + '" style="font-size:21px">' + v + '</div></div>');
+      [['业务单元', summary['业务单元'] || '-', ''],
+       ['签单收入合计', summary['签单收入合计'] || '-', 'c'],
+       ['有预算成本(基准预算)', summary['有预算成本(基准预算)'] || '0', ''],
+       ['有核算成本(核算)', summary['有核算成本(核算)'] || '0', ''],
+       ['已完工(近似决算条件)', summary['已完工(近似决算条件)'] || '0', '']].forEach(function (p) {
+        cards.push('<div class="card"><div class="lbl">' + p[0] + '</div><div class="val ' + p[1] + '" style="font-size:20px">' + p[2] + '</div></div>');
       });
       h += '<div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:16px;padding:18px 22px">' + cards.join('') + '</div>';
     }
-    // 预警状态分布（基于行内本体判定）
-    h += '<div class="panel"><h3>⚠ 成本预警状态分布（预算 vs 核算 · 本体 F-project-cost-warning）</h3>';
-    h += '<div class="cards" style="grid-template-columns:repeat(3,1fr);gap:14px;margin:0 0 14px;padding:0">';
-    [['正常', 'g'], ['预警', 'o'], ['超支', 'r']].forEach(function (p) {
-      var v = (warnCount && warnCount[p[0]]) || 0;
-      h += '<div class="card" style="text-align:center"><div class="lbl">' + p[0] + '</div>'
-        + '<div class="val ' + p[1] + '" style="font-size:26px">' + v + ' 个</div></div>';
-    });
-    h += '</div><div id="fcWarnChart" style="width:100%;height:250px"></div></div>';
+    // 主体：四算五阶段「覆盖体检」矩阵 —— 每阶段：是否接入 / 覆盖单元数 / 成本合计
+    h += '<div class="panel"><h3>🧮 四算覆盖体检（概算 → 基准预算 → 生产预算 → 核算 → 决算）</h3>';
+    h += '<div style="margin-bottom:10px;font-size:11px;color:var(--text2)">每行 = 一个四算阶段：反映该阶段当前「算到什么程度」——已接入数据源的阶段给覆盖数与成本合计，未接入的标 —（阶段列在明细中仍保留，数值待相应数据源接入后再投影）。</div>';
+    h += '<div class="twrap"><table class="ana-table"><thead><tr>'
+      + '<th style="text-align:left;padding-left:8px">四算阶段</th>'
+      + '<th class="num">覆盖业务单元</th>'
+      + '<th class="num">成本合计</th>'
+      + '<th style="text-align:left">数据源 / 当前状态</th></tr></thead><tbody>';
+    var rows = stageCoverage || [];
+    for (var i = 0; i < rows.length; i++) {
+      var s = rows[i];
+      var covered = (s.covered || 0);
+      var live = covered > 0;                       // 该阶段已实算
+      var totalCell = (s.total === null || s.total === undefined)
+        ? '<span style="color:var(--text3)">-</span>'
+        : '¥' + Number(s.total).toLocaleString();
+      var tag = live
+        ? '<span class="badge badge-s">已实算</span>'
+        : '<span class="badge badge">待接入</span>';
+      var stageColor = live ? '' : ' style="color:var(--text3)"';
+      h += '<tr>'
+        + '<td class="wrap"><b' + stageColor + '>' + esc(s.stage) + '</b> ' + tag + '</div></td>'
+        + '<td class="num"' + stageColor + '>' + covered + ' 个</td>'
+        + '<td class="num"' + stageColor + '>' + totalCell + '</td>'
+        + '<td style="text-align:left;color:var(--text2);font-size:12px">' + esc(s.source || '') + '</td></tr>';
+    }
+    h += '</tbody></table></div></div>';
     if (COST_BASIS_NOTE) h += '<div style="margin-top:12px;font-size:11px;color:var(--text2)">' + esc(COST_BASIS_NOTE) + '</div>';
     hostEl.innerHTML = h;
-    renderWarnChart(warnCount);
-  }
-
-  function renderWarnChart(warnCount) {
-    if (!root.echarts) return;
-    var el = document.getElementById('fcWarnChart');
-    if (!el) return;
-    var c = echarts.getInstanceByDom(el);
-    if (c) { try { c.dispose(); } catch (e) {} }
-    var chart = echarts.init(el);
-    chart.setOption({
-      tooltip: { trigger: 'item', formatter: '{b}: {c} 个 ({d}%)' },
-      legend: { bottom: 0, textStyle: { color: '#8fa3bf' } },
-      series: [{
-        type: 'pie', radius: ['42%', '68%'], center: ['50%', '44%'],
-        itemStyle: { borderRadius: 6, borderColor: '#1a1a2e', borderWidth: 2 },
-        label: { color: '#e0e7f5', formatter: '{b}\n{c} 个' },
-        data: [
-          { value: warnCount['正常'] || 0, name: '正常', itemStyle: { color: '#34d399' } },
-          { value: warnCount['预警'] || 0, name: '预警', itemStyle: { color: '#fbbf24' } },
-          { value: warnCount['超支'] || 0, name: '超支', itemStyle: { color: '#f87171' } }
-        ]
-      }]
-    });
   }
 
   /* ════ 明细 tab：纵向表（行=业务单元；列=收入+五阶段成本+预警） ════ */
@@ -182,7 +178,7 @@
       + '<th style="text-align:left;padding-left:8px">业务单元(合同)</th>'
       + '<th class="num">签单收入</th>'
       + th
-      + '<th>成本预警</th><th>完工</th><th>合同状态</th></tr></thead>'
+      + '<th>核算vs预算</th><th>完工</th><th>合同状态</th></tr></thead>'
       + '<tbody id="fcDetailTbody"></tbody></table></div>'
       + '<div id="fcDetailPager"></div>'
       + (COST_BASIS_NOTE ? '<div style="margin-top:8px;font-size:11px;color:var(--text2)">' + esc(COST_BASIS_NOTE) + '</div>' : '')
@@ -209,20 +205,14 @@
       var r = await fetch(API + '/api/plm/four-calc/projection');
       var j = await r.json();
       if (j && j.success) {
-        // 后端平铺返回 {success,total,data:[rows],summary,stages,cost_basis}
+        // 后端平铺返回 {success,total,data:[rows],summary,stage_coverage,stages,cost_basis}
         root.FC_ROWS = j.data || [];
         COST_BASIS_NOTE = j.cost_basis || '';
         var summary = j.summary || {};
         var dataTotal = j.total || root.FC_ROWS.length;
-        // 从行内计算预警分布（更可靠，含无预算不判）
-        var warnCount = { '正常': 0, '预警': 0, '超支': 0 };
-        (root.FC_ROWS).forEach(function (x) {
-          if (warnCount[x.cost_warning_status] !== undefined) warnCount[x.cost_warning_status]++;
-          else warnCount['正常']++;
-        });
-        status('合同级只读投影 ' + dataTotal + ' 个业务单元 · 预算有值 ' + (summary['有预算成本'] || '0')
-          + ' · 核算有值 ' + (summary['有核算成本'] || '0') + ' · 无录入');
-        renderOverview(summary, warnCount, document.getElementById('fcOverview'));
+        status('合同级只读投影 ' + dataTotal + ' 个业务单元 · 基准预算有值 ' + (summary['有预算成本(基准预算)'] || '0')
+          + ' · 核算有值 ' + (summary['有核算成本(核算)'] || '0') + ' · 无录入');
+        renderOverview(summary, j.stage_coverage || [], document.getElementById('fcOverview'));
         renderDetailPane(root.FC_ROWS, dataTotal, j.stages || STAGE_ORDER);
         if (j.stages && j.stages.length) STAGE_ORDER.length = 0, STAGE_ORDER.push.apply(STAGE_ORDER, j.stages);
       } else {
