@@ -37,7 +37,8 @@ from datetime import datetime, date
 
 # 四算「读本体」：优先从 ontos 取四算类型枚举（唯一真源），失败回退本地常量（保持一致）
 try:
-    import sys as _sys, os as _os
+    import sys as _sys
+    import os as _os
     _ontos_dir = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'ontos')
     if _ontos_dir not in _sys.path:
         _sys.path.insert(0, _ontos_dir)
