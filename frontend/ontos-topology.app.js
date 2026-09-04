@@ -372,7 +372,26 @@
     if(f.type==='json'){
       let txt='';
       try{ txt=JSON.stringify(v,null,2); }catch(e){ txt=String(v); }
-      return '<div class="ed-sec"><label>'+esc(f.label)+'</label>'+
+      // 实体属性：在 JSON 编辑器上方额外渲染可读属性表（修复"看不见属性"）
+      let table='';
+      if(f.key==='attributes' && Array.isArray(v) && v.length){
+        table='<div class="ed-attr-table" style="margin:6px 0 10px;overflow:auto">'+
+          '<table style="width:100%;border-collapse:collapse;font-size:12px">'+
+          '<thead><tr style="text-align:left;color:var(--text2);border-bottom:1px solid var(--line)">'+
+          '<th style="padding:4px 6px">属性</th><th>类型</th><th>必填</th><th>只读</th>'+
+          '<th>唯一</th><th>来源</th><th>说明</th></tr></thead><tbody>'+
+          v.map(a=>'<tr style="border-bottom:1px solid var(--line)">'+
+            '<td style="padding:4px 6px;color:var(--cyan2);font-weight:600">'+esc(a.name||'')+'</td>'+
+            '<td>'+esc(a.type||'')+'</td>'+
+            '<td>'+(a.required?'✓':'·')+'</td>'+
+            '<td>'+(a.readonly?'✓':'·')+'</td>'+
+            '<td>'+(a.unique?'✓':'·')+'</td>'+
+            '<td style="max-width:200px;word-break:break-all;color:var(--text2)">'+esc(a.source||'')+'</td>'+
+            '<td style="max-width:240px;word-break:break-all">'+esc(a.desc||'')+'</td>'+
+          '</tr>').join('')+
+          '</tbody></table></div>';
+      }
+      return '<div class="ed-sec"><label>'+esc(f.label)+'</label>'+table+
         '<textarea class="ed-textarea" data-field="'+f.key+'" data-type="json" style="min-height:160px">'+esc(txt)+'</textarea>'+
         (f.hint?'<div class="ed-hint">'+esc(f.hint)+'</div>':'')+'</div>';
     }
