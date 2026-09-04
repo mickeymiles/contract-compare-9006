@@ -108,6 +108,72 @@ def api_core_finance_list(kind: str = 'pay', keyword: str = ''):
     return JSONResponse({'success': True, 'data': finance_import.list_finance(kind, keyword)})
 
 
+# ── 主数据全量导入（md_* 表：本体数据源；同时回写裁剪表保证分析页不崩）──
+# kind: contract=合同表 / recv=收款表 / pay=付款表 / milestone=里程碑产值表
+# 全量语义：DROP 旧表重建，忠实保留所有原始列（见 core/md_import.py）。
+from core import md_import as md
+from core import import_total_contract, finance_import as _fi
+
+MASTER_TABLES = {
+    'contract': 'md_contract',
+    'recv': 'md_receipt',
+    'pay': 'md_payment',
+    'milestone': 'md_milestone',
+}
+
+
+@router.post("/api/core/master/import")
+async def api_core_master_import(kind: str = 'contract', file: UploadFile = File(...)):
+    """主数据全量导入：建 md_* 全量表（含全部原始列），并回写既有裁剪表。
+
+    - contract → md_contract + core_project（复用 import_total_contract）
+    - recv/pay → md_receipt/md_payment + finance_detail（复用 finance_import）
+    - milestone → md_milestone（全量；plm_milestone 为 demo 种子、结构不匹配，暂不回写）
+    """
+    if kind not in MASTER_TABLES:
+        return JSONResponse({'success': False, 'error': '未知 kind：%s' % kind}, status_code=400)
+    table = MASTER_TABLES[kind]
+    suffix = os.path.splitext(file.filename or '')[-1] or '.xlsx'
+    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    try:
+        tmp.write(await file.read())
+        tmp.close()
+        r = md.full_import_xlsx(table, tmp.name)
+        if not r.get('success'):
+            return JSONResponse({'success': False, 'error': r.get('error')})
+        # 回写裁剪表（既有分析页只读这些表，保持可用）
+        try:
+            if kind == 'contract':
+                rows = import_total_contract.read_total_contract_xlsx(tmp.name)
+                import_total_contract.upsert_total_contracts(rows)
+            elif kind in ('recv', 'pay'):
+                _fi.import_finance_xlsx(tmp.name, kind)
+            # milestone: 暂不回写 plm_milestone（见 MAPPING 待办）
+        except Exception as e:  # 裁剪回写失败不影响全量主数据落库
+            r['warn_curated'] = str(e)
+        try:
+            pm.invalidate_metric_snapshots()
+        except Exception:
+            pass
+        return JSONResponse(r)
+    except Exception as e:
+        return JSONResponse({'success': False, 'error': str(e)})
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+
+
+@router.get("/api/core/master")
+def api_core_master_list(kind: str = 'contract', keyword: str = '', page: int = 1, pageSize: int = 200):
+    """查询主数据全量表：GET /api/core/master?kind=contract|recv|pay|milestone。"""
+    if kind not in MASTER_TABLES:
+        return JSONResponse({'success': False, 'error': '未知 kind：%s' % kind}, status_code=400)
+    offset = (max(1, page) - 1) * pageSize
+    return JSONResponse(md.list_md(MASTER_TABLES[kind], keyword=keyword, limit=pageSize, offset=offset))
+
+
 # ── 财经分析（资金运作：回款周期 / 资金占用 / 毛利率）──
 # 三个聚合指标均基于当前库真实数据计算（core_project 主数据、
 # finance_detail 收付款明细、plm_milestone 里程碑），GET 轻量 JSON 供

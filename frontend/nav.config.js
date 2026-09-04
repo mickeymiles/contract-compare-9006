@@ -1,6 +1,6 @@
 /* ================================================================
  * 统一导航配置（R4） —— 所有页面的壳共享唯一菜单来源
- * 领域顺序：可视化 → 采购 → PMO → 财经 → 运维 → 系统
+ * 领域顺序：可视化 → 采购 → PMO → 财经 → 运维 → 系统（PMO 域保留；仅「里程碑」功能迁至系统›主数据›项目）
  * 约定：对外暴露 window.NAV_CONFIG = { ICONS, icon(), NAV, renderAccordion(), renderBreadcrumb() }
  * 迁移动态：带 ⏳ 的条目为待建页面，链接暂指向现有可用页或占位 '#'。
  * ================================================================ */
@@ -63,10 +63,6 @@
         { id: 'fin-gross', label: '毛利率', href: '/gross', icon: 'gross' },
         { id: 'fin-fund',  label: '资金占用 · 周转率', href: '/finance-fund', icon: 'fund' },
         { id: 'fin-cost',  label: '成本预警', href: '/finance-cost', icon: 'chart' }
-      ] },
-      { sub: '资金明细', links: [
-        { id: 'fin-recv', label: '回款明细', href: '/finance?kind=recv', icon: 'receipt' },
-        { id: 'fin-pay',  label: '付款明细', href: '/finance?kind=pay', icon: 'pay' }
       ] }
     ]},
     { key: 'ops',  label: '运维', icon: 'ops', href: '/procurement', children: [
@@ -77,7 +73,8 @@
     { key: 'sys',  label: '系统', icon: 'setting', href: '/core', children: [
       { sub: '主数据', links: [
         { id: 'sys-opp', label: '商机', href: '/dev?feature=商机', icon: 'opp' },
-        { id: 'sys-contract', label: '合同', href: '/dev?feature=合同', icon: 'contract' },
+        { id: 'sys-presale', label: '售前', href: '/dev?feature=售前', icon: 'cycle' },
+        { id: 'sys-contract', label: '合同', href: '/core?panel=contract', icon: 'contract' },
         { id: 'sys-project', label: '项目', href: '/core?panel=project', icon: 'project' }
       ] },
       // 本体可观测（Ontology）：引擎 + ABox 库已迁入本工程（backend/ontology_engine），

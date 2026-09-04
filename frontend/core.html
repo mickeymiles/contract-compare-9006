@@ -1,98 +1,137 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<html lang="zh-CN" data-page-node-id="hRUthCImHVvtusndG7bOlg">
+<head data-page-node-id="V4NXxuQnOCM4X4YryCszCT">
+<meta charset="UTF-8" data-page-node-id="FKy5hYl1actITvyaIXIfMf">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="I1Vi2A4SPPCXUSYUkKGPFa">
 <title>主数据 · 经营业务工作台</title>
-<link rel="stylesheet" href="/common.css">
+<link rel="stylesheet" href="/common.css" data-page-node-id="rO9gLr7urXjnHVlhiJWVva">
 </head>
-<body>
-<div id="app" class="app-frame">
+<body data-page-node-id="LUOfGWCwTMWLW8VAOHCsGt">
+<div id="app" class="app-frame" data-page-node-id="gzl0fr2C3hTtHG8mc6ZEEw">
   <!-- 两级导航 · 顶部：左面包屑 + 右主菜单(域) -->
-  <div class="app-topbar">
-    <nav class="breadcrumb" id="breadcrumb"></nav>
-    <nav class="topmenu" id="topMenu"></nav>
+  <div class="app-topbar" data-page-node-id="Sw9H7k1YyHD21TAmIyOruX">
+    <nav class="breadcrumb" id="breadcrumb" data-page-node-id="TwrVuCptw0onFMflMUlsie"></nav>
+    <nav class="topmenu" id="topMenu" data-page-node-id="kTvN1m5CVtq8w1iCbnmqCY"></nav>
   </div>
 
   <!-- 主体：左=当前域内嵌手风琴；右=页面（多面板，靠 .core-panel.active 切换） -->
-  <div class="app-body">
-    <aside class="nav-rail" id="navRail"></aside>
+  <div class="app-body" data-page-node-id="RNS3YjVF4UvhMP4mn194a7">
+    <aside class="nav-rail" id="navRail" data-page-node-id="1dmJBzxBbjF3DMEzr0Zft3"></aside>
 
-    <main class="app-main app-content">
-      <!-- ================= Panel: 项目主数据 ================= -->
-      <div id="panel-project" class="core-panel active">
-        <div class="section-hdr">
-          <span class="icon lg" id="projTitleIcon"></span>
-          <h2>项目主数据</h2>
-          <span class="hdr-sub" id="hdrSub"></span>
-          <div class="hdr-actions">
-            <button class="btn btn-o btn-s" id="btnImportProj" onclick="document.getElementById('importFile').click()">📥 导入合同Excel</button>
-            <input type="file" id="importFile" accept=".xlsx,.xls" style="display:none" onchange="Core.importProjects(this)">
-            <button class="btn btn-c btn-s" id="btnNewProject" onclick="Core.openProjectModal()">＋ 新建项目</button>
+    <main class="app-main app-content" data-page-node-id="cN18WoEcGXmRorqLKhFAzL">
+      <!-- ================= Panel: 合同主数据（合同表 / 收款表 / 付款表 三 Tab） ================= -->
+      <div id="panel-contract" class="core-panel active" data-page-node-id="ALuFC31kXWSf9iCofu2bf7">
+        <div class="section-hdr" data-page-node-id="7INGDlCrE66M5m8UwS6h2B">
+          <span class="icon lg" id="contractTitleIcon" data-page-node-id="LoyDvNKwiWGRZjkp4HR4hk"></span>
+          <h2 data-page-node-id="ZODUNHZHDO8guj3iw3XOoW">合同主数据</h2>
+          <span class="hdr-sub" id="hdrSubContract" data-page-node-id="dzxdgvyoe4o5dhx9WfxRiL"></span>
+        </div>
+        <div id="contractTabs" class="tabbar" data-on-switch="Master.onContractTab" data-page-node-id="AyGB1cuIubxZEDCoIxi0Kf">
+          <button type="button" class="tab-btn active" data-tab="contract" data-host="contractTabs" onclick="NAV_CONFIG.anaSwitch(this)" data-page-node-id="oQZdpCyeQBToFPHGDiJNEA">合同表</button>
+          <button type="button" class="tab-btn" data-tab="recv" data-host="contractTabs" onclick="NAV_CONFIG.anaSwitch(this)" data-page-node-id="OFef7lKLYKfRN20z5vrP4J">收款表</button>
+          <button type="button" class="tab-btn" data-tab="pay" data-host="contractTabs" onclick="NAV_CONFIG.anaSwitch(this)" data-page-node-id="KYCZkczqMoYMxU5dUcJH52">付款表</button>
+        </div>
+        <div class="ana-pane on" data-pane="contract" data-page-node-id="kWaNW3SRLq1AA5NUo2kOK2">
+          <div class="fbar" data-page-node-id="hzNLTFfwne6TYALafAYtRy">
+            <button class="btn btn-o btn-s" onclick="document.getElementById('importContract').click()" data-page-node-id="xMfXZYhLAjkenNqyIZgi6s">📥 导入合同Excel</button>
+            <input type="file" id="importContract" accept=".xlsx,.xls" style="display:none" onchange="Master.importMaster('contract', this)" data-page-node-id="udnuw8Wp1ZkZUe3KkWys7a">
+            <input id="kwContract" placeholder="搜索 合同号 / 名称" style="min-width:240px" onkeydown="if(event.key==='Enter')Master.reload('contract')" data-page-node-id="9jpFGIf3tQYzAXdpuC5tDH">
+            <button class="btn btn-o btn-s" onclick="Master.reload('contract')" data-page-node-id="snvIkOOc1pX4klWgEkjpCn">搜索</button>
+          </div>
+          <div class="twrap" data-page-node-id="kaB5TN63KurUdlGezGZ8ca"><table class="obj-table" id="tblContract" data-page-node-id="tMDEgXkZfadSGncWRDVSgd"></table></div>
+        </div>
+        <div class="ana-pane" data-pane="recv" data-page-node-id="i9Wr9OoYmaWjjdo38qLidV">
+          <div class="fbar" data-page-node-id="uwkdj4SHBJGJaT9GT15qVM">
+            <button class="btn btn-o btn-s" onclick="document.getElementById('importRecv').click()" data-page-node-id="GcWFhVrWuevstziBJWTl74">📥 导入收款Excel</button>
+            <input type="file" id="importRecv" accept=".xlsx,.xls" style="display:none" onchange="Master.importMaster('recv', this)" data-page-node-id="lzNnly9bMa20CVclJVCYZo">
+            <input id="kwRecv" placeholder="搜索 合同号" style="min-width:240px" onkeydown="if(event.key==='Enter')Master.reload('recv')" data-page-node-id="cTTMP7HLZuTu3dME658IK8">
+            <button class="btn btn-o btn-s" onclick="Master.reload('recv')" data-page-node-id="D0bU6ZJSQFqp7AhHOXy6o1">搜索</button>
+          </div>
+          <div class="twrap" data-page-node-id="FZl6982h6fEfCApwBEJxN3"><table class="obj-table" id="tblRecv" data-page-node-id="iAOnaARWh0ZL4grXTDO2ks"></table></div>
+        </div>
+        <div class="ana-pane" data-pane="pay" data-page-node-id="bDZrbrMpPop600s8d8phyO">
+          <div class="fbar" data-page-node-id="abNIzPFrnuUDtFzHRomGMN">
+            <button class="btn btn-o btn-s" onclick="document.getElementById('importPay').click()" data-page-node-id="W064t1obF27rGUcryoAOH0">📥 导入付款Excel</button>
+            <input type="file" id="importPay" accept=".xlsx,.xls" style="display:none" onchange="Master.importMaster('pay', this)" data-page-node-id="Sv3BNHEr4txYwFU4bXs6dF">
+            <input id="kwPay" placeholder="搜索 合同号" style="min-width:240px" onkeydown="if(event.key==='Enter')Master.reload('pay')" data-page-node-id="T0TCAAtGogXInNp0y0uCvf">
+            <button class="btn btn-o btn-s" onclick="Master.reload('pay')" data-page-node-id="O68QpnFGKGO5GiVE3BSXXt">搜索</button>
+          </div>
+          <div class="twrap" data-page-node-id="8gP4OWMIOu679dlOXUeAz3"><table class="obj-table" id="tblPay" data-page-node-id="dpSAlm0eLGFXh7ywsEJAWU"></table></div>
+        </div>
+      </div>
+
+      <!-- ================= Panel: 项目主数据（里程碑产值表） ================= -->
+      <div id="panel-project" class="core-panel" data-page-node-id="zCZiowhixgpzX0AmKbk7ZK">
+        <div class="section-hdr" data-page-node-id="B0JuonJq72da8LqMxMOGyZ">
+          <span class="icon lg" id="projTitleIcon" data-page-node-id="fIEduwoA77g0OlNIHUF6rg"></span>
+          <h2 data-page-node-id="Op2YFA6XHAi4xL8aLVPHes">项目主数据</h2>
+          <span class="hdr-sub" id="hdrSubProject" data-page-node-id="XJuOUEI9iGBv8ma7Cap2MM"></span>
+          <div class="hdr-actions" data-page-node-id="lHxMj3TXSBchb9S2MEzkaN">
+            <button class="btn btn-o btn-s" onclick="document.getElementById('importMilestone').click()" data-page-node-id="I5t7u58b2sdrYFUwyWWgoF">📥 导入里程碑Excel</button>
+            <input type="file" id="importMilestone" accept=".xlsx,.xls" style="display:none" onchange="Master.importMaster('milestone', this)" data-page-node-id="2tHh1AjFnMaMRk5oIE3xzK">
           </div>
         </div>
-        <div class="fbar">
-          <input id="kw" placeholder="搜索 项目号 / 名称" style="min-width:220px"
-                 onkeydown="if(event.key==='Enter')Core.reload()">
-          <button class="btn btn-o btn-s" onclick="Core.reload()">搜索</button>
+        <div class="fbar" data-page-node-id="w0ejSMTtIMQbXUWWRGzZvR">
+          <input id="kwMilestone" placeholder="搜索 项目号 / 名称" style="min-width:240px" onkeydown="if(event.key==='Enter')Master.reload('milestone')" data-page-node-id="LZk1TslSEeyirF7NwkhAsC">
+          <button class="btn btn-o btn-s" onclick="Master.reload('milestone')" data-page-node-id="2juLIGPjKqzwEFxRZkTDzI">搜索</button>
         </div>
-        <div class="twrap"><table class="obj-table" id="projTbl"></table></div>
+        <div class="twrap" data-page-node-id="H3lwSC6wW5BpQRGb7aDsJx"><table class="obj-table" id="tblMilestone" data-page-node-id="jZg7ke1VYZDw6RDIz5Tu2t"></table></div>
       </div>
 
       <!-- ================================================== -->
       <!-- Panel: 本体可观测 — 实体与关系（TBox 概念/关系 + ABox 实例）-->
       <!-- ================================================== -->
-      <div id="panel-ontEntities" class="core-panel">
-        <div class="panel">
-          <h3>🔗 实体与关系<span style="font-weight:400;color:var(--text2);font-size:11px">
+      <div id="panel-ontEntities" class="core-panel" data-page-node-id="cACujAbPL9G93lUv3bafkG">
+        <div class="panel" data-page-node-id="9XqpW6RBrZoSAO6K57PSGn">
+          <h3 data-page-node-id="ppFYMLq5WDhEaKThPm9w47">🔗 实体与关系<span style="font-weight:400;color:var(--text2);font-size:11px" data-page-node-id="B2y5AryGaSNAPb7XBamtEW">
             &nbsp;·&nbsp;TBox 概念/关系 + ABox 实例，数据源本工程 ontology_engine + contract_ontology.db</span></h3>
-          <div class="ont-toolbar">
-            <span style="flex:1"></span>
-            <button class="btn btn-o btn-s" onclick="refreshOntPanel('ontEntities')">🔄 刷新</button>
+          <div class="ont-toolbar" data-page-node-id="r8IXhR6nESU9S1OoGiemsO">
+            <span style="flex:1" data-page-node-id="gTdYFUroLlvLIjkEtM9BZa"></span>
+            <button class="btn btn-o btn-s" onclick="refreshOntPanel('ontEntities')" data-page-node-id="qntQMh2XbqFmwSeAVJLcjq">🔄 刷新</button>
           </div>
-          <div id="ontOverview" class="ont-stat-grid">
-            <div class="ont-stat"><div class="k">加载中</div><div class="v mute">-</div></div>
+          <div id="ontOverview" class="ont-stat-grid" data-page-node-id="qjwZwqu7HcE5vjt8iv5TBc">
+            <div class="ont-stat" data-page-node-id="TcS7aQv1Kei5BFWCLPUFdi"><div class="k" data-page-node-id="eF9qi4H12fK3F2osuEKpWK">加载中</div><div class="v mute" data-page-node-id="Cjsq6HvEeCcAUntt4b1CkZ">-</div></div>
           </div>
 
-          <div class="ont-sec-title">TBox · 概念（Concepts）</div>
-          <div class="twrap">
-            <table>
-              <thead><tr>
-                <th style="width:180px">概念</th><th>语义说明</th><th style="width:110px">实例数</th>
+          <div class="ont-sec-title" data-page-node-id="Bl1GFvfkoSG2qxinu6rews">TBox · 概念（Concepts）</div>
+          <div class="twrap" data-page-node-id="oqV9fLupcfYEV3llLUae29">
+            <table data-page-node-id="Vo2jgRevC7UCleEVHCVyQo">
+              <thead data-page-node-id="Igi0dhs7Eg5LKPkzRzlFGo"><tr data-page-node-id="C48PPXUL7azYMEBZO1F0Ed">
+                <th style="width:180px" data-page-node-id="UW674DCDdWICGt4SqSVkfQ">概念</th><th data-page-node-id="AaWTo28LuetBewU1AtpSbN">语义说明</th><th style="width:110px" data-page-node-id="JnGlpvJpIe396RqGfTDUyB">实例数</th>
               </tr></thead>
-              <tbody id="ontConceptsTbody"><tr><td colspan="3" class="empty-tip">加载中...</td></tr></tbody>
+              <tbody id="ontConceptsTbody" data-page-node-id="qP5IES0SNK0Y3HoHKDDggS"><tr data-page-node-id="I0z6kDDjq70vbPbyRLHfoa"><td colspan="3" class="empty-tip" data-page-node-id="O7LoebjHU4DVzyyYSBkxh5">加载中...</td></tr></tbody>
             </table>
           </div>
 
-          <div class="ont-sec-title">TBox · 关系（Relations）</div>
-          <div class="twrap">
-            <table>
-              <thead><tr>
-                <th style="width:340px">关系签名</th><th>语义说明</th>
+          <div class="ont-sec-title" data-page-node-id="TVGh5EIJNGDro56JAlH81c">TBox · 关系（Relations）</div>
+          <div class="twrap" data-page-node-id="7HrwH2C1ufWA20DYvp78TH">
+            <table data-page-node-id="B3CYGKm2jEVHw5HiArdK2C">
+              <thead data-page-node-id="7AJTx8HA7ey2N56lR1Fp6R"><tr data-page-node-id="qusmU9ETFRa0oML0qqd8dA">
+                <th style="width:340px" data-page-node-id="CwbQsH2NGnOqTKSjIovqET">关系签名</th><th data-page-node-id="aAaZnkjTqhEe8KC9Gp04YV">语义说明</th>
               </tr></thead>
-              <tbody id="ontRelationsTbody"><tr><td colspan="2" class="empty-tip">加载中...</td></tr></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="panel">
-          <h3>📦 ABox · 任务实例（o_task）</h3>
-          <div class="twrap">
-            <table>
-              <thead><tr>
-                <th>Task ID</th><th>备件</th><th class="num">数量</th>
-                <th>状态</th><th>内部流</th><th>外部流</th>
-                <th>供应商</th><th>发起邮箱</th><th>创建时间</th>
-              </tr></thead>
-              <tbody id="ontInstTasksTbody"><tr><td colspan="9" class="empty-tip">加载中...</td></tr></tbody>
+              <tbody id="ontRelationsTbody" data-page-node-id="Z8AhYQkCM6yfcU8i77XiWs"><tr data-page-node-id="L7hMsv6tgZK7CoTk9qXLXn"><td colspan="2" class="empty-tip" data-page-node-id="h4FRHF36X2guCyEjXpzqg8">加载中...</td></tr></tbody>
             </table>
           </div>
         </div>
 
-        <div class="panel">
-          <h3>👤 ABox · 人员 / 邮件 / 报价 / 预会话</h3>
-          <div class="ont-sub">同一批实例按实体类型分块展示；空表说明本体轨尚未写入该实体。</div>
-          <div id="ontInstOthers"></div>
+        <div class="panel" data-page-node-id="cu8ldjMClUhvRoffYa3yac">
+          <h3 data-page-node-id="YaGyWJCtO2q9lrRtj8ufX6">📦 ABox · 任务实例（o_task）</h3>
+          <div class="twrap" data-page-node-id="Ty45iWaa3GKr5wV1KVMByT">
+            <table data-page-node-id="WB99d1Z5VXeWpOjmWkthbl">
+              <thead data-page-node-id="h5QpdeSJyaJVEgaNjSVdqw"><tr data-page-node-id="1BaKBxjDTkC5lKCizbLpFy">
+                <th data-page-node-id="uF79nz4AIE0wYzioYrHFXc">Task ID</th><th data-page-node-id="VJpQTeyxjOqOhBeuuW9h1t">备件</th><th class="num" data-page-node-id="hNgEwR4FfjvUbVzWHsbTWs">数量</th>
+                <th data-page-node-id="9TZvqrRjfRzVPXLaMPGiI8">状态</th><th data-page-node-id="pMWZn3Vr9dRAjST5UClxF4">内部流</th><th data-page-node-id="TDJv2pdiuMDDmDWvXLtJKd">外部流</th>
+                <th data-page-node-id="oz23M0Qfdqe8BNs6Mth4Jj">供应商</th><th data-page-node-id="oJPNmNsYOsiu6U5SMFh28w">发起邮箱</th><th data-page-node-id="Tn0an8RufToDsO0Hih2Igq">创建时间</th>
+              </tr></thead>
+              <tbody id="ontInstTasksTbody" data-page-node-id="afZNGBHRE0w9Fj1z4m2fG4"><tr data-page-node-id="YZCZxg3PAmqq3UkX2aDeg2"><td colspan="9" class="empty-tip" data-page-node-id="GkKOi5ZPKQPxClPqZJk9f9">加载中...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel" data-page-node-id="bHinHHbM8On7jFoTbSL8gS">
+          <h3 data-page-node-id="QJxjVOHjlE1xntcIW62jxU">👤 ABox · 人员 / 邮件 / 报价 / 预会话</h3>
+          <div class="ont-sub" data-page-node-id="E8WoP93dJ4iEvwVitLeUpA">同一批实例按实体类型分块展示；空表说明本体轨尚未写入该实体。</div>
+          <div id="ontInstOthers" data-page-node-id="EeqsNMERHRPtGPsL7KKU9p"></div>
         </div>
       </div>  <!-- /panel-ontEntities -->
 
@@ -100,32 +139,32 @@
       <!-- ================================================== -->
       <!-- Panel: 本体可观测 — 知识（动作定义 / 不变量 / 规则集） -->
       <!-- ================================================== -->
-      <div id="panel-ontKnowledge" class="core-panel">
-        <div class="panel">
-          <h3>📚 知识层<span style="font-weight:400;color:var(--text2);font-size:11px">
-            &nbsp;·&nbsp;动作定义（条件/效果/不变量）+ 全局不变量 + 声明式规则集，来源 <span id="ontKnowSource" class="ont-mono">-</span></span></h3>
-          <div class="ont-toolbar">
-            <span style="flex:1"></span>
-            <button class="btn btn-o btn-s" onclick="refreshOntPanel('ontKnowledge')">🔄 刷新</button>
+      <div id="panel-ontKnowledge" class="core-panel" data-page-node-id="zXNWESFMA9CBJdN8ESZzqG">
+        <div class="panel" data-page-node-id="e499aAduFDefAD62AX6DwR">
+          <h3 data-page-node-id="bb5RPL9MjosusDlkKMAMXq">📚 知识层<span style="font-weight:400;color:var(--text2);font-size:11px" data-page-node-id="7Q6pznufjieCDoWP70EVBH">
+            &nbsp;·&nbsp;动作定义（条件/效果/不变量）+ 全局不变量 + 声明式规则集，来源 <span id="ontKnowSource" class="ont-mono" data-page-node-id="fELoF6kfQGR2177v8Px1M8">-</span></span></h3>
+          <div class="ont-toolbar" data-page-node-id="gXppFAiU75PkA938tRcyvI">
+            <span style="flex:1" data-page-node-id="DEqefqnxnG2q0ZI3tRCw69"></span>
+            <button class="btn btn-o btn-s" onclick="refreshOntPanel('ontKnowledge')" data-page-node-id="umRZMmFt9hGAECUMHADLWK">🔄 刷新</button>
           </div>
 
-          <div class="ont-sec-title">动作定义（本体声明）</div>
-          <div class="ont-sub">每个动作 = 定义 + 前置条件 + 效果 + 不变量 + 幂等性，是智能体决策的约束边界。</div>
-          <div id="ontActionDefs" class="ont-cards"><div class="ont-empty">加载中...</div></div>
+          <div class="ont-sec-title" data-page-node-id="jvnoFlBAoiPbnoWtUBwKDn">动作定义（本体声明）</div>
+          <div class="ont-sub" data-page-node-id="zrgVIqBcXw2A2KStz7ihCe">每个动作 = 定义 + 前置条件 + 效果 + 不变量 + 幂等性，是智能体决策的约束边界。</div>
+          <div id="ontActionDefs" class="ont-cards" data-page-node-id="buJmE0MklQ5PA9UVC6zhvD"><div class="ont-empty" data-page-node-id="Iy9JdyGB1EdqsyzEOANnE6">加载中...</div></div>
 
-          <div class="ont-sec-title">全局不变量（INVARIANTS）</div>
-          <div class="ont-sub">跨动作恒定成立的语义护栏，校验器在执行前统一裁决。</div>
-          <div id="ontInvariants"><div class="ont-empty">加载中...</div></div>
+          <div class="ont-sec-title" data-page-node-id="tX7sOYai6jbwxNVn8UJjcx">全局不变量（INVARIANTS）</div>
+          <div class="ont-sub" data-page-node-id="scARRmCOE8KB8YjTuUkiWz">跨动作恒定成立的语义护栏，校验器在执行前统一裁决。</div>
+          <div id="ontInvariants" data-page-node-id="Dn6ZDY3lK5zikCQmFuDgH6"><div class="ont-empty" data-page-node-id="u4gKwOvQRJghXbjo10KJtQ">加载中...</div></div>
 
-          <div class="ont-sec-title">声明式规则集（RULES）</div>
-          <div class="ont-sub">condition ⇒ 动作可执行；由 knowledge.py 的极小表达式求解器求值。</div>
-          <div class="twrap">
-            <table>
-              <thead><tr>
-                <th style="width:200px">规则 ID</th><th style="width:180px">目标动作</th>
-                <th style="width:380px">条件表达式</th><th>说明</th>
+          <div class="ont-sec-title" data-page-node-id="MAl0scAEJsCm7eRBSSEgUE">声明式规则集（RULES）</div>
+          <div class="ont-sub" data-page-node-id="Yiuw5WHdP5SrovAZZ9v0q5">condition ⇒ 动作可执行；由 knowledge.py 的极小表达式求解器求值。</div>
+          <div class="twrap" data-page-node-id="t72HFqgV9MFtOJcScEvK8o">
+            <table data-page-node-id="HJlunQcgOpmdlsZgBU88Gc">
+              <thead data-page-node-id="NHRIfiOsjIBzvIxMbyekrs"><tr data-page-node-id="GIqHu4IrVVg4jdveB7DgPm">
+                <th style="width:200px" data-page-node-id="M9iWzbg1jxv418X7n4nfA8">规则 ID</th><th style="width:180px" data-page-node-id="fGozrUyVcAR0imZBpTBahQ">目标动作</th>
+                <th style="width:380px" data-page-node-id="49FBDAnHeCFUDmHGVDIAGg">条件表达式</th><th data-page-node-id="A0479Xa430JeXW3ZLDtYz1">说明</th>
               </tr></thead>
-              <tbody id="ontRulesTbody"><tr><td colspan="4" class="empty-tip">加载中...</td></tr></tbody>
+              <tbody id="ontRulesTbody" data-page-node-id="Z18LGyouV1ykfF5RDEAiV9"><tr data-page-node-id="pZF1L3N7pqgEdSs1BEFQYN"><td colspan="4" class="empty-tip" data-page-node-id="TxPU5rgVs97gWZ5yoRbtrV">加载中...</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -135,56 +174,56 @@
       <!-- ================================================== -->
       <!-- Panel: 本体可观测 — 动作（注册表 + 执行历史） -->
       <!-- ================================================== -->
-      <div id="panel-ontActions" class="core-panel">
-        <div class="panel">
-          <h3>⚡ 动作注册表（ACTION_REGISTRY）</h3>
-          <div class="ont-sub">
-            统计列来自 <span class="ont-mono">o_audit_log</span>：<span class="ont-chip g">执行</span>真实落库动作、
-            <span class="ont-chip">对照</span>align: 阶段 A 只读比对、<span class="ont-chip m">空转</span>noop: 决策但未执行。
+      <div id="panel-ontActions" class="core-panel" data-page-node-id="lzuPVCa8nBVYDZyIWxEtIa">
+        <div class="panel" data-page-node-id="CXm4YOq3pkPGNwNfWUI3eL">
+          <h3 data-page-node-id="uo0X56LnQSa0reppzD7jZW">⚡ 动作注册表（ACTION_REGISTRY）</h3>
+          <div class="ont-sub" data-page-node-id="rOzdGnrFId2PeEAxmASwwx">
+            统计列来自 <span class="ont-mono" data-page-node-id="rcmm5oWJUVUOPn0Zcsi3ZG">o_audit_log</span>：<span class="ont-chip g" data-page-node-id="FP01Thn2WdkgvcIp03AY5Q">执行</span>真实落库动作、
+            <span class="ont-chip" data-page-node-id="dyIuYD04tlZlc1SGCT4RqE">对照</span>align: 阶段 A 只读比对、<span class="ont-chip m" data-page-node-id="jXWGSM73dU3U3ScFrNTaay">空转</span>noop: 决策但未执行。
           </div>
-          <div class="ont-toolbar">
-            <span style="flex:1"></span>
-            <button class="btn btn-o btn-s" onclick="refreshOntPanel('ontActions')">🔄 刷新</button>
+          <div class="ont-toolbar" data-page-node-id="j2gp4unSJL0ZQkkkQAkNVC">
+            <span style="flex:1" data-page-node-id="fmk5IqBedRvpRXQzXTLHFj"></span>
+            <button class="btn btn-o btn-s" onclick="refreshOntPanel('ontActions')" data-page-node-id="LT4GeV0uhJWYFtoefS5oD4">🔄 刷新</button>
           </div>
-          <div class="twrap">
-            <table>
-              <thead><tr>
-                <th style="width:200px">动作 ID</th><th style="width:90px">类型</th><th>说明</th>
-                <th style="width:150px">后继状态</th>
-                <th style="width:90px" class="num">执行</th>
-                <th style="width:90px" class="num">对照</th>
-                <th style="width:90px" class="num">空转</th>
-                <th style="width:150px">最近发生</th>
+          <div class="twrap" data-page-node-id="RwkvPUVSQsstOQtM4C6qDK">
+            <table data-page-node-id="L6XVDB9HPrZdMz1BV2kSEC">
+              <thead data-page-node-id="HTYCBZpdpBhE2Jtni7tw1X"><tr data-page-node-id="GpslkDGGBzsEw6BJqma7ID">
+                <th style="width:200px" data-page-node-id="GgWG5K9wEbjgf713gbmkOU">动作 ID</th><th style="width:90px" data-page-node-id="H41rC0JgE8BY5HSuacBkhn">类型</th><th data-page-node-id="pjBrOzXZ6S13EWw4urcc3G">说明</th>
+                <th style="width:150px" data-page-node-id="YUGdbRXOhpQpMcjaQsL2Br">后继状态</th>
+                <th style="width:90px" class="num" data-page-node-id="ynKneewlpoSiQEmWfbPK2u">执行</th>
+                <th style="width:90px" class="num" data-page-node-id="jHh6RrWw4rfw3O7vn2efcE">对照</th>
+                <th style="width:90px" class="num" data-page-node-id="9EZaak2bEXIRp46jYTzDWT">空转</th>
+                <th style="width:150px" data-page-node-id="fFVG7dcjZ0S0aw5RrgbdDd">最近发生</th>
               </tr></thead>
-              <tbody id="ontRegistryTbody"><tr><td colspan="8" class="empty-tip">加载中...</td></tr></tbody>
+              <tbody id="ontRegistryTbody" data-page-node-id="7pqDfV5tOvtj5ntbF93C01"><tr data-page-node-id="gE9Uys1xU2pipnFJBBEiBS"><td colspan="8" class="empty-tip" data-page-node-id="q2WMe6WyMg7cLR2JCXJ3my">加载中...</td></tr></tbody>
             </table>
           </div>
         </div>
 
-        <div class="panel">
-          <h3>🧾 执行历史（o_audit_log，仅追加）</h3>
-          <div class="ont-toolbar">
-            <label>动作：</label>
+        <div class="panel" data-page-node-id="945jUgZTJw6JQLePaZ0ZPc">
+          <h3 data-page-node-id="xxXC2ClUgXuxCZVPc2IXiF">🧾 执行历史（o_audit_log，仅追加）</h3>
+          <div class="ont-toolbar" data-page-node-id="cr2TuXYOYBwKB7GusYrk0v">
+            <label data-page-node-id="xM4PB2qYe1T3gLHqofEJBT">动作：</label>
             <input type="text" id="ontAuditAction" placeholder="动作名模糊匹配" style="min-width:180px"
-                   oninput="ontAuditTimer&&clearTimeout(ontAuditTimer);ontAuditTimer=setTimeout(loadOntAudit,300)">
-            <label>业务 ID：</label>
+                   oninput="ontAuditTimer&&clearTimeout(ontAuditTimer);ontAuditTimer=setTimeout(loadOntAudit,300)" data-page-node-id="lKCda0UAtGO3YWV5zAmG9S">
+            <label data-page-node-id="1iDuhtb8iseduy4e24KMAm">业务 ID：</label>
             <input type="text" id="ontAuditBizId" placeholder="如 OT-XXXX" style="min-width:160px"
-                   oninput="ontAuditTimer&&clearTimeout(ontAuditTimer);ontAuditTimer=setTimeout(loadOntAudit,300)">
-            <label>关键词：</label>
+                   oninput="ontAuditTimer&&clearTimeout(ontAuditTimer);ontAuditTimer=setTimeout(loadOntAudit,300)" data-page-node-id="1AqW7SHHhiPY53GJFQB6tN">
+            <label data-page-node-id="aQ9BnEgw681iVLFmXrvaau">关键词：</label>
             <input type="text" id="ontAuditKeyword" placeholder="操作人 / 备注 / 快照" style="min-width:180px"
-                   oninput="ontAuditTimer&&clearTimeout(ontAuditTimer);ontAuditTimer=setTimeout(loadOntAudit,300)">
-            <span style="flex:1"></span>
-            <button class="btn btn-o btn-s" onclick="resetOntAuditFilters()">清空筛选</button>
-            <button class="btn btn-o btn-s" onclick="loadOntAudit()">🔄 刷新</button>
+                   oninput="ontAuditTimer&&clearTimeout(ontAuditTimer);ontAuditTimer=setTimeout(loadOntAudit,300)" data-page-node-id="wAEABr2URntca5h1fUaPCa">
+            <span style="flex:1" data-page-node-id="VxAr4z5WeCytjMFTdEolVS"></span>
+            <button class="btn btn-o btn-s" onclick="resetOntAuditFilters()" data-page-node-id="kbfWlCok6DOKfO9PHb9i0E">清空筛选</button>
+            <button class="btn btn-o btn-s" onclick="loadOntAudit()" data-page-node-id="d5NhXk1laXtbdkaSQ9E4jj">🔄 刷新</button>
           </div>
-          <div class="twrap">
-            <table>
-              <thead><tr>
-                <th style="width:60px">#</th><th style="width:150px">动作</th><th style="width:150px">业务 ID</th>
-                <th style="width:110px">操作者</th><th style="width:150px">时间</th>
-                <th style="width:420px">内容快照</th><th>备注</th>
+          <div class="twrap" data-page-node-id="47gysoZc1c3esBoe9KLTwD">
+            <table data-page-node-id="xHs2gGcfaAUtB2xRRNPwJ2">
+              <thead data-page-node-id="sNPL9LPRwMi9J48Wnu00Vw"><tr data-page-node-id="AH8DCGFmp3q2yPPLrynpdQ">
+                <th style="width:60px" data-page-node-id="G06OF4G9wckFJgrCQh7QfX">#</th><th style="width:150px" data-page-node-id="9PxIWxEvJtAGpadE9IT9xz">动作</th><th style="width:150px" data-page-node-id="V25CrNdzGMvX7Q6cgE9r9t">业务 ID</th>
+                <th style="width:110px" data-page-node-id="uDlbxasDXDuGzzdLodrWAG">操作者</th><th style="width:150px" data-page-node-id="IbpwqyPUkfGz5rWZUtPZgY">时间</th>
+                <th style="width:420px" data-page-node-id="7eGJeSXSGwfn2Gx8eXYaX7">内容快照</th><th data-page-node-id="i7vnHrRbX5XprARbzy7P9h">备注</th>
               </tr></thead>
-              <tbody id="ontAuditTbody"><tr><td colspan="7" class="empty-tip">加载中...</td></tr></tbody>
+              <tbody id="ontAuditTbody" data-page-node-id="PXP4Okx54Hkw96PL7Iqw3l"><tr data-page-node-id="aQ7pVmD4aXHGu9ldFBqRBl"><td colspan="7" class="empty-tip" data-page-node-id="ArG7luF4ppAEJbw6seVTrz">加载中...</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -194,31 +233,31 @@
       <!-- ================================================== -->
       <!-- Panel: 本体可观测 — 任务列表（o_task） -->
       <!-- ================================================== -->
-      <div id="panel-ontTasks" class="core-panel">
-        <div class="panel">
-          <h3>🗂 本体任务列表（o_task）</h3>
-          <div class="ont-sub">内部流 / 外部流双流状态 + 报价截止 + 选中供应商 + 关键里程碑（B 询价 / D 审批 / E 订货 / G 结算）。</div>
-          <div class="ont-toolbar">
-            <label>状态：</label>
-            <select id="ontTaskStatus" onchange="loadOntTasks()" style="min-width:170px">
-              <option value="">全部状态</option>
+      <div id="panel-ontTasks" class="core-panel" data-page-node-id="7ks0znmI0hEcrFbd16Thu1">
+        <div class="panel" data-page-node-id="Ce85LdaA3Fiao5JQbTTMkK">
+          <h3 data-page-node-id="jFsULhJnFKyDo4aFShDewe">🗂 本体任务列表（o_task）</h3>
+          <div class="ont-sub" data-page-node-id="PlyjcF6HeF7U9K7YIWKgut">内部流 / 外部流双流状态 + 报价截止 + 选中供应商 + 关键里程碑（B 询价 / D 审批 / E 订货 / G 结算）。</div>
+          <div class="ont-toolbar" data-page-node-id="K7L9fAn2l9smVi1kJR7HIv">
+            <label data-page-node-id="RD2KV22CFpFe57AoLliN6m">状态：</label>
+            <select id="ontTaskStatus" onchange="loadOntTasks()" style="min-width:170px" data-page-node-id="LnMxXU0zEnxHw6gYV2mB02">
+              <option value="" data-page-node-id="gR8PnlWCDA4rZvH28CBsWp">全部状态</option>
             </select>
-            <label>关键词：</label>
+            <label data-page-node-id="sgo0V3DehSAGHXSnytDBgG">关键词：</label>
             <input type="text" id="ontTaskKeyword" placeholder="Task ID / 发起邮箱 / 供应商 / 备件" style="min-width:220px"
-                   oninput="ontTaskTimer&&clearTimeout(ontTaskTimer);ontTaskTimer=setTimeout(loadOntTasks,300)">
-            <span style="flex:1"></span>
-            <button class="btn btn-o btn-s" onclick="resetOntTaskFilters()">清空筛选</button>
-            <button class="btn btn-o btn-s" onclick="loadOntTasks()">🔄 刷新</button>
+                   oninput="ontTaskTimer&&clearTimeout(ontTaskTimer);ontTaskTimer=setTimeout(loadOntTasks,300)" data-page-node-id="yIii8CRcwbOVUZVpD7emNq">
+            <span style="flex:1" data-page-node-id="Dpo0H4hl3Y9dVYeKFDOjx2"></span>
+            <button class="btn btn-o btn-s" onclick="resetOntTaskFilters()" data-page-node-id="2JTELnNxhY9NltJ7wJEAHS">清空筛选</button>
+            <button class="btn btn-o btn-s" onclick="loadOntTasks()" data-page-node-id="CxOrZ7jNOmLKf7iyt81FS0">🔄 刷新</button>
           </div>
-          <div class="twrap">
-            <table>
-              <thead><tr>
-                <th>Task ID</th><th>项目 / 备件</th><th class="num">数量</th>
-                <th>状态</th><th>内部流</th><th>外部流</th>
-                <th style="width:140px">报价截止</th><th>选中供应商</th>
-                <th class="num">报价</th><th>里程碑</th><th>创建时间</th>
+          <div class="twrap" data-page-node-id="lI0HVuDUEQuaceslZl6zWP">
+            <table data-page-node-id="4MyVXTADxvsrTZoyyy8xCG">
+              <thead data-page-node-id="LdbKfunEHGUVdJ6BMn9kVW"><tr data-page-node-id="shq8UN4Pfv3ftc1TMgeAuC">
+                <th data-page-node-id="kAAxaWttnT6YzfHTigERAd">Task ID</th><th data-page-node-id="VW2j1INlpey4DW9OyDFc7t">项目 / 备件</th><th class="num" data-page-node-id="1SSb4Fv0ErGeTKjCGGALGZ">数量</th>
+                <th data-page-node-id="p0IHosp9O5WxKrHRxflXo9">状态</th><th data-page-node-id="ws68H6rN3xaltc11aYtwPL">内部流</th><th data-page-node-id="8SM7pj6JalpmajajRM82me">外部流</th>
+                <th style="width:140px" data-page-node-id="6aRBrGM14LmGBvzHsDlQQy">报价截止</th><th data-page-node-id="Kh3Vq67PQ05AGsF4OoWaar">选中供应商</th>
+                <th class="num" data-page-node-id="R65bMkNaESTljdxxTvUoVy">报价</th><th data-page-node-id="hBcvnsIV4xprPPQAGvwVXg">里程碑</th><th data-page-node-id="c6CfmevDNdAti0Iwe7H6Li">创建时间</th>
               </tr></thead>
-              <tbody id="ontTasksTbody"><tr><td colspan="11" class="empty-tip">加载中...</td></tr></tbody>
+              <tbody id="ontTasksTbody" data-page-node-id="9PgXgmcJejvheuZbHUocHu"><tr data-page-node-id="hGHqNbMZoZ1t26rPUT4nRN"><td colspan="11" class="empty-tip" data-page-node-id="ZCeIGIPjZZXPdclBiGcY4q">加载中...</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -228,34 +267,34 @@
       <!-- ================================================== -->
       <!-- Panel: 本体可观测 — 台账（结算 / 闭环记录） -->
       <!-- ================================================== -->
-      <div id="panel-ontLedger" class="core-panel">
-        <div class="panel">
-          <h3>🧾 本体台账（闭环结算记录）</h3>
-          <p style="font-size:12px;color:var(--text2);margin:4px 0 14px">
-            本体轨没有独立的结算表，这里由「终态 <span class="ont-mono">o_task</span>（CLOSED / CLOSED_ABORT / CLOSED_MANUAL）
+      <div id="panel-ontLedger" class="core-panel" data-page-node-id="aanbmtIbTMl3uBJFcTia65">
+        <div class="panel" data-page-node-id="vxem9aBFT2vycBroCvLWfK">
+          <h3 data-page-node-id="pVhBG9aKAXF5ysrcdpQKpC">🧾 本体台账（闭环结算记录）</h3>
+          <p style="font-size:12px;color:var(--text2);margin:4px 0 14px" data-page-node-id="XcFD9NE6AUgrlgMDdnTIuT">
+            本体轨没有独立的结算表，这里由「终态 <span class="ont-mono" data-page-node-id="3pm2gfQDFWeqD17RYn2aTw">o_task</span>（CLOSED / CLOSED_ABORT / CLOSED_MANUAL）
             + 审计流水」推导：供应商取选中供应商，单价取其有效报价，闭环时间取
-            <span class="ont-mono">engineerFinalClose</span> 审计时间。
+            <span class="ont-mono" data-page-node-id="1B3Xmh3IJN0U2S7PM9zhTV">engineerFinalClose</span> 审计时间。
           </p>
-          <div class="ont-toolbar">
-            <span style="flex:1"></span>
-            <button class="btn btn-o btn-s" onclick="loadOntLedger()">🔄 刷新</button>
+          <div class="ont-toolbar" data-page-node-id="vBsHtZ2k4o39xHwBFuErwZ">
+            <span style="flex:1" data-page-node-id="33QjhH6eVB27S4wvad35xd"></span>
+            <button class="btn btn-o btn-s" onclick="loadOntLedger()" data-page-node-id="4CJxKtvcpnAPtm0ackv2sX">🔄 刷新</button>
           </div>
-          <div class="twrap">
-            <table>
-              <thead><tr>
-                <th>Task ID</th><th>项目编号</th><th>项目名称</th><th>备件</th>
-                <th class="num">数量</th><th>选中供应商</th><th class="num">单价(元)</th>
-                <th class="num" style="color:#ff7089">金额(元)</th>
-                <th>快递单号</th><th>闭环时间</th><th>终态</th><th style="min-width:240px">工程师反馈</th>
+          <div class="twrap" data-page-node-id="hREc8Go3z8EDtqJX2lhTb8">
+            <table data-page-node-id="63JsyCDHiRy3oR1ciNYg63">
+              <thead data-page-node-id="sKtNaWrB6QEPbAMCDxGToi"><tr data-page-node-id="UxLBFhzqyZCc14a5KFTCET">
+                <th data-page-node-id="Nj8QpW6GClsNldfAqk6N7n">Task ID</th><th data-page-node-id="003v5XO9CPZGSFTXfvaCqZ">项目编号</th><th data-page-node-id="SLtDmg1bX24jhcZaeN7z0T">项目名称</th><th data-page-node-id="VFrFFTL5V9WFy6UBA2LARj">备件</th>
+                <th class="num" data-page-node-id="wj5HjHUYfAPOn9K28QEMTy">数量</th><th data-page-node-id="84PP8LzG1rZIzKjDibvxFE">选中供应商</th><th class="num" data-page-node-id="CAoyHmpBp232l1FWASgh5c">单价(元)</th>
+                <th class="num" style="color:#ff7089" data-page-node-id="W1vT4LYwwYlEJ81xZSgmPF">金额(元)</th>
+                <th data-page-node-id="56G4sQRKQVhmaX5KBJjCKA">快递单号</th><th data-page-node-id="OMqREfXiVoRmAqdNSXx3Fq">闭环时间</th><th data-page-node-id="U6S2ptKK2iYJkLU68wYTpO">终态</th><th style="min-width:240px" data-page-node-id="ptYEGJ8k0sU5jMZBFC6lz1">工程师反馈</th>
               </tr></thead>
-              <tbody id="ontLedgerTbody"><tr><td colspan="12" class="empty-tip">加载中...</td></tr></tbody>
-              <tfoot>
-                <tr style="background:rgba(94,215,255,.04);color:#fff;font-weight:600">
-                  <td colspan="4" style="text-align:right">合计：<span id="ontLedgerCount">0</span> 条</td>
-                  <td class="num" id="ontLedgerQtySum">-</td>
-                  <td colspan="2"></td>
-                  <td class="num" id="ontLedgerAmtSum" style="color:#ff7089">-</td>
-                  <td colspan="4"></td>
+              <tbody id="ontLedgerTbody" data-page-node-id="rvHK0YIgu9inSjQBHVY0fB"><tr data-page-node-id="pLPj963lW8UaTPWXRkWwLm"><td colspan="12" class="empty-tip" data-page-node-id="OEzLcL9TE7lRJ2CdWYkgw5">加载中...</td></tr></tbody>
+              <tfoot data-page-node-id="N5WKQFUQGHTYLny2GnUEiA">
+                <tr style="background:rgba(94,215,255,.04);color:#fff;font-weight:600" data-page-node-id="JaKiC5QDDxUV5Ni3IRbxGI">
+                  <td colspan="4" style="text-align:right" data-page-node-id="VQIu37fHOl7bYDquL0i81a">合计：<span id="ontLedgerCount" data-page-node-id="GLuorhiC39sLcn4ujaVHap">0</span> 条</td>
+                  <td class="num" id="ontLedgerQtySum" data-page-node-id="gGPNdqiBkz6BAk630jhG5S">-</td>
+                  <td colspan="2" data-page-node-id="1gTHPqYxeqvz13qMCc51Dv"></td>
+                  <td class="num" id="ontLedgerAmtSum" style="color:#ff7089" data-page-node-id="ToNFPYfvVqC1KU4l4CJCoW">-</td>
+                  <td colspan="4" data-page-node-id="qpfwU8SO5tk5VcIRnb3hzv"></td>
                 </tr>
               </tfoot>
             </table>
@@ -267,83 +306,54 @@
       <!-- ================================================== -->
       <!-- Panel: 本体可观测 — 拓扑与一致性（地基视图） -->
       <!-- ================================================== -->
-      <div id="panel-ontTopology" class="core-panel">
-        <div class="panel">
-          <h3>🕸 概念 × 关系拓扑图<span style="font-weight:400;color:var(--text2);font-size:11px">
+      <div id="panel-ontTopology" class="core-panel" data-page-node-id="iz22NGIxEZVzeTgRF25sum">
+        <div class="panel" data-page-node-id="mylTAaR1TYj47xqaf7EFqA">
+          <h3 data-page-node-id="9nsVW6nU3GBPw3TwvdbrA8">🕸 概念 × 关系拓扑图<span style="font-weight:400;color:var(--text2);font-size:11px" data-page-node-id="ZfouKFS4ldqw3xq1PSe9vg">
             &nbsp;·&nbsp;CONCEPTS 为节点、RELATIONS 为边；红圈虚线 = 无任何关系连接的概念（地基薄弱点）</span></h3>
-          <div class="ont-sub">悬停节点高亮其关系；孤立概念一目了然，是补强本体的优先项。</div>
-          <div class="ont-toolbar">
-            <span style="flex:1"></span>
-            <button class="btn btn-o btn-s" onclick="refreshOntPanel('ontTopology')">🔄 刷新</button>
+          <div class="ont-sub" data-page-node-id="oeVaFZ6fTaA1yx8y2IK5bo">悬停节点高亮其关系；孤立概念一目了然，是补强本体的优先项。</div>
+          <div class="ont-toolbar" data-page-node-id="5Idi93QhLXu74lFpv9WokD">
+            <span style="flex:1" data-page-node-id="y7C50lfTsefDhNku1InJmi"></span>
+            <button class="btn btn-o btn-s" onclick="refreshOntPanel('ontTopology')" data-page-node-id="ePynrFEX8wx7TOdlbfYa5I">🔄 刷新</button>
           </div>
-          <div id="ontConceptGraph" class="ont-graph"></div>
-          <div class="ont-graph-legend">
-            <span><i class="lg-c"></i>已连接概念</span>
-            <span><i class="lg-iso"></i>孤立概念（无关系）</span>
-            <span><i class="lg-e"></i>关系边</span>
+          <div id="ontConceptGraph" class="ont-graph" data-page-node-id="2IGUETExCIM5sBaRG4gY25"></div>
+          <div class="ont-graph-legend" data-page-node-id="bgUDwrxhfIYdixTSy5IdLl">
+            <span data-page-node-id="PzeVqD22qsN2uCBiOsj1zE"><i class="lg-c" data-page-node-id="VSYZTC0zCczTDrx17iWiD0"></i>已连接概念</span>
+            <span data-page-node-id="FG6DcCMF6JDunOcITcL8Cy"><i class="lg-iso" data-page-node-id="DwWWWRdNzcQfEWU2zVKEQT"></i>孤立概念（无关系）</span>
+            <span data-page-node-id="QcUsHL3FfXSCUvMVnBjYP5"><i class="lg-e" data-page-node-id="PztXYuTmsWfuxButIkHvub"></i>关系边</span>
           </div>
-          <div id="ontConceptInfo" class="ont-graph-info">悬停任一概念节点查看其语义与关系。</div>
+          <div id="ontConceptInfo" class="ont-graph-info" data-page-node-id="eEJEefm6PIaDaFeQK19grq">悬停任一概念节点查看其语义与关系。</div>
         </div>
 
-        <div class="panel">
-          <h3>🔄 动作 – 状态映射图<span style="font-weight:400;color:var(--text2);font-size:11px">
+        <div class="panel" data-page-node-id="o6fnOnDZVgpVCpvjAChh8A">
+          <h3 data-page-node-id="OxKPbPY8xvVHeXlacBjoGe">🔄 动作 – 状态映射图<span style="font-weight:400;color:var(--text2);font-size:11px" data-page-node-id="DxZeY3sfgdDK699jZzFlxp">
             &nbsp;·&nbsp;左=状态（规则前置/注册表后继），右=动作；虚线=规则前置、绿线=注册表后继</span></h3>
-          <div class="ont-sub">动作如何驱动采购生命周期的"地图"；命名不一致会导致链条在图上断开。</div>
-          <div id="ontActionGraph" class="ont-graph"></div>
-          <div class="ont-graph-legend">
-            <span><i class="lg-s"></i>状态</span>
-            <span><i class="lg-a"></i>动作</span>
-            <span><i class="lg-pre"></i>规则前置</span>
-            <span><i class="lg-succ"></i>注册表后继</span>
+          <div class="ont-sub" data-page-node-id="gr1trF0dj4O9qTD5bHpOIU">动作如何驱动采购生命周期的"地图"；命名不一致会导致链条在图上断开。</div>
+          <div id="ontActionGraph" class="ont-graph" data-page-node-id="ObXhniIrZfzSuGsneRh4LQ"></div>
+          <div class="ont-graph-legend" data-page-node-id="6A69zEmuyJcR18QFb4bfQP">
+            <span data-page-node-id="65huJabdF5LISweDrj3tTs"><i class="lg-s" data-page-node-id="F1CDs7oXUQGlL0Fvp25x7G"></i>状态</span>
+            <span data-page-node-id="tD30vH7tlkFZroCiXOvuQP"><i class="lg-a" data-page-node-id="dQF2i9QwGb6sqNi3Ms7hft"></i>动作</span>
+            <span data-page-node-id="bkOwE6xWX5MA4W3AU5hfID"><i class="lg-pre" data-page-node-id="Kt1McheeLZA0geVIeo7by9"></i>规则前置</span>
+            <span data-page-node-id="BXZwSf4bxr3AqMVejCheTO"><i class="lg-succ" data-page-node-id="Cd2MIosj6tLOXArXDoVBmR"></i>注册表后继</span>
           </div>
-          <div id="ontActionInfo" class="ont-graph-info">悬停任一动作查看其前置状态与后继状态。</div>
+          <div id="ontActionInfo" class="ont-graph-info" data-page-node-id="37fNfvzQPLFQqGQk9XgnS0">悬停任一动作查看其前置状态与后继状态。</div>
         </div>
 
-        <div class="panel">
-          <h3>🩺 声明 ↔ 执行 一致性校验<span style="font-weight:400;color:var(--text2);font-size:11px">
+        <div class="panel" data-page-node-id="ZvAo1glGYKqVi0PDa2r7z7">
+          <h3 data-page-node-id="vfZ3EfowCYf4x1acmabhXq">🩺 声明 ↔ 执行 一致性校验<span style="font-weight:400;color:var(--text2);font-size:11px" data-page-node-id="kgxfrcsggF04RJDOO46YHg">
             &nbsp;·&nbsp;孤儿声明 / 规则悬空 / 状态词表漂移 / 声明与运行时驱动器架构债</span></h3>
-          <div class="ont-sub">把"纸面本体"与"真实运转"之间的裂缝显性化，作为后续打牢地基的清单。</div>
-          <div id="ontHealth" class="ont-health"><div class="ont-empty">加载中...</div></div>
+          <div class="ont-sub" data-page-node-id="6F1Jd7jUdcfAFO97G91MQY">把"纸面本体"与"真实运转"之间的裂缝显性化，作为后续打牢地基的清单。</div>
+          <div id="ontHealth" class="ont-health" data-page-node-id="auTW85xZ2UJsOU8aA8v50H"><div class="ont-empty" data-page-node-id="9DNrz8XaINR6BG1OCFWCnY">加载中...</div></div>
         </div>
       </div>  <!-- /panel-ontTopology -->
     </main>
   </div>
 </div>
 
-<!-- 新建/编辑 项目 弹窗 -->
-<div class="modal" id="projModal">
-  <div class="box">
-    <h3 id="projModalTitle">新建项目</h3>
-    <div class="row"><span class="l">项目号*</span><input class="in" id="f_project_no"></div>
-    <div class="row"><span class="l">商机号</span><input class="in" id="f_opportunity_no"></div>
-    <div class="row"><span class="l">合同号</span><input class="in" id="f_contract_no"></div>
-    <div class="row"><span class="l">项目名称</span><input class="in" id="f_name"></div>
-    <div class="row"><span class="l">客户</span><input class="in" id="f_customer_key"></div>
-    <div class="row"><span class="l">状态</span>
-      <select class="in" id="f_status">
-        <option value="active">进行中</option>
-        <option value="planning">规划</option>
-        <option value="done">已完成</option>
-        <option value="archived">已归档</option>
-      </select>
-    </div>
-    <div class="row"><span class="l">签订额</span><input class="in" id="f_sign_amount" type="number"></div>
-    <div class="row"><span class="l">签订日期</span><input class="in" id="f_sign_date" type="date"></div>
-    <div class="row"><span class="l">部门</span><input class="in" id="f_dept"></div>
-    <div class="row"><span class="l">归属人</span><input class="in" id="f_owner_ref"></div>
-    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
-      <button class="btn btn-o" onclick="Core.closeModal('projModal')">取消</button>
-      <button class="btn btn-c" id="btnProjSave" onclick="Core.saveProject()">保存</button>
-    </div>
-    <div class="row" style="margin-top:8px"><span class="l"></span><span class="hint" id="projHint"></span></div>
-  </div>
-</div>
-
 <!-- 全局页面 Loading 遮罩（本体面板拉数时使用，样式在 common.css） -->
-<div id="pageLoading" class="page-loading" aria-hidden="true">
-  <div class="pl-spinner"></div>
-  <div class="pl-text" id="pageLoadingText">加载中...</div>
-  <div class="pl-sub" id="pageLoadingSub" style="display:none"></div>
+<div id="pageLoading" class="page-loading" aria-hidden="true" data-page-node-id="5p1M7OLcjAkvJlnNfAFY0C">
+  <div class="pl-spinner" data-page-node-id="tkC6DTQYATNXIjcsykcHkM"></div>
+  <div class="pl-text" id="pageLoadingText" data-page-node-id="59WlxF3KKzkVadHHpLOj7m">加载中...</div>
+  <div class="pl-sub" id="pageLoadingSub" style="display:none" data-page-node-id="G7eeijH6tml0yp5w3b8Qdk"></div>
 </div>
 
 <script src="/nav.config.js"></script>
