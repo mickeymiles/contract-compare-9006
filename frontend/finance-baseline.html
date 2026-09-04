@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>四算基线 · 财经 · 经营业务工作台</title>
 <link rel="stylesheet" href="/common.css">
-<!-- echarts 未必需，保留引入以兼容状态分布等可选图 -->
+<!-- echarts（总览状态分布图） -->
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
 </head>
 <body>
@@ -21,17 +21,18 @@
     <aside class="nav-rail" id="navRail"></aside>
 
     <main class="app-main app-content">
-      <!-- 工具条 -->
-      <div class="bl-bar" id="blBar">
-        <label>归集合同</label>
-        <select id="blContract" onchange="Baseline.pick(this.value)"></select>
-        <span class="bl-meta" id="blMeta"></span>
-        <span style="flex:1"></span>
-        <button class="btn btn-o btn-s" onclick="Baseline.seed()" title="从 md_contract 主数据灌入 基准预算/核算">▶ 重灌种子</button>
+      <!-- 独立工具条：只读投影说明 + 刷新（无任何录入按钮） -->
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+        <span style="font-size:11px;color:var(--text2)" id="fcStatus">四算基线 · 合同级只读投影（读 md_contract 主数据，无录入）</span>
+        <div style="display:flex;align-items:center;gap:10px">
+          <button class="btn btn-o" onclick="FourCalc.load()" id="btnFcReload">↻ 刷新投影</button>
+        </div>
       </div>
 
-      <!-- 结果区：四算对比 -->
-      <div id="blBody"><div class="ana-empty"><div class="icon">⏳</div><div>正在加载合同清单...</div></div></div>
+      <!-- 结果区：顶部 Tab（总览 / 明细），由 finance-baseline.app.js 渲染 -->
+      <div id="fcContent">
+        <div class="ana-empty"><div class="icon">⚠️</div><div>正在读取四算投影...</div></div>
+      </div>
     </main>
   </div>
 </div>

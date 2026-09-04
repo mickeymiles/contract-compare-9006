@@ -1706,6 +1706,143 @@ def list_master_contract_summary(keyword='', limit=2000):
         conn.close()
 
 
+# ---------- 四算只读投影（读 md_contract 主数据，纯派生、不落库） ----------
+# 依用户对齐：四算以「业务单元(合同)」为单位查看，值是"从主数据经财务口径取出"而非手工录入。
+# 五阶段"列都存在"，但仅 预算/核算 当前能投影数值；概算/生产预算/决算 无源 → cost=None(前端显 -)。
+# 口径(已逐行验算 572/572、222/222 恒等，见工作记忆)：
+#   签单收入     = 合同总金额
+#   基准预算成本 = 累计实施成本预估 ≡ 硬件集成费 + 服务预估成本 + 软件预估实施费 (572/629 有值)
+#   核算成本     = 累计实施成本实际 ≡ 硬件集成费实际 + 软件实际实施费 + 往年/当年服务直接/间接成本 (222/629)
+#   概算/生产预算/决算：md_contract 无独立列，暂 None(页面显 -)，待相应阶段数据源接入后再投影
+# 重心=合同成本预警：预算(累计实施成本预估) vs 核算(累计实施成本实际)，判定走本体 F-project-cost-warning。
+
+
+def project_contract_fourcalc(keyword='', limit=2000):
+    """合同级四算只读投影：行=业务单元(合同)；列=签单收入 + 五阶段成本 + 成本预警状态。
+
+    纯 SELECT 派生，不改任何表。预算/核算投影现成主数据；概算/生产预算/决算无源显 None(-)。
+    """
+    conn = get_db()
+    try:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(md_contract)")]
+
+        def _col(cands):
+            return next((c for c in cands if c in cols), None)
+
+        def _has(k):
+            return k in cols
+
+        cno_c = _col(['合同编号'])
+        if not cno_c:
+            return {'success': False, 'error': 'md_contract 缺合同编号列'}
+        amt_c = _col(['合同总金额', '原币合同额'])
+        bud_c = '累计实施成本预估' if _has('累计实施成本预估') else None
+        act_c = '累计实施成本实际' if _has('累计实施成本实际') else None
+        cust_c = _col(['甲方名称', '客户简称'])
+        biz_c = '业务类型' if _has('业务类型') else None
+        st_c = _col(['合同状态', '状态'])
+        done_c = [x for x in ['硬件是否完工', '软件是否完工', '硬件集成完工', '集成完工时间', '服务是否完工'] if x in cols]
+
+        pick = ['"%s"' % x for x in ([cno_c, amt_c] + [c for c in [bud_c, act_c] if c]
+                                     + [c for c in [cust_c, biz_c, st_c] if c] + done_c)]
+        sql = 'SELECT %s FROM md_contract' % ','.join(pick)
+        args = []
+        if keyword:
+            sql += ' WHERE "%s" LIKE ?' % cno_c
+            args.append('%' + keyword + '%')
+        sql += ' LIMIT ?'; args.append(int(limit))
+
+        # 本体 F-project-cost-warning（预警判定收敛；ontos 缺失时降级不判，不影响投影读列）
+        _ontos_funcs = None
+        try:
+            import sys as _sys3, os as _os3  # noqa: E401
+            _d3 = _os3.path.join(_os3.path.dirname(_os3.path.abspath(__file__)), '..', 'ontos')
+            if _d3 not in _sys3.path:
+                _sys3.path.insert(0, _d3)
+            from ontos.domain_business import functions as _ontos_funcs
+        except Exception:
+            _ontos_funcs = None
+
+        def _warn(budget, cost):
+            if not _ontos_funcs:
+                return None, ''
+            try:
+                res = _ontos_funcs.call('F-project-cost-warning',
+                                        budget=float(budget) if budget else None,
+                                        current_cost=float(cost) if cost else 0.0)
+                return res.get('status'), res.get('note', '')
+            except Exception:
+                return None, ''
+
+        rows = []
+        seen = set()
+        total_amt = total_bud = total_act = 0.0
+        for r in conn.execute(sql, args):
+            rec = dict(r)
+            cno = str(rec.get(cno_c) or '').strip()
+            if not cno or cno == '合同编号' or cno in seen:
+                continue
+            seen.add(cno)
+            amt = _r(rec.get(amt_c)) if amt_c and rec.get(amt_c) not in (None, '') else 0.0
+            bud = _f(rec.get(bud_c)) if bud_c else 0.0
+            act = _f(rec.get(act_c)) if act_c else 0.0
+            done_flags = {k: rec.get(k) for k in done_c}
+            finalizable = any(str(v).strip() not in ('', '否', '0', 'None', '0.0') for v in done_flags.values())
+            warn, warn_note = _warn(bud, act)
+            rows.append({
+                'contract_no': cno,
+                'customer': (rec.get(cust_c) if cust_c else '') or '',
+                'biz_type': (rec.get(biz_c) if biz_c else '') or '',
+                'status': (rec.get(st_c) if st_c else '') or '',
+                'contract_amount': amt if amt and amt > 0 else None,   # 签单收入
+                'costs': {   # 五阶段成本：无源阶段 = None(页显示 -)
+                    '概算': None,
+                    '基准预算': _r(bud) if bud and bud > 0 else None,
+                    '生产预算': None,
+                    '核算': _r(act) if act and act > 0 else None,
+                    '决算': None,
+                },
+                'budget_cost': _r(bud) if bud and bud > 0 else None,
+                'accounting_cost': _r(act) if act and act > 0 else None,
+                'finalizable': finalizable,
+                'cost_warning_status': warn,
+                'cost_warning_note': warn_note or '',
+            })
+            total_amt += amt or 0.0
+            total_bud += bud or 0.0
+            total_act += act or 0.0
+
+        if keyword:
+            kw = keyword.lower()
+            rows = [x for x in rows if kw in x['contract_no'].lower()
+                    or kw in str(x['customer']).lower()]
+
+        def _cnt(pred):
+            return sum(1 for x in rows if pred(x))
+
+        n_budget = _cnt(lambda x: x['budget_cost'] is not None)
+        n_act = _cnt(lambda x: x['accounting_cost'] is not None)
+        n_fin = _cnt(lambda x: x['finalizable'])
+        n_warn = _cnt(lambda x: x['cost_warning_status'] in ('预警', '超支'))
+        return {
+            'success': True, 'total': len(rows), 'data': rows,
+            'summary': {
+                '业务单元': '%d 个' % len(rows),
+                '有预算成本': '%d 个' % n_budget,
+                '有核算成本': '%d 个' % n_act,
+                '已完工(可决算)': '%d 个' % n_fin,
+                '成本预警/超支': '%d 个' % n_warn,
+                '签单收入合计': '¥%s' % format(round(total_amt), ','),
+                '预算成本合计': '¥%s' % format(round(total_bud), ','),
+                '核算成本合计': '¥%s' % format(round(total_act), ','),
+            },
+            'stages': list(COST_BASELINE_CALC_TYPES),   # 五阶段列顺序(读本体枚举)
+            'cost_basis': ('基准预算成本=累计实施成本预估；核算成本=累计实施成本实际(均≡分项汇总)。'
+                           '硬件/集成型合同实施成本大头未含其中，故毛利率请勿用预算/核算成本反推。'),
+        }
+    finally:
+        conn.close()
+
 # ---------- 中标商机一键联动立项（FR-2） ----------
 
 def convert_opportunity(payload, operator=''):

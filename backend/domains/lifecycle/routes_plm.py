@@ -270,6 +270,13 @@ def api_ontos_cost_baseline_schema():
 def api_plm_seed_baselines(payload: Dict[str, Any] = None):
     return _plm_ret(plm.seed_baselines_from_contracts(_plm_op(payload)))
 
+@router.get("/api/plm/four-calc/projection")
+def api_plm_four_calc_projection(keyword: Optional[str] = None, limit: int = Query(2000, le=5000)):
+    """合同级四算只读投影：行=业务单元(合同)，列=签单收入+五阶段成本(概算/基准预算/生产预算/核算/决算)+成本预警。
+    纯派生、不改表；概算/生产预算/决算 无源列 → 数值 null(前端显 -)。预算 vs 核算 走本体预警。
+    """
+    return _plm_ret(plm.project_contract_fourcalc(keyword or '', int(limit)))
+
 @router.get("/api/plm/projects/{project_id}/milestones")
 def api_plm_ms_list(project_id: int):
     return _plm_ret(plm.list_milestones(project_id))
