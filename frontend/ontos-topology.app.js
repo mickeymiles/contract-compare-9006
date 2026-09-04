@@ -1,447 +1,506 @@
-/* 本体拓扑 · 业务域 v4 —— UModel 风格实体关系图
- *
- * 数据全部来自后端 API（无内嵌快照）：
- *   GET /api/ontos/spec     → TBox 定义（ontos.domain_business.to_spec() 实时执行）
- *   GET /api/ontos/columns  → 物理字段（总合同表 / 项目里程碑表 最新版本列清单）
- *
- * 交互：点击节点看属性、拖拽调整、搜索高亮、重置布局、重新加载。
+/* 本体拓扑 · UModel Explorer
+ * 数据：/api/ontos/spec (TBox) + /api/ontos/columns (物理字段)
+ * 图谱：antv G6 v4.8.24（阿里官方 CDN）
  */
-(function () {
+(function(){
   'use strict';
-
-  var LABEL = {
-    Project: '项目', Contract: '合同', Milestone: '里程碑',
-    Receipt: '回款', Payment: '付款', Warning: '预警',
-    Order: '订单', WorkOrder: '工单', Task: '任务', Person: '人员',
-    Opportunity: '商机', PreSales: '售前', OutputValue: '产值',
-    Invoice: '发票', Deposit: '保证金',
+  const HEX = {
+    cyan:'#4f8cff', cyan2:'#22d3ee', purple:'#a78bfa', green:'#34d399',
+    orange:'#fbbf24', text:'#dbe4f5', text2:'#7d8db0',
+    panel:'#131c2e', bg2:'#0e1726', border:'#24324d', red:'#f87171',
   };
 
-  var SPEC = null, COLS = null;
-  var ENTITIES = [], EDGES = [], byId = {};
-  var currentDim = null;
-  var wrap, svg, SVGNS = 'http://www.w3.org/2000/svg';
-  var W = 0, H = 0;
+  let SPEC=null, COLS=null, NODES=[], EDGES_=[], byId={};
+  let selectedId=null, graph=null, minimapInst=null;
 
-  function esc(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
-  function kindText(k) {
-    return k === 'top' ? '顶层实体' : k === 'child' ? '子实体' : '范围外占位';
-  }
+  function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  function labelOf(id){const n=byId[id];return n?n.label:id;}
 
-  /* ───────────── 数据加载 ───────────── */
-
-  function load() {
-    var loading = document.getElementById('loading');
-    if (loading) { loading.style.display = 'flex'; loading.textContent = '正在从 ontos 加载本体定义…'; }
+  /* ── 加载 ───────────────────────────────────── */
+  function load(){
+    const ld=document.getElementById('loading');
+    if(ld){ld.style.display='flex';ld.textContent='正在从 ontos 加载本体定义…';}
     Promise.all([
-      fetch('/api/ontos/spec').then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); }),
-      fetch('/api/ontos/columns').then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); }),
-    ]).then(function (res) {
-      var specRes = res[0], colRes = res[1];
-      if (!specRes.ok || specRes.j.success === false) {
-        showError('本体定义加载失败', specRes.j && specRes.j.message
-          ? specRes.j.message : ('HTTP ' + specRes.ok), specRes.j && specRes.j.hint);
+      fetch('/api/ontos/spec').then(r=>r.json().then(j=>({ok:r.ok,j}))).catch(e=>({ok:false,j:{message:String(e)}})),
+      fetch('/api/ontos/columns').then(r=>r.json().then(j=>({ok:r.ok,j}))).catch(e=>({ok:false,j:null})),
+    ]).then(([s,c])=>{
+      if(!s.ok||!s.j||s.j.success===false){
+        showError('本体定义加载失败',(s.j&&s.j.message)||'HTTP 错误',(s.j&&s.j.hint)||null);
         return;
       }
-      SPEC = specRes.j;
-      COLS = (colRes.ok && colRes.j.success) ? colRes.j : null;
+      SPEC=s.j; COLS=(c.ok&&c.j&&c.j.success)?c.j:null;
       build();
-      renderOverview();
-      layout(); renderNodes(); renderEdges(null);
-      if (loading) loading.style.display = 'none';
-      var rev = (SPEC.meta && SPEC.meta.ontos_revision) || 'unknown';
-      document.getElementById('rev').textContent = 'ontos @ ' + rev;
-    }).catch(function (err) {
-      showError('无法连接后端接口', String(err));
+      renderSide(); renderPanel(); renderCount();
+      if(ld) ld.style.display='none';
+      document.getElementById('rev').textContent='ontos @ '+((SPEC.meta&&SPEC.meta.ontos_revision)||'unknown');
+      document.getElementById('g-tools').style.display='flex';
+      initGraph(); renderTable();
     });
   }
 
-  function showError(title, msg, hint) {
-    var loading = document.getElementById('loading');
-    if (loading) loading.style.display = 'none';
-    var wrapEl = document.getElementById('wrap');
-    var old = wrapEl.querySelector('.err'); if (old) old.remove();
-    var d = document.createElement('div');
-    d.className = 'err';
-    d.innerHTML = '<div><b style="font-size:15px;">' + esc(title) + '</b><br><br>' +
-      esc(msg || '') + (hint ? '<br><br><span style="color:#64748b;">提示：' + esc(hint) + '</span>' : '') + '</div>';
-    wrapEl.appendChild(d);
+  function showError(title,msg,hint){
+    const ld=document.getElementById('loading'); if(ld) ld.style.display='none';
+    const d=document.createElement('div'); d.className='err';
+    d.innerHTML='<div><b style="font-size:15px;color:var(--orange);">'+esc(title)+'</b><br><br>'+
+      esc(msg||'')+(hint?'<br><br><span style="color:var(--text2);">提示：'+esc(hint)+'</span>':'')+'</div>';
+    document.querySelector('.ucanvas').appendChild(d);
   }
 
-  /* ───────────── 由 spec 构造图 ───────────── */
-
-  function build() {
-    ENTITIES = []; byId = {};
-    (SPEC.entities || []).forEach(function (e) {
-      var n = {
-        id: e.name, en: e.name, label: e.cn || LABEL[e.name] || e.name,
-        kind: e.kind || 'top', desc: e.desc || '', attrs: e.attributes || [],
-      };
-      ENTITIES.push(n); byId[n.id] = n;
+  /* ── 构建图 ──────────────────────────────────── */
+  function build(){
+    NODES=[]; EDGES_=[]; byId={};
+    (SPEC.entities||[]).forEach(e=>{
+      const n={id:e.name,en:e.name,label:e.cn||e.name,
+        kind:e.kind||'top',desc:e.desc||'',attrs:e.attributes||[]};
+      NODES.push(n); byId[n.id]=n;
     });
-
-    // 逆关系去重：同一对实体只画一条边（如 realizesReceivable 与它的逆 sourceMilestone）
-    var seen = {}, drawn = [];
-    (SPEC.links || []).forEach(function (l) {
-      var key = [l.subj, l.obj].sort().join('|');
-      if (seen[key]) return;
-      seen[key] = true;
-      drawn.push({ s: l.subj, t: l.obj, p: l.predicate, c: l.card, desc: l.desc || '' });
+    // 关系去重（避免逆关系重复显示同一对）
+    const seen={};
+    (SPEC.links||[]).forEach(l=>{
+      const key=[l.subj,l.obj].sort().join('|');
+      if(seen[key]) return;
+      seen[key]=true;
+      EDGES_.push({s:l.subj,t:l.obj,p:l.predicate,c:l.card,desc:l.desc||''});
     });
-
-    // 补「范围外占位」节点（被关系引用但不在 v4 实体集内，如 Supplier）
-    drawn.forEach(function (e) {
-      [e.s, e.t].forEach(function (id) {
-        if (!byId[id]) {
-          var n = { id: id, en: id, label: LABEL[id] || id, kind: 'external',
-                    desc: '范围外占位：v4 场景未纳入该实体，仅被关系引用。', attrs: [] };
-          ENTITIES.push(n); byId[id] = n;
+    // 补外部占位节点
+    EDGES_.forEach(e=>{
+      [e.s,e.t].forEach(id=>{
+        if(!byId[id]){
+          const n={id,en:id,label:id,kind:'external',desc:'范围外占位：被关系引用但不在当前实体集内。',attrs:[]};
+          NODES.push(n); byId[id]=n;
         }
-        var n2 = byId[id];
-        if (n2 && n2.kind !== 'external') return;
       });
     });
-
-    EDGES = drawn;
   }
 
-  /* ───────────── 力导向布局 ───────────── */
-
-  function size() {
-    W = wrap.clientWidth; H = wrap.clientHeight;
-    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  function renderCount(){
+    document.getElementById('cnt-n').textContent=NODES.length;
+    document.getElementById('cnt-l').textContent=EDGES_.length;
   }
 
-  function layout() {
-    size();
-    var N = ENTITIES.length, cx = W / 2, cy = H / 2, R = Math.min(W, H) * 0.30;
-    ENTITIES.forEach(function (n, i) {
-      n.x = cx + Math.cos(i / N * 2 * Math.PI) * R;
-      n.y = cy + Math.sin(i / N * 2 * Math.PI) * R;
-      n.vx = 0; n.vy = 0;
+  /* ── 侧栏 ───────────────────────────────────── */
+  function renderSide(){
+    const side=document.getElementById('side');
+    const top=NODES.filter(n=>n.kind==='top');
+    const child=NODES.filter(n=>n.kind==='child');
+    const ext=NODES.filter(n=>n.kind==='external');
+
+    let html='';
+    html+='<div class="sgrp"><h4>By Type <span class="n">'+NODES.length+'</span></h4><ul>';
+    [['top','顶层',top],['child','子实体',child],['external','外部',ext]].forEach(([k,lab,arr])=>{
+      html+='<li data-filter-kind="'+k+'"><span class="dot '+k+'"></span>'+lab+
+        '<span class="ct">'+arr.length+'</span></li>';
     });
-    var rep = 11000, spring = 0.035, target = 200, iters = 460;
-    for (var it = 0; it < iters; it++) {
-      for (var i = 0; i < N; i++) for (var j = i + 1; j < N; j++) {
-        var a = ENTITIES[i], b = ENTITIES[j];
-        var dx = a.x - b.x, dy = a.y - b.y, d2 = dx * dx + dy * dy + 0.01;
-        var d = Math.sqrt(d2), f = rep / d2;
-        var fx = dx / d * f, fy = dy / d * f;
-        a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
-      }
-      EDGES.forEach(function (e) {
-        var a = byId[e.s], b = byId[e.t];
-        if (a === b) return;
-        var dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy) + 0.01;
-        var f = spring * (d - target);
-        var fx = dx / d * f, fy = dy / d * f;
-        a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
+    html+='</ul></div>';
+
+    html+='<div class="sgrp"><h4>实体 <span class="n" id="ent-cnt">'+NODES.length+'</span></h4><ul id="ent-list">';
+    NODES.forEach(n=>{
+      html+='<li data-id="'+esc(n.id)+'" data-kind="'+n.kind+'">'+
+        '<span class="dot '+n.kind+'"></span>'+
+        '<span class="lbl">'+esc(n.label)+'</span>'+
+        '<span class="en">'+esc(n.en)+'</span></li>';
+    });
+    html+='</ul></div>';
+
+    side.innerHTML=html;
+    side.querySelectorAll('#ent-list li').forEach(li=>{
+      li.addEventListener('click',()=>select(li.dataset.id));
+    });
+    side.querySelectorAll('li[data-filter-kind]').forEach(li=>{
+      li.addEventListener('click',()=>{
+        const k=li.dataset.filterKind;
+        document.querySelectorAll('#ent-list li').forEach(it=>{
+          it.style.display=(k&&it.dataset.kind!==k)?'none':'';
+        });
       });
-      ENTITIES.forEach(function (n) {
-        n.vx += (cx - n.x) * 0.006; n.vy += (cy - n.y) * 0.006;
-        n.vx *= 0.85; n.vy *= 0.85; n.x += n.vx; n.y += n.vy;
-        n.x = Math.max(70, Math.min(W - 70, n.x));
-        n.y = Math.max(50, Math.min(H - 50, n.y));
+    });
+  }
+
+  /* ── 中间面板 · 默认概览 ──────────────────────── */
+  function renderPanel(){
+    const d=document.getElementById('detail');
+    const ne=NODES.length, nl=EDGES_.length;
+    const nf=(SPEC.functions||[]).length, na=(SPEC.actions||[]).length;
+    const nv=(SPEC.invariants||[]).length;
+
+    let html='<div class="ov-cards">'+
+      '<div class="ov-card"><div class="lbl">实体</div><div class="val">'+ne+'</div></div>'+
+      '<div class="ov-card"><div class="lbl">关系</div><div class="val g">'+nl+'</div></div>'+
+      '<div class="ov-card"><div class="lbl">函数</div><div class="val p">'+nf+'</div></div>'+
+      '<div class="ov-card"><div class="lbl">动作</div><div class="val o">'+na+'</div></div>'+
+      '</div>';
+
+    html+='<div class="ov-section"><h4>函数 <span class="n">'+nf+'</span></h4>';
+    (SPEC.functions||[]).forEach(f=>{
+      const io='('+(f.inputs||[]).join(', ')+' → '+(f.outputs||[]).join(', ')+')';
+      html+='<div class="it"><b style="color:var(--cyan2);">'+esc(f.name)+'</b>'+
+        '<span class="id">'+esc(f.id)+'</span>'+
+        '<div class="desc">'+esc(f.description||'')+'</div>'+
+        '<div class="meta">'+esc(io)+'</div></div>';
+    });
+    html+='</div>';
+
+    html+='<div class="ov-section"><h4>动作 <span class="n">'+na+'</span></h4>';
+    (SPEC.actions||[]).forEach(a=>{
+      html+='<div class="it"><b style="color:var(--purple);">'+esc(a.name||a.id)+'</b>'+
+        '<span class="id">'+esc(a.id)+'</span>'+
+        '<div class="desc">'+esc(a.definition||'')+'</div></div>';
+    });
+    html+='</div>';
+
+    if((SPEC.invariants||[]).length){
+      html+='<div class="ov-section"><h4>不变量 <span class="n">'+nv+'</span></h4>';
+      (SPEC.invariants||[]).forEach(v=>{
+        const id=v.id||v.name||'', desc=v.desc||v.description||'';
+        html+='<div class="it"><b style="color:var(--orange);">'+esc(id)+'</b>'+
+          '<div class="desc">'+esc(desc)+'</div></div>';
       });
+      html+='</div>';
     }
-  }
 
-  /* ───────────── 渲染 ───────────── */
-
-  function physCount(id) {
-    if (!COLS) return null;
-    var name = COLS.entity_dataset[id];
-    var ds = name && COLS.datasets[name];
-    return ds ? { name: name, count: ds.column_count } : null;
-  }
-
-  function renderNodes() {
-    Array.prototype.slice.call(wrap.querySelectorAll('.node')).forEach(function (el) { el.remove(); });
-    ENTITIES.forEach(function (n) {
-      var el = document.createElement('div');
-      el.className = 'node ' + n.kind; el.dataset.id = n.id;
-      var pc = physCount(n.id);
-      var cnt = n.kind === 'external' ? ''
-        : '<div class="cnt">属性 ' + n.attrs.length + (pc ? ' · ' + pc.name + ' ' + pc.count + '列' : '') + '</div>';
-      el.innerHTML = '<div class="kind">' + kindText(n.kind) + '</div>' +
-        '<div class="nm">' + esc(n.label) + '</div>' +
-        '<div class="ent">' + esc(n.en) + '</div>' + cnt;
-      el.style.left = n.x + 'px'; el.style.top = n.y + 'px';
-      el.addEventListener('click', function (ev) { ev.stopPropagation(); select(n.id); });
-      el.addEventListener('pointerdown', function (ev) { startDrag(ev, n, el); });
-      wrap.appendChild(el); n._el = el;
-    });
-  }
-
-  function edgeLabel(x, y, text, dim) {
-    var g = document.createElementNS(SVGNS, 'g');
-    var txt = document.createElementNS(SVGNS, 'text');
-    txt.setAttribute('x', x); txt.setAttribute('y', y);
-    txt.setAttribute('text-anchor', 'middle'); txt.setAttribute('font-size', '10');
-    txt.setAttribute('fill', '#475569'); txt.textContent = text;
-    var bg = document.createElementNS(SVGNS, 'rect');
-    var w = text.length * 6.6 + 16;
-    bg.setAttribute('x', x - w / 2); bg.setAttribute('y', y - 12);
-    bg.setAttribute('width', w); bg.setAttribute('height', 15);
-    bg.setAttribute('rx', 3); bg.setAttribute('fill', '#fff'); bg.setAttribute('opacity', '0.92');
-    g.appendChild(bg); g.appendChild(txt);
-    if (dim) g.classList.add('dim');
-    return g;
-  }
-
-  function renderEdges(dimSet) {
-    while (svg.firstChild) svg.removeChild(svg.firstChild);
-    EDGES.forEach(function (e) {
-      var a = byId[e.s], b = byId[e.t];
-      var dim = dimSet && !(dimSet.has(e.s) && dimSet.has(e.t));
-      if (e.s === e.t) {
-        // 自关系（小里程碑 decomposedFrom 父大里程碑）：节点上方自环
-        var x = a.x, y = a.y;
-        var path = document.createElementNS(SVGNS, 'path');
-        path.setAttribute('d', 'M ' + (x - 30) + ' ' + (y - 22) +
-          ' C ' + (x - 46) + ' ' + (y - 78) + ', ' + (x + 46) + ' ' + (y - 78) + ', ' + (x + 30) + ' ' + (y - 22));
-        path.setAttribute('fill', 'none');
-        path.setAttribute('stroke', 'var(--line)');
-        path.setAttribute('stroke-width', '1.6');
-        path.setAttribute('class', 'edge'); if (dim) path.classList.add('dim');
-        svg.appendChild(path);
-        svg.appendChild(edgeLabel(x, y - 80, e.p + ' · ' + e.c, dim));
-        return;
-      }
-      var line = document.createElementNS(SVGNS, 'line');
-      line.setAttribute('x1', a.x); line.setAttribute('y1', a.y);
-      line.setAttribute('x2', b.x); line.setAttribute('y2', b.y);
-      line.setAttribute('stroke', 'var(--line)');
-      line.setAttribute('stroke-width', '1.8');
-      line.setAttribute('class', 'edge'); if (dim) line.classList.add('dim');
-      svg.appendChild(line);
-      svg.appendChild(edgeLabel((a.x + b.x) / 2, (a.y + b.y) / 2 - 2, e.p + ' · ' + e.c, dim));
-    });
-  }
-
-  function startDrag(ev, n, el) {
-    ev.preventDefault();
-    function move(ev2) {
-      var r = wrap.getBoundingClientRect();
-      n.x = ev2.clientX - r.left; n.y = ev2.clientY - r.top;
-      el.style.left = n.x + 'px'; el.style.top = n.y + 'px';
-      renderEdges(currentDim);
+    if(COLS){
+      html+='<div class="ov-section"><h4>物理字段源</h4>';
+      Object.keys(COLS.datasets).forEach(k=>{
+        const ds=COLS.datasets[k];
+        html+='<div class="it"><b style="color:var(--cyan2);">'+esc(k)+'</b>'+
+          '<div class="desc">'+esc(ds.file||'')+' · '+ds.column_count+' 列 / '+ds.rows+' 行 · '+esc(ds.uploaded_at||'')+'</div></div>';
+      });
+      html+='</div>';
     }
-    function up() {
-      document.removeEventListener('pointermove', move);
-      document.removeEventListener('pointerup', up);
-    }
-    document.addEventListener('pointermove', move);
-    document.addEventListener('pointerup', up);
+
+    html+='<div class="unote">点击左侧任意实体，查看其<b>语义属性 / 关系 / 启发式匹配的函数与动作</b>，以及物理字段映射。' +
+      '<br><span style="color:var(--text2);">⚡ 函数/动作的「按实体映射」当前为<b>启发式匹配</b>（基于 inputs/outputs/description 子串）；后续可由 ontos TBox 补结构化 owner 字段切换为权威归属。</span></div>';
+    d.innerHTML=html;
   }
 
-  function select(id) {
-    ENTITIES.forEach(function (n) { n._el.classList.toggle('sel', n.id === id); });
-    var nb = new Set([id]);
-    EDGES.forEach(function (e) {
-      if (e.s === id) nb.add(e.t);
-      if (e.t === id) nb.add(e.s);
-    });
-    currentDim = nb; renderEdges(nb);
-    renderDetail(byId[id]);
-  }
-
-  /* ───────────── 属性面板 ───────────── */
-
-  function boundFields(entity) {
-    var s = new Set();
-    (entity.attrs || []).forEach(function (a) {
-      if (!a.source) return;
-      var last = String(a.source).split('.').pop();
-      if (last) s.add(last);
-    });
-    return s;
-  }
-
-  function renderPhysical(entity) {
-    if (!COLS) return '';
-    var dsName = COLS.entity_dataset[entity.id];
-    if (!dsName) return '';
-    var ds = COLS.datasets[dsName];
-    if (!ds) return '';
-    var bound = boundFields(entity);
-    var hit = 0;
-    var html = '<div class="sec-t">物理字段 · ' + esc(dsName) + '<span class="ln"></span></div>';
-    html += '<div style="font-size:11px;color:#64748b;line-height:1.6;margin-bottom:4px;">' +
-      '来源 <b>' + esc(ds.file) + '</b>：' + ds.rows + ' 行 / <b>' + ds.column_count + '</b> 列（' +
-      esc(ds.uploaded_at) + ' 上传）。' +
-      '<span style="color:#065f46;font-weight:600;">绿色</span> = 已被本体属性引用。</div>';
-    ds.groups.forEach(function (g) {
-      html += '<div class="grp"><span>' + esc(g.name) + '</span><span class="n">' + g.columns.length + '</span></div>';
-      html += '<div class="cols-wrap">' + g.columns.map(function (c) {
-        var f = ds.field_map[c];
-        var isBound = !!(f && bound.has(f));
-        if (isBound) hit++;
-        return '<span class="col-chip' + (isBound ? ' bound' : '') + '"' +
-          (f ? ' title="' + esc(c) + ' → ' + esc(f) + '"' : '') + '>' + esc(c) + '</span>';
-      }).join('') + '</div>';
-    });
-    html += '<div class="note">本体语义属性（上表）是 <b>TBox 契约层</b>；此处为 <b>ABox 物理列</b>。' +
-      '当前实体声明 ' + entity.attrs.length + ' 个语义属性，物理表 ' + ds.column_count +
-      ' 列，其中 <b>' + hit + '</b> 列已被本体引用——差距即后续要补的属性。</div>';
-    return html;
-  }
-
-  function renderDetail(n) {
-    var d = document.getElementById('detail');
-    var ktag = n.kind === 'top'
-      ? '<span class="tag" style="background:var(--top-bg);color:var(--top-tx);">顶层实体</span>'
-      : n.kind === 'child'
-        ? '<span class="tag" style="background:var(--child-bg);color:var(--child-tx);">子实体</span>'
-        : '<span class="tag" style="background:var(--ext-bg);color:var(--ext-tx);">范围外占位</span>';
-    var html = '<h2>' + esc(n.label) + ' <span style="color:#94a3b8;font-size:12px;font-weight:400;">' +
-      esc(n.en) + '</span></h2>' + ktag +
-      '<div class="desc">' + esc(n.desc) + '</div>';
+  /* ── 中间面板 · 实体详情 ──────────────────────── */
+  function renderDetail(n){
+    const d=document.getElementById('detail');
+    const ktag='<span class="pn-tag '+n.kind+'">'+(n.kind==='top'?'顶层实体':n.kind==='child'?'子实体':'外部占位')+'</span>';
+    let html='<div class="pn-head">'+ktag+'<h2>'+esc(n.label)+'</h2>' +
+      '<div class="en">'+esc(n.en)+'</div>' +
+      '<div class="desc">'+esc(n.desc||'(无说明)')+'</div></div>';
 
     // 关系
-    var out = EDGES.filter(function (e) { return e.s === n.id; });
-    var inn = EDGES.filter(function (e) { return e.t === n.id && e.s !== n.id; });
-    html += '<div class="sec-t">关系<span class="ln"></span></div><div class="rel-list">' +
-      (out.length ? out.map(function (e) {
-        return '<div class="r"><span class="arrow">→</span><b>' + esc(e.p) + '</b> ' +
-          esc(LABEL[e.t] || e.t) + ' <span style="color:#94a3b8;">(' + esc(e.c) + ')</span></div>';
-      }).join('') : '<span style="color:#94a3b8;">（无出向关系）</span>') +
-      (inn.length ? inn.map(function (e) {
-        return '<div class="r"><span class="arrow">←</span><b>' + esc(e.p) + '</b> ' +
-          esc(LABEL[e.s] || e.s) + ' <span style="color:#94a3b8;">(' + esc(e.c) + ')</span></div>';
-      }).join('') : '') + '</div>';
+    const out=EDGES_.filter(e=>e.s===n.id);
+    const inn=EDGES_.filter(e=>e.t===n.id&&e.s!==n.id);
+    html+='<div class="pn-sec"><h4>关系 <span class="ln"></span><span class="ct">'+(out.length+inn.length)+'</span></h4><div class="rel-list">';
+    out.forEach(e=>{
+      html+='<div class="r"><span class="arrow">→</span><span class="p">'+esc(e.p)+'</span>'+
+        '<span class="lab">'+esc(labelOf(e.t))+' <span class="en">'+esc(e.t)+'</span></span>'+
+        '<span class="card">'+esc(e.c)+'</span></div>';
+    });
+    inn.forEach(e=>{
+      html+='<div class="r"><span class="arrow">←</span><span class="p">'+esc(e.p)+'</span>'+
+        '<span class="lab">'+esc(labelOf(e.s))+' <span class="en">'+esc(e.s)+'</span></span>'+
+        '<span class="card">'+esc(e.c)+'</span></div>';
+    });
+    if(!out.length&&!inn.length) html+='<div class="u-empty">（无关系）</div>';
+    html+='</div></div>';
 
     // 语义属性
-    html += '<div class="sec-t">语义属性（TBox）<span class="ln"></span></div>';
-    if (n.attrs.length) {
-      html += '<table class="fields"><tr><th>属性</th><th>类型 / 来源 / 说明</th></tr>' +
-        n.attrs.map(function (a) {
-          return '<tr><td>' + esc(a.name) + (a.required ? ' <span class="req">*</span>' : '') +
-            (a.unique ? ' <span style="color:#0891b2;font-size:10px;">U</span>' : '') + '</td><td>' +
-            '<span class="ty">' + esc(a.type) + '</span>' +
-            (a.source ? '<span class="src">' + esc(a.source) + '</span>' : '') +
-            (a.desc ? esc(a.desc) : '') + '</td></tr>';
-        }).join('') + '</table>';
-    } else {
-      html += '<div style="font-size:12px;color:#94a3b8;">范围外占位，暂无属性定义。</div>';
-    }
-
-    // 相关 Function
-    var rel = (SPEC.functions || []).filter(function (f) {
-      var s = (f.inputs || []).concat(f.outputs || []).join(' ') + ' ' + (f.description || '');
-      var key = n.id.toLowerCase();
-      return s.toLowerCase().indexOf(key) >= 0 ||
-        (f.inputs || []).some(function (i) { return String(i).toLowerCase().indexOf(key) >= 0; });
-    });
-    if (rel.length) {
-      html += '<div class="sec-t">相关场景函数<span class="ln"></span></div><div class="fn-list">' +
-        rel.map(function (f) {
-          return '<div><b>' + esc(f.name) + '</b> <span style="color:#94a3b8;">' + esc(f.id) + '</span><br>' +
-            '<span style="color:#64748b;">' + esc(f.description) + '</span></div>';
-        }).join('') + '</div>';
-    }
-
-    html += renderPhysical(n);
-    d.innerHTML = html;
-    d.scrollTop = 0;
-  }
-
-  function renderOverview() {
-    var ne = (SPEC.entities || []).length;
-    var nl = EDGES.length;
-    var nf = (SPEC.functions || []).length;
-    var na = (SPEC.actions || []).length;
-    var phys = '';
-    if (COLS) {
-      Object.keys(COLS.datasets).forEach(function (k) {
-        var ds = COLS.datasets[k];
-        phys += '<div style="font-size:11px;color:#64748b;">' + esc(k) + '：<b style="color:#334155;">' +
-          ds.column_count + '</b> 列（' + ds.rows + ' 行）</div>';
+    html+='<div class="pn-sec"><h4>语义属性 <span class="ln"></span><span class="ct">'+n.attrs.length+'</span></h4>';
+    if(n.attrs.length){
+      html+='<table class="fields-tbl"><thead><tr><th style="width:32%;">属性</th><th>类型 / 源 / 说明</th></tr></thead><tbody>';
+      n.attrs.forEach(a=>{
+        html+='<tr><td>'+esc(a.name)+(a.required?' <span class="req">*</span>':'')+
+          (a.unique?' <span style="color:var(--cyan2);font-size:9px;background:rgba(34,211,238,.15);padding:1px 4px;border-radius:3px;margin-left:3px;">U</span>':'')+'</td><td>'+
+          '<span class="ty">'+esc(a.type)+'</span>' +
+          (a.source?'<span class="src">'+esc(a.source)+'</span>':'')+
+          (a.desc?'<div style="color:var(--text2);font-size:11px;margin-top:3px;line-height:1.5;">'+esc(a.desc)+'</div>':'')+
+          '</td></tr>';
       });
+      html+='</tbody></table>';
+    } else {
+      html+='<div class="u-empty">（无属性定义）</div>';
     }
-    var html = '<div class="stat">' +
-      '<div class="s"><div class="v">' + ne + '</div><div class="l">实体</div></div>' +
-      '<div class="s"><div class="v">' + nl + '</div><div class="l">关系</div></div>' +
-      '<div class="s"><div class="v">' + nf + '</div><div class="l">函数</div></div>' +
-      '<div class="s"><div class="v">' + na + '</div><div class="l">动作</div></div>' +
-      '</div>' + phys;
+    html+='</div>';
 
-    html += '<div class="sec-t">场景函数（' + nf + '）<span class="ln"></span></div><div class="fn-list">' +
-      (SPEC.functions || []).map(function (f) {
-        return '<div><b>' + esc(f.name) + '</b> <span style="color:#94a3b8;">' + esc(f.id) + '</span><br>' +
-          '<span style="color:#64748b;">' + esc(f.description) + '</span></div>';
-      }).join('') + '</div>';
-
-    html += '<div class="sec-t">动作（' + na + '）<span class="ln"></span></div><div class="fn-list">' +
-      (SPEC.actions || []).map(function (a) {
-        return '<div><b>' + esc(a.id) + '</b><br><span style="color:#64748b;">' +
-          esc(a.definition || '') + '</span></div>';
-      }).join('') + '</div>';
-
-    if ((SPEC.invariants || []).length) {
-      html += '<div class="sec-t">不变量<span class="ln"></span></div><div class="fn-list">' +
-        SPEC.invariants.map(function (v) {
-          var id = v.id || v.name || '', desc = v.desc || v.description || '';
-          return '<div><b>' + esc(id) + '</b> <span style="color:#64748b;">' + esc(desc) + '</span></div>';
-        }).join('') + '</div>';
+    // 相关函数（启发式）
+    const relFn=heuristicFns(n);
+    html+='<div class="pn-sec"><h4>相关函数 <span class="ln"></span><span class="ct">'+relFn.length+'</span><span class="hz">⚡ 启发式</span></h4>';
+    if(relFn.length){
+      relFn.forEach(f=>{
+        const io='('+(f.inputs||[]).join(', ')+' → '+(f.outputs||[]).join(', ')+')';
+        html+='<div class="fn-item"><span class="nm">'+esc(f.name)+'</span><span class="id">'+esc(f.id)+'</span>' +
+          '<div class="desc">'+esc(f.description||'')+'</div>' +
+          '<div class="io">'+esc(io)+'</div></div>';
+      });
+    } else {
+      html+='<div class="u-empty">（无启发式匹配 — 后续补 ontos owner 字段可权威归属）</div>';
     }
+    html+='</div>';
 
-    html += '<div class="note">点击左侧任意实体：查看语义属性、关系，以及它在物理表里实际有哪些列、' +
-      '其中多少已被本体声明。当前范围只覆盖 <b>回款周期 / 资金占用 / 毛利率 / 成本预警 / ROI</b> 五个场景。</div>';
-    document.getElementById('detail').innerHTML = html;
+    // 相关动作（启发式）
+    const relAct=heuristicActs(n);
+    html+='<div class="pn-sec"><h4>相关动作 <span class="ln"></span><span class="ct">'+relAct.length+'</span><span class="hz">⚡ 启发式</span></h4>';
+    if(relAct.length){
+      relAct.forEach(a=>{
+        html+='<div class="act-item"><span class="nm">'+esc(a.name||a.id)+'</span><span class="id">'+esc(a.id)+'</span>' +
+          '<div class="desc">'+esc(a.definition||'')+'</div></div>';
+      });
+    } else {
+      html+='<div class="u-empty">（无启发式匹配）</div>';
+    }
+    html+='</div>';
+
+    // 物理字段
+    html+=renderPhysical(n);
+
+    d.innerHTML=html; d.scrollTop=0;
   }
 
-  /* ───────────── 事件 ───────────── */
+  function heuristicFns(n){
+    return (SPEC.functions||[]).filter(f=>{
+      const s=((f.inputs||[]).concat(f.outputs||[]).join(' ')+' '+(f.description||'')+' '+(f.id||'')).toLowerCase();
+      const k1=n.id.toLowerCase(), k2=n.label.toLowerCase(), k3=n.en.toLowerCase();
+      return s.indexOf(k1)>=0 || s.indexOf(k2)>=0 || s.indexOf(k3)>=0;
+    });
+  }
+  function heuristicActs(n){
+    return (SPEC.actions||[]).filter(a=>{
+      const s=((a.definition||'')+' '+(a.effects||'')+' '+(a.conditions||[]).join(' ')+' '+(a.id||'')).toLowerCase();
+      const k1=n.id.toLowerCase(), k2=n.label.toLowerCase(), k3=n.en.toLowerCase();
+      return s.indexOf(k1)>=0 || s.indexOf(k2)>=0 || s.indexOf(k3)>=0;
+    });
+  }
 
-  function init() {
-    wrap = document.getElementById('wrap');
-    svg = document.getElementById('edges');
+  function renderPhysical(n){
+    if(!COLS) return '';
+    const dsName=COLS.entity_dataset&&COLS.entity_dataset[n.id];
+    if(!dsName) return '';
+    const ds=COLS.datasets&&COLS.datasets[dsName];
+    if(!ds) return '';
+    const bound=new Set();
+    (n.attrs||[]).forEach(a=>{if(a.source){const last=String(a.source).split('.').pop();if(last)bound.add(last);}});
+    let hit=0;
+    let html='<div class="pn-sec"><h4>物理字段映射 <span class="ln"></span></h4>' +
+      '<div style="font-size:11px;color:var(--text2);margin-bottom:6px;line-height:1.6;">' +
+      '来源 <b style="color:var(--cyan2);">'+esc(dsName)+'</b> · '+ds.rows+' 行 / '+ds.column_count+' 列' +
+      ' · <span style="color:var(--green);">绿色</span>=已被本体属性引用</div>';
+    (ds.groups||[]).forEach(g=>{
+      html+='<div class="ugrp"><span>'+esc(g.name)+'</span><span class="n">'+g.columns.length+'</span></div>';
+      (g.columns||[]).forEach(c=>{
+        const f=ds.field_map&&ds.field_map[c];
+        const isBound=!!(f&&bound.has(f));
+        if(isBound) hit++;
+        html+='<span class="col-chip'+(isBound?' bound':'')+'"'+
+          (f?' title="'+esc(c)+' → '+esc(f)+'"':'')+'>'+esc(c)+'</span>';
+      });
+    });
+    html+='<div class="unote">语义属性 <b style="color:var(--orange);">'+n.attrs.length+'</b> · 物理列 <b style="color:var(--orange);">'+ds.column_count+'</b> · 已映射 <b style="color:var(--green);">'+hit+'</b></div>';
+    return html+'</div>';
+  }
 
-    document.getElementById('q').addEventListener('input', function (e) {
-      var q = e.target.value.trim().toLowerCase();
-      if (!q) {
-        currentDim = null;
-        ENTITIES.forEach(function (n) { n._el.classList.remove('dim'); });
-        renderEdges(null);
+  /* ── G6 图谱 ─────────────────────────────────── */
+  function initGraph(){
+    const canvas=document.getElementById('g6');
+    const rect=canvas.parentElement.getBoundingClientRect();
+    const W=Math.max(rect.width,400), H=Math.max(rect.height,400);
+
+    const nodes=NODES.map(n=>({id:n.id,label:n.label,en:n.en,kind:n.kind,attrs:n.attrs.length}));
+    const edges=EDGES_.map((e,i)=>({id:'e'+i,source:e.s,target:e.t,label:e.p+' · '+e.c}));
+
+    if(graph){try{graph.destroy();}catch(e){} graph=null;}
+    if(minimapInst){try{minimapInst.destroy();}catch(e){} minimapInst=null;}
+
+    try {
+      graph=new G6.Graph({
+        container:'g6', width:W, height:H, fitView:true, animate:true,
+        modes:{default:['drag-canvas','zoom-canvas','drag-node']},
+        layout:{type:'force',preventOverlap:true,nodeStrength:-50,
+          edgeStrength:0.05,linkDistance:200,alpha:0.3,animate:true},
+        defaultNode:{type:'rect',size:[150,44],
+          style:{fill:HEX.panel,stroke:HEX.cyan,lineWidth:1.5,radius:6,
+            shadowColor:'rgba(79,140,255,.3)',shadowBlur:8},
+          labelCfg:{style:{fill:HEX.text,fontSize:12,fontWeight:600,cursor:'pointer'}}},
+        defaultEdge:{type:'line',
+          style:{stroke:HEX.cyan,lineWidth:1.1,opacity:.55,
+            endArrow:{fill:HEX.cyan,path:G6.Arrow.triangle(6,8,2)},
+            cursor:'pointer'},
+          labelCfg:{autoRotate:true,
+            style:{fill:HEX.text2,fontSize:9,fontWeight:500,
+              background:{fill:HEX.bg2,padding:[2,4,2,4],radius:3}}}},
+      });
+
+      graph.node(node=>{
+        const k=node.kind;
+        const stroke=k==='child'?HEX.purple:(k==='external'?HEX.text2:HEX.cyan);
+        const lineDash=k==='external'?[4,3]:undefined;
+        const shadow=k==='child'?'rgba(167,139,250,.3)':k==='external'?'transparent':'rgba(79,140,255,.3)';
+        return {
+          style:{stroke,lineWidth:1.5,lineDash,shadowColor:shadow,shadowBlur:8},
+          labelCfg:{style:{fill:HEX.text,fontSize:12,fontWeight:600}},
+        };
+      });
+
+      graph.data({nodes,edges});
+      graph.render();
+
+      // 小地图
+      try{
+        minimapInst=new G6.Minimap({size:[180,120]});
+        graph.addPlugin(minimapInst);
+      }catch(e){/* 忽略小地图错误 */}
+
+      graph.on('node:click',e=>select(e.item.getModel().id));
+      graph.on('canvas:click',()=>{if(selectedId) clearSelection();});
+      graph.on('node:mouseenter',e=>{const el=e.item.getKeyShape(); if(el) el.attr('shadowBlur',14);});
+      graph.on('node:mouseleave',e=>{const el=e.item.getKeyShape(); if(el) el.attr('shadowBlur',8);});
+
+      if(selectedId) highlightNode(selectedId);
+    } catch(err){
+      console.error('G6 init failed', err);
+      showError('G6 图谱初始化失败', String(err&&err.message||err));
+    }
+  }
+
+  function select(id){
+    const n=byId[id]; if(!n) return;
+    selectedId=id;
+    document.querySelectorAll('#ent-list li').forEach(li=>{
+      li.classList.toggle('active',li.dataset.id===id);
+    });
+    renderDetail(n);
+    highlightNode(id);
+  }
+  function clearSelection(){
+    selectedId=null;
+    document.querySelectorAll('#ent-list li').forEach(li=>li.classList.remove('active'));
+    renderPanel();
+    if(graph){
+      graph.getNodes().forEach(n=>{
+        const m=n.getModel();
+        const k=m.kind;
+        const stroke=k==='child'?HEX.purple:(k==='external'?HEX.text2:HEX.cyan);
+        const lineDash=k==='external'?[4,3]:null;
+        n.update({style:{stroke,lineWidth:1.5,lineDash,opacity:1}});
+      });
+      graph.getEdges().forEach(e=>e.update({style:{opacity:.55}}));
+    }
+  }
+  function highlightNode(id){
+    if(!graph) return;
+    const nb=new Set([id]);
+    EDGES_.forEach(e=>{if(e.s===id) nb.add(e.t); if(e.t===id) nb.add(e.s);});
+    graph.getNodes().forEach(n=>{
+      const m=n.getModel();
+      const hit=nb.has(m.id);
+      const k=m.kind;
+      const stroke=k==='child'?HEX.purple:(k==='external'?HEX.text2:HEX.cyan);
+      n.update({style:{
+        stroke:hit?HEX.orange:stroke,
+        lineWidth:hit?2.5:1.5,
+        opacity:hit?1:.3,
+        shadowColor:hit?'rgba(251,191,36,.6)':'rgba(79,140,255,.3)',
+        shadowBlur:hit?14:8,
+      }});
+    });
+    graph.getEdges().forEach(e=>{
+      const m=e.getModel();
+      const hit=m.source===id||m.target===id;
+      e.update({style:{opacity:hit?.85:.12}});
+    });
+  }
+
+  /* ── Table 视图 ───────────────────────────────── */
+  function renderTable(){
+    const tb=document.getElementById('tbl-body');
+    if(!tb) return;
+    tb.innerHTML='';
+    EDGES_.forEach(e=>{
+      tb.innerHTML+='<tr>'+
+        '<td style="color:var(--cyan2);font-family:var(--mono);font-weight:600;">'+esc(e.p)+'</td>'+
+        '<td><b>'+esc(labelOf(e.s))+'</b> <span style="color:var(--text2);font-family:var(--mono);font-size:10px;">'+esc(e.s)+'</span>' +
+        ' <span style="color:var(--cyan);">→</span> ' +
+        '<b>'+esc(labelOf(e.t))+'</b> <span style="color:var(--text2);font-family:var(--mono);font-size:10px;">'+esc(e.t)+'</span></td>'+
+        '<td style="color:var(--purple);font-family:var(--mono);">'+esc(e.c)+'</td>'+
+        '<td style="color:var(--text2);">'+esc(e.desc||'')+'</td></tr>';
+    });
+  }
+
+  /* ── 事件 ────────────────────────────────────── */
+  function init(){
+    document.querySelectorAll('#view-seg button').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        document.querySelectorAll('#view-seg button').forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active');
+        const v=btn.dataset.view;
+        document.getElementById('g6').style.display=v==='graph'?'block':'none';
+        document.getElementById('g6-table').style.display=v==='graph'?'none':'block';
+        document.getElementById('g-tools').style.display=v==='graph'?'flex':'none';
+        const mm=document.querySelector('.g6-minimap-container, .g-minimap');
+        if(mm) mm.style.display=v==='graph'?'block':'none';
+        if(v==='graph'&&graph) setTimeout(()=>graph.fitView(40),100);
+      });
+    });
+    document.querySelectorAll('#g-tools button').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        if(!graph) return;
+        const act=btn.dataset.act;
+        if(act==='zoom-in') graph.zoom(graph.getZoom()*1.2);
+        else if(act==='zoom-out') graph.zoom(graph.getZoom()/1.2);
+        else if(act==='fit') graph.fitView(40);
+        else if(act==='reset'){clearSelection();initGraph();}
+      });
+    });
+    document.getElementById('q').addEventListener('input',e=>{
+      const q=e.target.value.trim().toLowerCase();
+      if(!q){
+        document.querySelectorAll('#ent-list li').forEach(li=>li.style.display='');
+        if(graph){
+          graph.getNodes().forEach(n=>n.update({style:{opacity:1}}));
+          graph.getEdges().forEach(e=>e.update({style:{opacity:.55}}));
+        }
         return;
       }
-      var hit = new Set();
-      ENTITIES.forEach(function (n) {
-        var m = n.label.toLowerCase().indexOf(q) >= 0 || n.en.toLowerCase().indexOf(q) >= 0 ||
-          (n.attrs || []).some(function (a) {
-            return String(a.name).toLowerCase().indexOf(q) >= 0 ||
-              String(a.desc || '').toLowerCase().indexOf(q) >= 0;
-          });
-        n._el.classList.toggle('dim', !m);
-        if (m) hit.add(n.id);
+      const hit=new Set();
+      document.querySelectorAll('#ent-list li').forEach(li=>{
+        const id=li.dataset.id, n=byId[id];
+        const m=n.label.toLowerCase().indexOf(q)>=0 ||
+          n.en.toLowerCase().indexOf(q)>=0 ||
+          (n.attrs||[]).some(a=>String(a.name).toLowerCase().indexOf(q)>=0 ||
+            String(a.desc||'').toLowerCase().indexOf(q)>=0);
+        li.style.display=m?'':'none';
+        if(m) hit.add(id);
       });
-      EDGES.forEach(function (ed) {
-        if (ed.p.toLowerCase().indexOf(q) >= 0) { hit.add(ed.s); hit.add(ed.t); }
+      EDGES_.forEach(e=>{
+        if(e.p.toLowerCase().indexOf(q)>=0){hit.add(e.s); hit.add(e.t);}
       });
-      ENTITIES.forEach(function (n) { n._el.classList.toggle('dim', !hit.has(n.id)); });
-      currentDim = hit; renderEdges(hit);
+      if(graph){
+        graph.getNodes().forEach(n=>{
+          const m=n.getModel();
+          n.update({style:{opacity:hit.has(m.id)?1:.15}});
+        });
+        graph.getEdges().forEach(e=>{
+          const m=e.getModel();
+          const ok=hit.has(m.source)&&hit.has(m.target);
+          e.update({style:{opacity:ok?.85:.1}});
+        });
+      }
     });
+    document.getElementById('reset').addEventListener('click',()=>{
+      document.getElementById('q').value='';
+      clearSelection(); initGraph();
+    });
+    document.getElementById('reload').addEventListener('click',()=>location.reload());
 
-    document.getElementById('reset').addEventListener('click', function () {
-      currentDim = null; layout(); renderNodes(); renderEdges(null);
-    });
-    document.getElementById('reload').addEventListener('click', function () {
-      location.reload();
-    });
-    window.addEventListener('resize', function () {
-      layout(); renderNodes(); renderEdges(currentDim);
+    let rzTimer;
+    window.addEventListener('resize',()=>{
+      clearTimeout(rzTimer);
+      rzTimer=setTimeout(()=>{
+        if(graph){
+          const rect=document.getElementById('g6').parentElement.getBoundingClientRect();
+          graph.changeSize(rect.width,rect.height);
+          graph.fitView(40);
+        }
+      },150);
     });
 
     load();
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',init);
+  else init();
 })();
