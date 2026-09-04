@@ -5,6 +5,8 @@
  * ★口径收敛到 ontos：预算=md_contract.累计实施成本预估、当前成本=md_contract.累计实施成本实际
  *   （均 ≡ 本体 COST_FORMULA_POLICY 声明的分项汇总），判定统一走 F-project-cost-warning。
  *   不再用平台自拼的 service_est 单分项 / finance_detail 付款口径。概算不参与成本预警。
+ * ★预估成本(est_cost)：当前成本滞后约 2 个月(8月看6月底、9月看7月底)，需 PMO 按工单/人员投入/
+ *   差旅等补估才反映当前真实状态；现阶段无预估源=0，不参与剩余成本/完成比/预警判定，后续接入展开。
  * 与四算页(同源预算/核算)差异：本页是「预算 vs 核算成本」的告警场景；四算页是各阶段展示。
  */
 (function (root) {
@@ -67,7 +69,7 @@
     var h = '';
     if (data.summary) {
       var s = data.summary;
-      h += '<div class="cards" style="grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px;padding:20px 24px">';
+      h += '<div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px;margin-bottom:16px;padding:20px 24px">';
       Object.keys(s).forEach(function (k) {
         var v = s[k];
         var cls = (k.indexOf('超支') >= 0) ? ' r' : (k.indexOf('预警') >= 0) ? ' o' : (k.indexOf('数额') >= 0 || k.indexOf('成本') >= 0) ? ' c' : '';
@@ -138,12 +140,13 @@
         + '<td class="wrap">' + (r.name || '-') + '</td>'
         + '<td class="num">' + money(r.budget) + '</td>'
         + '<td class="num">' + money(r.current_cost) + '</td>'
+        + '<td class="num">' + money(r.est_cost) + '</td>'
         + '<td class="num">' + money(r.remaining) + '</td>'
         + '<td class="num">' + ratioPct(r.budget_ratio) + '</td>'
         + '<td>' + statusBadge(r.status) + '</td>'
         + '<td class="wrap">' + (r.note || '-') + '</td></tr>';
     }
-    if (!h) h = '<tr><td colspan="9" style="text-align:center;color:var(--text2);padding:20px">暂无明细</td></tr>';
+    if (!h) h = '<tr><td colspan="10" style="text-align:center;color:var(--text2);padding:20px">暂无明细</td></tr>';
     tbody.innerHTML = h;
     var wrap = document.getElementById('costDetailPager');
     if (wrap) wrap.innerHTML = NC.anaPager(costPage, rows.length, COST_PAGE_SIZE, 'costDetailPager', 'CostWarning.setDetailPage');
@@ -156,7 +159,9 @@
     h += '<div style="margin-bottom:8px;font-size:11px;color:var(--text2)">共 ' + rows.length
       + ' 个业务单元 · 数据源：/api/core/metrics/cost-warning（md_contract 权威列 + 本体 F-project-cost-warning）'
       + (updatedAt ? ' · 更新于 ' + updatedAt : '') + '</div>';
-    h += '<div style="margin-bottom:8px;font-size:11px;color:var(--text3)">口径(ontos COST_FORMULA_POLICY)：预算=累计实施成本预估；当前成本=累计实施成本实际（均≡分项汇总）。概算不参与成本预警判定。</div>';
+    h += '<div style="margin-bottom:8px;font-size:11px;color:var(--text3)">口径(ontos COST_FORMULA_POLICY)：预算=累计实施成本预估；当前成本=累计实施成本实际（均≡分项汇总）。'
+      + '⚠ 当前成本滞后约 2 个月（如 8 月看 6 月底、9 月看 7 月底）——「预估成本」= ontos F-project-cost-warning 的 wo_est_cost（工单预估，来源 F-workorder-cost-rollup），'
+      + '由 PMO 依据工单/人员投入/差旅等补估，补齐时差后「当前成本+预估成本」才是当前真实状态；剩余成本/完成比/状态均由 ontos 按当前预估口径计算。现阶段预估源未落地=0，故与滞后口径一致。</div>';
     h += '<div style="margin-bottom:8px;display:flex;gap:8px;align-items:center">'
       + '<input id="costFilterInput" type="text" placeholder="按 项目号/合同号/名称 筛选…" value="' + (costFilter || '').replace(/"/g, '&quot;')
       + '" oninput="CostWarning.setFilter(this.value)" '
@@ -167,9 +172,10 @@
       + '<th style="text-align:left;padding-left:8px">合同编号</th>'
       + '<th style="text-align:left;padding-left:8px">项目名称</th>'
       + '<th class="num" title="累计实施成本预估(≡硬件集成费+服务预估成本+软件预估实施费)">预算</th>'
-      + '<th class="num" title="累计实施成本实际(≡六分项实际)">当前成本</th>'
-      + '<th class="num">剩余成本</th>'
-      + '<th class="num">预算完成比</th>'
+      + '<th class="num" title="累计实施成本实际(≡六分项实际)，滞后约2个月">当前成本</th>'
+      + '<th class="num" title="PMO 按工单/人员投入/差旅等补估(= ontos wo_est_cost)，补齐当前成本滞后时差；现阶段未接入=0">预估成本</th>'
+      + '<th class="num" title="剩余 = 预算 - 当前成本 - 预估成本（当前预估口径，ontos 计算）">剩余成本</th>'
+      + '<th class="num" title="完成比 = (当前成本+预估成本) / 预算（当前预估口径，ontos 计算）">预算完成比</th>'
       + '<th>预警状态</th><th style="text-align:left;padding-left:8px">说明</th></tr></thead>'
       + '<tbody id="costDetailTbody"></tbody></table></div><div id="costDetailPager"></div></div>';
     pane.innerHTML = h;

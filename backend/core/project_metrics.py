@@ -1409,18 +1409,20 @@ def _contract_cost_baseline_map() -> Dict[str, Dict[str, Any]]:
 
 
 def cost_warning_all() -> Dict[str, Any]:
-    """全量成本预警：逐业务单元(合同/项目)计算 预算/当前成本/剩余成本/完成比/状态。
+    """全量成本预警：逐业务单元(合同/项目)计算 预算/当前成本/预估成本/剩余成本/完成比/状态。
 
     ★口径收敛到 ontos：预算/当前成本 取自 md_contract 权威列（= COST_FORMULA_POLICY 物理列，
-    由 _contract_cost_baseline_map 映射），判定统一走本体 F-project-cost-warning；不再自拼口径。
-    仅纳入具备任一数据（概算/预算/当前成本>0）的业务单元。
+    由 _contract_cost_baseline_map 映射）；预估成本 est_cost 即本体 F-project-cost-warning 的
+    wo_est_cost（工单预估成本，来源 F-workorder-cost-rollup，补主数据滞后缺口），当前聚合源未落地=0，
+    退化为滞后口径。判定统一走本体 F-project-cost-warning（有效成本=当前成本+预估成本）。
+    仅纳入具备任一数据（预算/当前成本>0）的业务单元。
     """
     # ★ 收敛：预警判定统一走本体 F-project-cost-warning（固化/探索同一份纯函数）
     from ontos import domain_business as biz
     # 预算/成本 的 ontos 权威口径：md_contract 累计实施成本预估/实际（≡ COST_FORMULA_POLICY 分项和）
     md_map = _contract_cost_baseline_map()
     details: List[Dict[str, Any]] = []
-    total_budget = total_current = 0.0
+    total_budget = total_current = total_est = 0.0
     status_count: Dict[str, int] = {'正常': 0, '预警': 0, '超支': 0}
     for r in _list_main_projects():
         pno = (r.get('project_no') or '').strip()
@@ -1434,40 +1436,55 @@ def cost_warning_all() -> Dict[str, Any]:
         current_cost = round(m.get('current_cost') or 0.0, 2)
         # 概算不参与成本预警判定（ontos：estimate 非 F-project-cost-warning 入参）；主数据无独立概算列
         estimate = None
+        # ★ PMO 预估成本(est_cost)：当前成本(md_contract 累计实施成本实际)滞后约 2 个月
+        #   （8 月看 6 月底、9 月看 7 月底），故需「当前成本 + 预估成本」才反映当前真实状态。
+        #   本体口径即 F-project-cost-warning 的 wo_est_cost（工单预估成本，来源 F-workorder-cost-rollup，
+        #   = Σ人员/差旅/弹性/变动投入预估，见 ontos）。PMO 依据工单、人员投入、差旅等维度补估；
+        #   当前该聚合源未落地 → 记 0，退化为滞后口径；后续接入后此处改为工单聚合即自动反映当前状态。
+        est_cost = 0.0
+        wo_est_cost = float(est_cost or 0.0)
         if budget is None and current_cost <= 0:
             continue
-        # ★ 收敛：判定改走本体（单一权威口径；与 demo/agent 同函数）
+        # ★ 收敛：判定改走本体（单一权威口径；与 demo/agent 同函数）。wo_est_cost 传入使判定走
+        #   「当前预估口径」（有效成本=当前成本+工单预估），剩余/完成比/状态均由 ontos 计算返回。
         res = biz.functions.call(
             "F-project-cost-warning",
             budget=float(budget) if budget is not None else None,
             current_cost=current_cost,
+            wo_est_cost=wo_est_cost,
         )
         status = res['status']
         note = res['note']
         remaining = res['remaining_cost']
         ratio = res['budget_ratio']
+        effective_cost = res['effective_cost']
         status_count[status] = status_count.get(status, 0) + 1
         total_current += current_cost
+        total_est += wo_est_cost
         if budget is not None:
             total_budget += budget
         details.append({
             'project_no': pno,
             'contract_no': cno,
             'name': r.get('name') or '',
-            'estimate': estimate,
+            'estimate': estimate,          # 概算（售前口径，当前主数据无独立列→None）
+            'est_cost': wo_est_cost,       # ★ PMO 预估成本（= ontos wo_est_cost，补齐当前成本滞后时差）
+            'effective_cost': effective_cost,  # 当前真实状态 = 当前成本 + 预估成本（ontos 有效成本口径）
             'budget': budget,
             'current_cost': current_cost,
-            'remaining': remaining,
-            'budget_ratio': ratio,
+            'remaining': remaining,        # ontos 返回：budget - current - wo_est（当前预估口径）
+            'budget_ratio': ratio,         # ontos 返回：effective / budget（当前预估口径）
             'status': status,
             'note': note,
         })
     n = len(details)
-    total_remaining = round(total_budget - total_current, 2)
+    total_est = round(total_est, 2)
+    total_remaining = round(total_budget - total_current - total_est, 2)
     summary = {
         '项目数': '%d 个' % n,
         '预算金额合计': '¥%s' % format(round(total_budget), ','),
         '当前成本合计': '¥%s' % format(round(total_current), ','),
+        '预估成本合计': '¥%s' % format(round(total_est), ','),
         '剩余成本合计': '¥%s' % format(round(total_remaining), ','),
         '超支项目': status_count.get('超支', 0),
         '预警项目': status_count.get('预警', 0),
@@ -1476,6 +1493,7 @@ def cost_warning_all() -> Dict[str, Any]:
         'total': n,
         'total_budget': round(total_budget, 2),
         'total_current_cost': round(total_current, 2),
+        'total_est_cost': total_est,
         'total_remaining': total_remaining,
         'status_count': status_count,
         'summary': summary,

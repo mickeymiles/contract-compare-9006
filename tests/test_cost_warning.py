@@ -51,14 +51,18 @@ def test_cost_warning_data_check():
     assert res['status_count']['超支'] >= 0
     assert res['total'] == len(res['rows'])
     # 汇总卡字段
-    for k in ('项目数', '预算金额合计', '当前成本合计', '剩余成本合计', '超支项目', '预警项目'):
+    for k in ('项目数', '预算金额合计', '当前成本合计', '预估成本合计', '剩余成本合计', '超支项目', '预警项目'):
         assert k in res['summary'], f"sumary 缺 {k}"
     # 每行结构
     for row in res['rows']:
-        for k in ('project_no', 'contract_no', 'name', 'estimate', 'budget',
-                  'current_cost', 'remaining', 'budget_ratio', 'status', 'note'):
+        for k in ('project_no', 'contract_no', 'name', 'estimate', 'est_cost', 'effective_cost',
+                  'budget', 'current_cost', 'remaining', 'budget_ratio', 'status', 'note'):
             assert k in row, f"rows 缺 {k}: {row}"
         assert row['status'] in ('正常', '预警', '超支')
+        # 预估成本(ontos wo_est_cost)现阶段=0 → 有效成本应等于当前成本；>=0
+        assert row['est_cost'] >= 0, f"est_cost 不应为负: {row['est_cost']}"
+        assert abs((row['effective_cost'] or 0) - ((row['current_cost'] or 0) + row['est_cost'])) < 0.001, \
+            f"effective_cost != current_cost + est_cost: {row}"
         # 有预算时：完成比与剩余成本应可算
         if row['budget'] is not None and row['budget'] > 0:
             assert row['budget_ratio'] is not None
