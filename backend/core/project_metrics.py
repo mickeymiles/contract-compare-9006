@@ -1315,6 +1315,9 @@ def _baseline_cost_map() -> Dict[str, Dict[str, Any]]:
 def _cost_status(budget: Optional[float], current_cost: Optional[float]):
     """成本预警规则纯函数，返回 (status, note)。
 
+    ★ 遗留参考实现：live 路径（cost_warning_all）已改走本体 F-project-cost-warning；
+    本函数保留仅供 ontos 影子比对（test_shadow_vs_legacy）校验语义一致，note 文本勿改。
+
     - 有预算：当前成本>预算 → 超支；预算完成比≥阈值 → 预警；否则 正常。
     - 无预算：无法比较（概/预算缺失按“不可判”对待）→ 正常 + 说明，不因缺预算而误报。
     """
@@ -1338,6 +1341,8 @@ def cost_warning_all() -> Dict[str, Any]:
 
     仅纳入具备任一数据（概算/预算/当前成本>0）的项目；返回汇总卡 + 状态分布 + 明细。
     """
+    # ★ 收敛：预警判定统一走本体 F-project-cost-warning（固化/探索同一份纯函数）
+    from ontos import domain_business as biz
     baseline = _baseline_cost_map()
     details: List[Dict[str, Any]] = []
     total_budget = total_current = 0.0
@@ -1361,12 +1366,17 @@ def cost_warning_all() -> Dict[str, Any]:
         current_cost = round(sum(x['amount'] for x in (fd.get('pay') or [])), 2) if fd.get('pay') else 0.0
         if estimate is None and budget is None and current_cost <= 0:
             continue
-        status, note = _cost_status(budget, current_cost)
+        # ★ 收敛：判定改走本体（单一权威口径；与 demo/agent 同函数）
+        res = biz.functions.call(
+            "F-project-cost-warning",
+            budget=float(budget) if budget is not None else None,
+            current_cost=current_cost,
+        )
+        status = res['status']
+        note = res['note']
+        remaining = res['remaining_cost']
+        ratio = res['budget_ratio']
         status_count[status] = status_count.get(status, 0) + 1
-        remaining = round(budget - current_cost, 2) \
-            if budget is not None and current_cost is not None else None
-        ratio = round(current_cost / budget, 4) \
-            if budget is not None and budget > 0 and current_cost is not None else None
         total_current += current_cost
         if budget is not None:
             total_budget += budget
