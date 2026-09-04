@@ -146,7 +146,7 @@ var Master = {
       .then(function (r) { return r.json(); })
       .then(function (j) {
         if (j.success) {
-          var extra = j.warn_curated ? ('（裁剪表回写提示：' + j.warn_curated + '）' : '');
+          var extra = j.warn_curated ? '（裁剪表回写提示：' + j.warn_curated + '）' : '';
           toast('导入成功：' + j.rows + ' 行 / ' + j.columns + ' 列' + extra, true);
           self.page[kind] = 1;
           self.loaded[kind] = true;
