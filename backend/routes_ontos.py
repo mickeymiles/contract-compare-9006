@@ -136,7 +136,7 @@ def _load_ontos_spec():
     """
     if ONTOS_ROOT not in sys.path:
         sys.path.insert(0, ONTOS_ROOT)
-    from ontos import domain_business as biz  # noqa: WPS433（延迟导入：submodule 可能未初始化）
+    from ontos import domain_business as biz  # 延迟导入：submodule 可能未初始化
     return biz.to_spec()
 
 
