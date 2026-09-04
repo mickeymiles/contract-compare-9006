@@ -12,6 +12,8 @@
 
   let SPEC=null, COLS=null, NODES=[], EDGES_=[], byId={};
   let selectedId=null, graph=null, minimapInst=null;
+  let openGroup='entity';    // 手风琴：当前展开的组（entity|function|action|null）
+  let viewMode='graph';      // 右侧：graph | empty（函数/动作收起图谱）
 
   function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;')
     .replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -34,7 +36,7 @@
       renderSide(); renderPanel(); renderCount();
       if(ld) ld.style.display='none';
       document.getElementById('rev').textContent='ontos @ '+((SPEC.meta&&SPEC.meta.ontos_revision)||'unknown');
-      document.getElementById('g-tools').style.display='flex';
+      setViewMode('graph');     // 默认显示图谱
       initGraph(); renderTable();
     });
   }
@@ -79,33 +81,89 @@
     document.getElementById('cnt-l').textContent=EDGES_.length;
   }
 
-  /* ── 侧栏 ───────────────────────────────────── */
+  /* ── 侧栏：三组互斥手风琴（实体/函数/动作） ──────────── */
   function renderSide(){
     const side=document.getElementById('side');
     const top=NODES.filter(n=>n.kind==='top');
     const child=NODES.filter(n=>n.kind==='child');
     const ext=NODES.filter(n=>n.kind==='external');
     const fn=(SPEC.functions||[]), ac=(SPEC.actions||[]);
+    const openE=openGroup==='entity';
+    const openF=openGroup==='function';
+    const openA=openGroup==='action';
 
     let html='';
-    html+='<div class="sgrp"><h4>实体类型 <span class="n">'+NODES.length+'</span></h4><ul>';
-    [['top','顶层',top],['child','子实体',child],['external','外部',ext]].forEach(([k,lab,arr])=>{
-      html+='<li data-filter-kind="'+k+'"><span class="dot '+k+'"></span>'+lab+
-        '<span class="ct">'+arr.length+'</span></li>';
-    });
-    html+='</ul></div>';
 
-    html+='<div class="sgrp"><h4>实体 <span class="n" id="ent-cnt">'+NODES.length+'</span></h4><ul id="ent-list">';
-    NODES.forEach(n=>{
-      html+='<li data-id="'+esc(n.id)+'" data-kind="'+n.kind+'">'+
-        '<span class="dot '+n.kind+'"></span>'+
-        '<span class="lbl">'+esc(n.label)+'</span>'+
-        '<span class="en">'+esc(n.en)+'</span></li>';
-    });
-    html+='</ul></div>';
+    /* ─ 实体组 ─ */
+    html+='<div class="sgrp acc'+(openE?' open':'')+'" data-grp="entity">'+
+      '<h4 class="acc-h'+(openE?' open':'')+'">'+
+        '<span class="ttl"><i class="grp-i entity"></i>实体</span>'+
+        '<span class="tg">▶</span>'+
+        '<span class="n">'+NODES.length+'</span>'+
+      '</h4>';
+    if(openE){
+      html+='<div class="acc-b">'+
+        '<ul>'+
+          '<li data-filter-kind="top"><span class="dot top"></span>顶层实体<span class="ct">'+top.length+'</span></li>'+
+          '<li data-filter-kind="child"><span class="dot child"></span>子实体<span class="ct">'+child.length+'</span></li>'+
+          (ext.length?'<li data-filter-kind="external"><span class="dot ext"></span>外部占位<span class="ct">'+ext.length+'</span></li>':'')+
+        '</ul>'+
+        '<ul id="ent-list">';
+      NODES.forEach(n=>{
+        html+='<li data-id="'+esc(n.id)+'" data-kind="'+n.kind+'">'+
+          '<span class="dot '+n.kind+'"></span>'+
+          '<span class="lbl">'+esc(n.label)+'</span>'+
+          '<span class="en">'+esc(n.en)+'</span></li>';
+      });
+      html+='</ul></div>';
+    }
+    html+='</div>';
 
-    html+=renderFnGroup(fn);
-    html+=renderActGroup(ac);
+    /* ─ 函数组 ─ */
+    html+='<div class="sgrp acc'+(openF?' open':'')+'" data-grp="function">'+
+      '<h4 class="acc-h'+(openF?' open':'')+'">'+
+        '<span class="ttl"><i class="grp-i function"></i>函数目录</span>'+
+        '<span class="tg">▶</span>'+
+        '<span class="n">'+fn.length+'</span>'+
+      '</h4>';
+    if(openF){
+      html+='<div class="acc-b">';
+      const fby=groupByCat(fn);
+      Object.keys(fby).sort().forEach(cat=>{
+        html+='<div class="sub-grp" data-kind="function"><h5>'+esc(cat)+'<span class="n">'+fby[cat].length+'</span></h5><ul>';
+        fby[cat].forEach(f=>{
+          html+='<li data-kind="function" data-id="'+esc(f.id)+'"><span class="dot fn"></span>'+
+            '<span class="lbl">'+esc(f.name||f.id)+'</span>'+
+            '<span class="en">'+esc(f.id)+'</span></li>';
+        });
+        html+='</ul></div>';
+      });
+      html+='</div>';
+    }
+    html+='</div>';
+
+    /* ─ 动作组 ─ */
+    html+='<div class="sgrp acc'+(openA?' open':'')+'" data-grp="action">'+
+      '<h4 class="acc-h'+(openA?' open':'')+'">'+
+        '<span class="ttl"><i class="grp-i action"></i>动作目录</span>'+
+        '<span class="tg">▶</span>'+
+        '<span class="n">'+ac.length+'</span>'+
+      '</h4>';
+    if(openA){
+      html+='<div class="acc-b">';
+      const aby=groupByCat(ac);
+      Object.keys(aby).sort().forEach(cat=>{
+        html+='<div class="sub-grp" data-kind="action"><h5>'+esc(cat)+'<span class="n">'+aby[cat].length+'</span></h5><ul>';
+        aby[cat].forEach(a=>{
+          html+='<li data-kind="action" data-id="'+esc(a.id)+'"><span class="dot act"></span>'+
+            '<span class="lbl">'+esc(a.name||a.id)+'</span>'+
+            '<span class="en">'+esc(a.id)+'</span></li>';
+        });
+        html+='</ul></div>';
+      });
+      html+='</div>';
+    }
+    html+='</div>';
 
     side.innerHTML=html;
     bindSideEvents();
@@ -116,41 +174,17 @@
     arr.forEach(x=>{const c=x.category||'未分类'; (by[c]=by[c]||[]).push(x);});
     return by;
   }
-  function renderFnGroup(fn){
-    if(!fn.length) return '';
-    const by=groupByCat(fn);
-    let h='<div class="sgrp" data-collapse="1"><h4>函数目录 <span class="n">'+fn.length+'</span><span class="tg">▾</span></h4><ul>';
-    Object.keys(by).sort().forEach(cat=>{
-      h+='<li class="sub-h"><span class="lbl" style="color:var(--green)">'+esc(cat)+'</span>'+
-         '<span class="ct">'+by[cat].length+'</span></li>';
-      by[cat].forEach(f=>{
-        h+='<li data-kind="function" data-id="'+esc(f.id)+'"><span class="dot fn"></span>'+
-           '<span class="lbl">'+esc(f.name||f.id)+'</span>'+
-           '<span class="en">'+esc(f.id)+'</span></li>';
-      });
-    });
-    return h+'</ul></div>';
-  }
-  function renderActGroup(ac){
-    if(!ac.length) return '';
-    const by=groupByCat(ac);
-    let h='<div class="sgrp" data-collapse="1"><h4>动作目录 <span class="n">'+ac.length+'</span><span class="tg">▾</span></h4><ul>';
-    Object.keys(by).sort().forEach(cat=>{
-      h+='<li class="sub-h"><span class="lbl" style="color:var(--orange)">'+esc(cat)+'</span>'+
-         '<span class="ct">'+by[cat].length+'</span></li>';
-      by[cat].forEach(a=>{
-        h+='<li data-kind="action" data-id="'+esc(a.id)+'"><span class="dot act"></span>'+
-           '<span class="lbl">'+esc(a.name||a.id)+'</span>'+
-           '<span class="en">'+esc(a.id)+'</span></li>';
-      });
-    });
-    return h+'</ul></div>';
-  }
   function bindSideEvents(){
     const side=document.getElementById('side');
-    side.querySelectorAll('.sgrp[data-collapse] h4').forEach(h=>{
-      h.addEventListener('click',()=>h.parentElement.classList.toggle('collapsed'));
+    // 手风琴标题：互斥展开（再次点击当前组可全部收起）
+    side.querySelectorAll('.acc > .acc-h').forEach(h=>{
+      h.addEventListener('click',()=>{
+        const grp=h.parentElement.dataset.grp;
+        openGroup = (openGroup===grp) ? null : grp;
+        renderSide();
+      });
     });
+    // 实体条目
     side.querySelectorAll('#ent-list li').forEach(li=>{
       li.addEventListener('click',()=>select(li.dataset.id));
     });
@@ -162,9 +196,22 @@
         });
       });
     });
+    // 函数/动作条目
     side.querySelectorAll('li[data-kind="function"], li[data-kind="action"]').forEach(li=>{
       li.addEventListener('click',()=>selectItem(li.dataset.kind, li.dataset.id));
     });
+    // 空状态返回按钮
+    const back=document.getElementById('empty-back');
+    if(back) back.addEventListener('click',()=>backToEntity());
+  }
+  function backToEntity(){
+    // 返回实体拓扑：展开实体组、选中第一个顶层实体、清选状态切图谱
+    openGroup='entity';
+    renderSide();
+    const first=document.querySelector('#ent-list li[data-kind="top"]') ||
+                 document.querySelector('#ent-list li');
+    if(first) select(first.dataset.id);
+    else { clearSelection(); setViewMode('graph'); }
   }
   function clearSideActive(){
     document.querySelectorAll('#side li').forEach(li=>li.classList.remove('active'));
@@ -305,6 +352,46 @@
     bindDetailJumps(d);
   }
 
+  /* ── 右侧视图模式：graph（拓扑） | empty（函数/动作占位） ── */
+  function setViewMode(mode, ctx){
+    viewMode=mode;
+    const g6=document.getElementById('g6');
+    const g6t=document.getElementById('g6-table');
+    const mm=document.querySelector('.g6-minimap-container');
+    const ep=document.getElementById('empty-pane');
+    const gt=document.getElementById('g-tools');
+    if(mode==='graph'){
+      if(g6) g6.style.display='';
+      if(g6t) g6t.style.display='';
+      if(mm) mm.style.display='';
+      if(gt) gt.style.display='';
+      if(ep) ep.classList.add('hide');
+      // 重新触发 fitView（G6 容器从隐藏切回显示后尺寸需要刷新）
+      setTimeout(()=>{
+        if(graph){
+          const r=document.getElementById('g6').parentElement.getBoundingClientRect();
+          graph.changeSize(Math.max(r.width,400), Math.max(r.height,400));
+          graph.fitView(20);
+        }
+      }, 30);
+    } else {
+      if(g6) g6.style.display='none';
+      if(g6t) g6t.style.display='none';
+      if(mm) mm.style.display='none';
+      if(gt) gt.style.display='none';
+      if(ep) ep.classList.remove('hide');
+      // 写入占位文案
+      const kind=(ctx&&ctx.kind)==='action'?'action':'function';
+      const name=(ctx&&ctx.name)||'—';
+      const tagEl=document.getElementById('empty-tag');
+      const nameEl=document.getElementById('empty-name');
+      const kindEl=document.getElementById('empty-kind');
+      if(tagEl){tagEl.textContent=kind==='action'?'动作':'函数'; tagEl.className='tag '+(kind==='action'?'act':'fn');}
+      if(nameEl) nameEl.textContent=name;
+      if(kindEl) kindEl.textContent=kind==='action'?'动作目录':'函数目录';
+    }
+  }
+
   /* ── 函数/动作详情（侧栏分组点击） ──────────────── */
   function selectItem(kind,id){
     selectedId=null;
@@ -313,10 +400,19 @@
     if(li) li.classList.add('active');
     if(kind==='function'){
       const f=(SPEC.functions||[]).find(x=>x.id===id);
-      if(f){ renderItemDetail('function',f); highlightNodes(f.produces_for||[]); }
+      if(f){
+        renderItemDetail('function',f);
+        setViewMode('empty',{kind:'function',name:f.name||f.id});
+        // 图谱仍保留可联动（高亮 produces_for 实体），但整体由 empty 占位主导
+        if(graph) highlightNodes(f.produces_for||[]);
+      }
     } else {
       const a=(SPEC.actions||[]).find(x=>x.id===id);
-      if(a){ renderItemDetail('action',a); highlightNodes(a.targets||[]); }
+      if(a){
+        renderItemDetail('action',a);
+        setViewMode('empty',{kind:'action',name:a.name||a.id});
+        if(graph) highlightNodes(a.targets||[]);
+      }
     }
   }
 
@@ -502,6 +598,7 @@
     clearSideActive();
     const li=document.querySelector('#ent-list li[data-id="'+id+'"]');
     if(li) li.classList.add('active');
+    setViewMode('graph');      // 选实体 → 切回拓扑视图
     renderDetail(n);
     highlightNode(id);
   }
@@ -509,6 +606,7 @@
     selectedId=null;
     clearSideActive();
     renderPanel();
+    setViewMode('graph');      // 清选 → 切回拓扑概览
     if(graph){
       graph.getNodes().forEach(n=>{
         const m=n.getModel();
@@ -597,6 +695,7 @@
         return;
       }
       const hit=new Set();
+      let needOpen=null;
       allLi.forEach(li=>{
         if(li.classList.contains('sub-h')){ li.style.display=''; return; }
         const kind=li.dataset.kind, id=li.dataset.id;
@@ -605,14 +704,17 @@
           const f=(SPEC.functions||[]).find(x=>x.id===id);
           m = f ? ((f.name||f.id).toLowerCase().indexOf(q)>=0 || id.toLowerCase().indexOf(q)>=0 ||
                    (f.category||'').toLowerCase().indexOf(q)>=0 || (f.description||'').toLowerCase().indexOf(q)>=0) : false;
+          if(m) needOpen='function';
         } else if(kind==='action'){
           const a=(SPEC.actions||[]).find(x=>x.id===id);
           m = a ? ((a.name||a.id).toLowerCase().indexOf(q)>=0 || id.toLowerCase().indexOf(q)>=0 ||
                    (a.category||'').toLowerCase().indexOf(q)>=0 || (a.definition||'').toLowerCase().indexOf(q)>=0) : false;
+          if(m) needOpen='action';
         } else {
           const n=byId[id];
           m = n ? (n.label.toLowerCase().indexOf(q)>=0 || n.en.toLowerCase().indexOf(q)>=0 ||
                    (n.attrs||[]).some(a=>String(a.name).toLowerCase().indexOf(q)>=0 || String(a.desc||'').toLowerCase().indexOf(q)>=0)) : false;
+          if(m) needOpen='entity';
         }
         li.style.display=m?'':'none';
         if(m && kind!=='function' && kind!=='action') hit.add(id);
@@ -620,6 +722,27 @@
       EDGES_.forEach(e=>{
         if(e.p.toLowerCase().indexOf(q)>=0){hit.add(e.s); hit.add(e.t);}
       });
+      // 命中后自动展开对应手风琴组（互斥）
+      if(needOpen && openGroup!==needOpen){
+        openGroup=needOpen;
+        renderSide();
+        document.querySelectorAll('#side li').forEach(li=>{
+          if(li.classList.contains('sub-h')){ li.style.display=''; return; }
+          const kind=li.dataset.kind, id=li.dataset.id;
+          let m=false;
+          if(kind==='function'){
+            const f=(SPEC.functions||[]).find(x=>x.id===id);
+            m = f ? ((f.name||f.id).toLowerCase().indexOf(q)>=0 || id.toLowerCase().indexOf(q)>=0) : false;
+          } else if(kind==='action'){
+            const a=(SPEC.actions||[]).find(x=>x.id===id);
+            m = a ? ((a.name||a.id).toLowerCase().indexOf(q)>=0 || id.toLowerCase().indexOf(q)>=0) : false;
+          } else {
+            const n=byId[id];
+            m = n ? (n.label.toLowerCase().indexOf(q)>=0 || n.en.toLowerCase().indexOf(q)>=0) : false;
+          }
+          li.style.display=m?'':'none';
+        });
+      }
       if(graph){
         graph.getNodes().forEach(n=>{
           const m=n.getModel();
