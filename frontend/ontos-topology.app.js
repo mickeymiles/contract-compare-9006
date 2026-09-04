@@ -11,7 +11,10 @@
 
   var LABEL = {
     Project: '项目', Contract: '合同', Milestone: '里程碑',
-    Receipt: '收款单', Payment: '付款单', Supplier: '供应商',
+    Receipt: '回款', Payment: '付款', Warning: '预警',
+    Order: '订单', WorkOrder: '工单', Task: '任务', Person: '人员',
+    Opportunity: '商机', PreSales: '售前', OutputValue: '产值',
+    Invoice: '发票', Deposit: '保证金',
   };
 
   var SPEC = null, COLS = null;
@@ -75,7 +78,7 @@
     ENTITIES = []; byId = {};
     (SPEC.entities || []).forEach(function (e) {
       var n = {
-        id: e.name, en: e.name, label: LABEL[e.name] || e.name,
+        id: e.name, en: e.name, label: e.cn || LABEL[e.name] || e.name,
         kind: e.kind || 'top', desc: e.desc || '', attrs: e.attributes || [],
       };
       ENTITIES.push(n); byId[n.id] = n;
