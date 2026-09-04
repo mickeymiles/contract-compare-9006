@@ -175,6 +175,28 @@ def ontos_topology_app_js():
     return FileResponse(os.path.join(FRONTEND_DIR, 'ontos-topology.app.js'))
 
 
+@router.get('/ontos-functions')
+def ontos_functions_page():
+    """本体函数目录（计算规则分类视图）。"""
+    return FileResponse(os.path.join(FRONTEND_DIR, 'ontos-functions.html'))
+
+
+@router.get('/ontos-functions.app.js')
+def ontos_functions_app_js():
+    return FileResponse(os.path.join(FRONTEND_DIR, 'ontos-functions.app.js'))
+
+
+@router.get('/ontos-actions')
+def ontos_actions_page():
+    """本体动作目录（事件实体分类视图）。"""
+    return FileResponse(os.path.join(FRONTEND_DIR, 'ontos-actions.html'))
+
+
+@router.get('/ontos-actions.app.js')
+def ontos_actions_app_js():
+    return FileResponse(os.path.join(FRONTEND_DIR, 'ontos-actions.app.js'))
+
+
 # ─────────────────────────── API ───────────────────────────
 
 @router.get('/api/ontos/spec')

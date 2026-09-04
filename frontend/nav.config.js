@@ -84,8 +84,10 @@
       // 原挂在「运维 › 备件采购」下、读 neuops 9007，现整体迁到系统域、主数据之下。
       { sub: '本体可观测', links: [
         { id: 'sys-ont-entities',  label: '实体与关系',   href: '/core?panel=ontEntities',  icon: 'ops' },
+        { id: 'sys-ont-functions', label: '函数目录',     href: '/ontos-functions',         icon: 'chart' },
+        { id: 'sys-ont-actions-cat', label: '动作目录',   href: '/ontos-actions',           icon: 'lifecycle' },
         { id: 'sys-ont-knowledge', label: '知识',         href: '/core?panel=ontKnowledge', icon: 'datasource' },
-        { id: 'sys-ont-actions',   label: '动作',         href: '/core?panel=ontActions',   icon: 'refresh' },
+        { id: 'sys-ont-actions',   label: '动作执行',     href: '/core?panel=ontActions',   icon: 'refresh' },
         { id: 'sys-ont-tasks',     label: '任务列表',     href: '/core?panel=ontTasks',     icon: 'project' },
         { id: 'sys-ont-ledger',    label: '台账',         href: '/core?panel=ontLedger',    icon: 'receipt' },
         { id: 'sys-ont-topology',  label: '拓扑与一致性', href: '/core?panel=ontTopology',  icon: 'chart' }

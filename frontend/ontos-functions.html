@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>本体函数目录 · Ontology Functions</title>
+<link rel="stylesheet" href="/common.css">
+<style>
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
+    font-family:'Microsoft YaHei','PingFang SC','Helvetica Neue',sans-serif;font-size:12px}
+  #app{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+  .utop{padding:11px 22px;background:linear-gradient(180deg,#101b31,#0d1526);
+    border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;
+    box-shadow:0 2px 18px rgba(0,0,0,.4)}
+  .utop h1{font-size:17px;color:var(--cyan);margin:0;font-weight:600;
+    text-shadow:0 0 14px rgba(79,140,255,.45)}
+  .utop .sub{font-size:12px;color:var(--text2)}
+  .utop .spacer{margin-left:auto;display:flex;align-items:center;gap:10px}
+  .utop .rev{font-size:11px;background:var(--bg3);padding:4px 10px;border-radius:10px;
+    color:var(--cyan2);border:1px solid var(--border);font-family:var(--mono)}
+  .utop a{font-size:12px;color:var(--cyan2);text-decoration:none}
+  .utop a:hover{text-decoration:underline}
+  .utb{display:flex;align-items:center;gap:10px;padding:9px 22px;background:var(--bg2);
+    border-bottom:1px solid var(--border);flex-wrap:wrap}
+  .utb input{padding:6px 12px;background:var(--bg3);border:1px solid var(--border);
+    color:var(--text);border-radius:8px;font-size:12px;width:280px;outline:none;font-family:inherit}
+  .utb input:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(79,140,255,.15)}
+  .utb .spacer{margin-left:auto;display:flex;gap:8px;align-items:center}
+  .utb .count{font-size:11px;color:var(--text2);font-family:var(--mono);margin-right:6px}
+  .utb .count b{color:var(--cyan2)}
+  .utb button{padding:6px 12px;background:var(--bg3);border:1px solid var(--border);
+    color:var(--text2);border-radius:8px;cursor:pointer;font-size:12px;font-family:inherit}
+  .utb button:hover{border-color:var(--cyan);color:var(--cyan2)}
+  .umain{flex:1;display:flex;min-height:0}
+  .uside{width:260px;flex:none;background:var(--bg2);border-right:1px solid var(--border);
+    overflow-y:auto;padding:14px 12px}
+  .upane{width:420px;flex:none;background:var(--bg);border-right:1px solid var(--border);
+    overflow-y:auto;padding:14px 16px}
+  .ucanvas{flex:1;min-width:0;overflow-y:auto;padding:18px 22px;background:
+    radial-gradient(circle at 25% 15%,rgba(79,140,255,.08),transparent 55%),
+    radial-gradient(circle at 80% 75%,rgba(34,211,238,.05),transparent 55%),var(--bg)}
+  .sgrp{margin-bottom:16px}
+  .sgrp h4{font-size:10px;color:var(--text2);margin:0 0 7px;letter-spacing:.6px;
+    text-transform:uppercase;display:flex;justify-content:space-between;align-items:center;font-weight:600}
+  .sgrp h4 .n{color:var(--cyan);font-family:var(--mono);font-weight:bold;font-size:11px;
+    background:var(--bg3);padding:2px 7px;border-radius:6px;border:1px solid var(--border)}
+  .sgrp ul{list-style:none;padding:0;margin:0}
+  .sgrp li{padding:6px 10px;border-radius:7px;font-size:12px;color:var(--text2);
+    cursor:pointer;display:flex;align-items:center;gap:8px;transition:all .15s;border-left:2px solid transparent}
+  .sgrp li:hover{background:rgba(79,140,255,.08);color:var(--text);transform:translateX(2px)}
+  .sgrp li.active{background:linear-gradient(90deg,rgba(79,140,255,.18),transparent);
+    color:var(--cyan2);font-weight:600;border-left-color:var(--cyan2)}
+  .sgrp li .dot{width:9px;height:9px;border-radius:50%;flex:none;box-shadow:0 0 6px rgba(79,140,255,.4)}
+  .sec{margin-bottom:18px}
+  .sec-h{font-size:12px;color:var(--cyan);font-weight:600;margin:0 0 9px;display:flex;
+    align-items:center;gap:8px;cursor:pointer;user-select:none}
+  .sec-h .badge{font-size:10px;color:#04121f;background:var(--cyan2);padding:1px 7px;border-radius:8px;font-weight:700}
+  .sec-h .cnt{font-size:11px;color:var(--text2);font-family:var(--mono)}
+  .card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:11px 13px;
+    margin-bottom:9px;cursor:pointer;transition:all .15s;border-left:3px solid var(--cyan)}
+  .card:hover{background:var(--bg3);transform:translateY(-1px);box-shadow:0 4px 16px rgba(0,0,0,.3)}
+  .card.active{box-shadow:0 0 0 2px rgba(79,140,255,.4)}
+  .card .t{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .card .nm{font-size:13px;color:var(--text);font-weight:600}
+  .card .fid{font-size:10px;color:var(--text2);font-family:var(--mono)}
+  .card .ds{font-size:11px;color:var(--text2);margin-top:5px;line-height:1.5}
+  .badge{font-size:10px;padding:1px 8px;border-radius:8px;font-weight:600;white-space:nowrap}
+  .chip{display:inline-block;font-size:10px;padding:2px 9px;border-radius:9px;margin:3px 4px 0 0;
+    background:rgba(79,140,255,.12);color:var(--cyan2);border:1px solid rgba(79,140,255,.3);font-family:var(--mono)}
+  .detail h2{font-size:18px;color:var(--cyan);margin:0 0 4px}
+  .detail .k{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;
+    margin:16px 0 6px;font-weight:600;border-bottom:1px solid var(--border);padding-bottom:4px}
+  .detail p{font-size:12px;color:var(--text);line-height:1.7;margin:6px 0}
+  .detail ul{margin:6px 0;padding-left:18px}
+  .detail li{font-size:12px;color:var(--text);line-height:1.6;margin:3px 0}
+  .detail code{font-family:var(--mono);background:var(--bg3);padding:1px 6px;border-radius:5px;color:var(--cyan2)}
+  .empty{color:var(--text2);text-align:center;padding:40px;font-size:13px}
+  #loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    background:var(--bg);color:var(--text2);font-size:14px;z-index:50}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="utop">
+    <h1>本体函数目录</h1>
+    <span class="sub">计算规则（Ontology Function）· 仅产出派生属性，无独立对象 ID</span>
+    <div class="spacer"><span class="rev" id="rev">ontos@…</span><a href="/ontos-topology">← 拓扑图谱</a></div>
+  </div>
+  <div class="utb">
+    <input id="q" placeholder="搜索 函数名 / 描述 / 输入 / 输出…">
+    <div class="spacer">
+      <span class="count" id="cnt">共 <b>0</b> 条</span>
+      <button id="reset">重置筛选</button>
+    </div>
+  </div>
+  <div class="umain">
+    <div class="uside" id="side"></div>
+    <div class="upane" id="list"></div>
+    <div class="ucanvas"><div class="detail" id="detail"><div class="empty">点击左侧函数查看详情</div></div></div>
+  </div>
+</div>
+<div id="loading">正在从 ontos 加载本体定义…</div>
+<script src="/ontos-functions.app.js"></script>
+</body>
+</html>
