@@ -51,6 +51,10 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
+        with:
+          # ✅ 根因修复(2026-09-04)：必须拉取 submodule，否则 runner 上 ontos/ 为空，
+          #   rsync --delete 会把生产 ontos 代码清空 → 本体接口 ImportError。
+          submodules: 'recursive'
 
       - name: Setup SSH key
         run: |
@@ -59,11 +63,22 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
 
+      - name: Verify ontos submodule expanded
+        # 安全护栏：若 submodule 拉取失败（如私有库 token 无权），ontos/ 为空，
+        # 此时必须中止，绝不让 rsync --delete 把生产 ontos 清空。
+        run: |
+          test -f ontos/ontos/domain_business.py && echo "✅ ontos submodule OK" || { echo "::error::ontos submodule not expanded, abort deploy"; exit 1; }
+
       - name: Sync code to server (rsync)
         # 部署路径硬编码，避免误覆盖 neuops-agent-demo(9007)
+        # ✅ 根因修复(2026-09-04)：deploy 的 checkout 已改为拉取 submodule（submodules: recursive），
+        #   runner 上 ontos/ 展开为真实代码；此处【不再排除 ontos】，随主仓一起 rsync 到生产。
+        #   彻底根治此前"ontos 反复消失 / 本体接口 ImportError"的生产事故。
+        #   仍排除 ontos/.git（submodule 的 gitlink 对运行无意义）。
         run: |
           rsync -az --delete \
             --exclude='.git' --exclude='.github' \
+            --exclude='ontos/.git' \
             --exclude='*.db' --exclude='__pycache__' \
             --exclude='.venv' --exclude='venv' \
             --exclude='*.log' --exclude='.pytest_cache' --exclude='uploads' \
