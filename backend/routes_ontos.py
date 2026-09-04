@@ -358,6 +358,8 @@ def api_payment_cycle_all(basis: str = 'last', prefer: str = 'milestone_plan',
 
 
 # ─────────────────────────── 定义编辑（覆盖层保存） ───────────────────────────
+from pydantic import BaseModel
+
 
 class OntosDefUpdate(BaseModel):
     """可编辑字段集合（按 kind 限定白名单，后端再过滤）。"""
