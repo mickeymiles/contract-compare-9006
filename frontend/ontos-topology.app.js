@@ -530,7 +530,7 @@
     const ed=document.getElementById('detail-edit');
     const seg=document.getElementById('view-seg');
     if(m==='topology'){
-      g6.style.display=''; g6t.style.display='none'; gt.style.display='flex';
+      g6.style.display='block'; g6t.style.display='none'; gt.style.display='flex';
       if(seg) seg.classList.remove('hide');
       ed.classList.remove('show'); ed.innerHTML='';
     } else {
