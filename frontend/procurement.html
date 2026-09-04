@@ -727,6 +727,50 @@
   </div>  <!-- /proc-tab-approver -->
 
   <!-- ================================================== -->
+  <!-- 项目经理配置：emp-009 人工轨定标责任人 -->
+  <!-- ================================================== -->
+  <div id="proc-tab-pm" class="proc-top-panel">
+    <div class="panel">
+      <h3>🧭 项目经理配置</h3>
+      <p style="font-size:12px;color:var(--text2);margin:4px 0 14px">
+        维护备件采购智能体（emp-009）<b>人工轨</b>的定标责任人。询价邮件<b>未</b>写明
+        <code style="background:rgba(94,215,255,.12);padding:1px 5px;border-radius:4px">无特殊要求，最低价中标</code>
+        时，报价汇总会先发项目经理线下比选定标，由 PM 自行送审批；写明该句则跳过此环节、AI 自动比价直送审批。
+      </p>
+
+      <div class="proc-field" style="max-width:900px;margin-bottom:18px;padding:14px;border:1px dashed rgba(94,215,255,.25);border-radius:10px;background:rgba(94,215,255,.03)">
+        <div style="font-weight:600;font-size:12.5px;color:var(--cyan);margin-bottom:10px">＋ 新增项目经理</div>
+        <div style="display:grid;grid-template-columns:1fr 2fr auto;gap:12px;align-items:flex-end">
+          <div>
+            <label style="display:block;font-size:11px;color:var(--text2);margin-bottom:4px">姓名</label>
+            <input type="text" id="pmNewName" placeholder="如：王经理" style="width:100%">
+          </div>
+          <div>
+            <label style="display:block;font-size:11px;color:var(--text2);margin-bottom:4px">邮箱</label>
+            <input type="email" id="pmNewEmail" placeholder="如：pm@corp.com" style="width:100%">
+          </div>
+          <button class="btn btn-p btn-s" onclick="submitNewPm()">加入</button>
+        </div>
+      </div>
+
+      <div class="proc-toolbar">
+        <span id="pmSummary" style="font-size:12px;color:var(--text2)"></span>
+      </div>
+
+      <table class="proc-table">
+        <thead>
+          <tr><th style="width:50px">#</th><th>姓名</th><th>邮箱</th><th style="width:90px">启用</th><th style="width:130px">创建时间</th><th style="width:80px">操作</th></tr>
+        </thead>
+        <tbody id="pmTbody"></tbody>
+      </table>
+
+      <p style="font-size:11.5px;color:var(--amber);margin:12px 0 0">
+        ⚠️ 未配置启用中的项目经理时，人工轨任务会卡在「待定标」状态并记 blocked 审计，请在上线前确认此处非空。
+      </p>
+    </div>
+  </div>  <!-- /proc-tab-pm -->
+
+  <!-- ================================================== -->
   <!-- 智能体邮件模板配置：A-G，页面可改措辞 -->
   <!-- ================================================== -->
   <div id="proc-tab-mailtpl" class="proc-top-panel">
@@ -1285,6 +1329,7 @@
         { key: 'ops-spare',    label: '备品备件', icon: 'project',  action: "switchSidebar('sparepart')" },
         { key: 'ops-supplier', label: '供应商',   icon: 'contact',  action: "switchSidebar('supplier')" },
         { key: 'ops-approver', label: '审批人',   icon: 'pmo',      action: "switchSidebar('approver')" },
+        { key: 'ops-pm',       label: '项目经理', icon: 'pmo',      action: "switchSidebar('pm')" },
         { key: 'ops-contract', label: '合同',     icon: 'contract', action: "switchSidebar('contract')" },
         { key: 'ops-mailcc',   label: '抄送',     icon: 'receipt',  action: "switchSidebar('mailcc')" },
         { key: 'ops-mailtpl',  label: '邮件模板', icon: 'edit',     action: "switchSidebar('mailtpl')" },

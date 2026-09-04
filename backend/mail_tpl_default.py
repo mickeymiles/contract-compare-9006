@@ -48,5 +48,10 @@ DEFAULT_MAIL_TEMPLATES = {
         "name": "G-采购结束结算通知（内部流完成→外部流供应商）",
         "subject": "【采购结束】{project_no} {brand} {pn} — 任务关闭 [{task_no}]",
         "body": "尊敬的 {supplier} 供应商：\n\n您好！关于 {project_no}（{project_name}）的备件采购（任务 {task_no}），我方已确认收货并完成更换。\n\n本次采购正式结束，进入结算流程。请贵司根据双方确认的订货单与我方后期结算，感谢配合。\n\n【订货摘要】\n- 备件：{part_type} / {brand} / {pn} x {count}\n- 成色：{condition}\n\n- NeuAgent 备件采购智能体"
+    },
+    "P": {
+        "name": "P-定标请求（人工轨-交项目经理定标）",
+        "subject": "【定标请求】{project_no} {brand} {pn} — {suppliers_count}家报价待定标 [{task_no}]",
+        "body": "各位好，备件询价任务 {task_no} 已完成 {suppliers_count} 家供应商报价汇总：\n\n项目：{project_no} / {project_name}\n备件：{part_type} / {brand} / {pn} / {spec}\n成色：{condition} x {count}\n询价截止：{deadline}\n\n【报价列表】\n{suppliers}\n\n【比价参考（系统自动比价，仅供参考）】\n  最低报价：{lowest_quote}\n  报价供应商：{lowest_supplier}\n\n【待项目经理定标】\n本次询价申请未声明「无特殊要求，最低价中标」，因此不由系统自动定标，\n需项目经理 {pm_emails} 综合质量、货期、售后及特殊要求等因素线下比选并确定供应商。\n\n若涉及特殊要求（技术确认、资质审核、商务谈判等），请先完成线下处理，\n再自行提交审批人审批。\n\n【重要】审批结论的回收方式\n定标完成后，请审批人在**本邮件线程内**回复「确认采购」，\n系统识别到后将自动向选定供应商下达订货邮件。\n若审批人另起新邮件回复（脱离本线程），系统将无法识别审批结论、任务会一直停在待定标状态。\n\n- NeuAgent 备件采购智能体"
     }
 }

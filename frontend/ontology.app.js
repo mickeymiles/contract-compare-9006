@@ -93,6 +93,9 @@ const ONT_STATUS_TONE = {
   INIT: 'o', CLOSED: 'g', CLOSED_ABORT: 'm', CLOSED_MANUAL: 'r',
   R_INIT: 'o', R_APPROVAL: 'o', R_CLOSED: 'g',
   R_SEND: 'o', INVITE_QUOTE: 'o', QUOTE_COLLECT_DONE: 'o',
+  // R_WAIT_PM：人工轨「待项目经理定标」——A 邮件未声明「无特殊要求，最低价中标」时的等待态。
+  // 属进行中（'o'），不配色的 chip 会退化成中性灰，看板上会误判为"未推进"。
+  R_WAIT_PM: 'o', R_DECIDING: 'o',
   ORDER_CONFIRM: 'o', WAIT_ENGINEER_CLOSE: 'o', R_SETTLE: 'g',
 };
 let ontLoaded = {};        // 各面板是否已首载（避免每次切菜单都重拉）
@@ -150,6 +153,18 @@ function ontChip(text, tone = '') {
 function ontStatusChip(v) {
   const s = String(v || '-');
   return ontChip(s, ONT_STATUS_TONE[s] || 'm');
+}
+
+/**
+ * 定标模式 chip：自动轨（AI 比价直送审批）/ 人工轨（先交项目经理定标）。
+ * 依据 A 邮件是否声明「无特殊要求，最低价中标」（spare_info.auto_award）。
+ */
+function ontAwardChip(p) {
+  const auto = p && p.auto_award === true;
+  const notified = !!(p && p.pm_notified_at);
+  if (auto) return ontChip('自动轨', 'g');
+  // 人工轨：已向项目经理发出定标请求 → 标为进行中；否则中性（尚未触发）
+  return ontChip(notified ? '人工轨·待定标' : '人工轨', notified ? 'o' : 'm');
 }
 
 function ontEmptyRow(cols, text) {
@@ -223,12 +238,13 @@ async function loadOntEntities() {
           <td>${ontStatusChip(t.status)}</td>
           <td>${ontStatusChip(t.internal_status)}</td>
           <td>${ontStatusChip(t.external_status)}</td>
+          <td>${ontAwardChip(p)}</td>
           <td>${ontEsc(t.target_supplier || '-')}</td>
           <td class="ont-mono">${ontEsc(t.from_email || '-')}</td>
           <td>${ontEsc(t.create_time || '-')}</td>
         </tr>`;
       }).join('')
-      : ontEmptyRow(9, '本体轨暂无任务实例'));
+      : ontEmptyRow(10, '本体轨暂无任务实例'));
 
     renderOntOtherEntities(inst.data);
   } finally {
@@ -434,6 +450,8 @@ async function loadOntTasks() {
       const m = t.milestones || {};
       const ms = [
         m.inquiry_sent ? ontChip('B 询价', 'g') : '',
+        // P 定标请求：仅人工轨（未声明「无特殊要求，最低价中标」）会发
+        m.pm_decision_sent ? ontChip('P 定标', 'g') : '',
         m.approval_sent ? ontChip('D 审批', 'g') : '',
         m.order_sent ? ontChip('E 订货', 'g') : '',
         m.tracking_no ? ontChip('运单', 'g') : '',
@@ -449,13 +467,14 @@ async function loadOntTasks() {
         <td>${ontStatusChip(t.status)}</td>
         <td>${ontStatusChip(t.internal_status)}</td>
         <td>${ontStatusChip(t.external_status)}</td>
+        <td>${t.auto_award === true ? ontChip('自动轨', 'g') : ontChip('人工轨', 'm')}</td>
         <td>${ontEsc(t.quote_deadline || t.urgency_raw || '-')}</td>
         <td class="ont-mono">${ontEsc(t.target_supplier || '-')}</td>
         <td class="num">${t.valid_quote_count}/${t.quote_count}</td>
         <td>${ms || '<span style="color:var(--text2)">-</span>'}</td>
         <td>${ontEsc(t.create_time || '-')}</td>
       </tr>`;
-    }).join('') : ontEmptyRow(11, '没有符合条件的本体任务'));
+    }).join('') : ontEmptyRow(12, '没有符合条件的本体任务'));
   } finally {
     ontBusyOff();
   }
@@ -560,8 +579,12 @@ async function loadOntLedger() {
     var isolated = nodes.filter(function (n) { return !touched[n.id]; }).map(function (n) { return n.id; });
     return { nodes: nodes, edges: edges, unary: unary, isolated: isolated };
   }
+  // 状态在「动作→状态」图上的排列顺序。未列入者 indexOf=-1 → 排到末尾，
+  // 因此新增状态必须同步登记，否则图上顺序会错乱。
+  // R_WAIT_PM 位于「报价收集完」与「内部审批」之间：人工轨先交项目经理定标，再由 PM 送审批。
   var STATUS_ORDER = ['R_FR02_MISSING_FIELDS', 'R_INIT', 'R_SEND', 'INVITE_QUOTE', 'QUOTE_COLLECT_DONE',
-    'R_APPROVAL', 'R_ORDER', 'R_WAIT_ENGINEER_CLOSE', 'R_CLOSED', 'R_SETTLE', 'CLOSED_ABORT', 'CLOSED_MANUAL'];
+    'R_WAIT_PM', 'R_DECIDING', 'R_APPROVAL', 'R_ORDER', 'R_WAIT_ENGINEER_CLOSE',
+    'R_CLOSED', 'R_SETTLE', 'CLOSED_ABORT', 'CLOSED_MANUAL'];
   function actionMap(spec) {
     var actions = spec.ACTIONS || {}, reg = spec.ACTION_REGISTRY || {}, rules = spec.RULES || [];
     var precond = {}, succ = {}, statuses = {};

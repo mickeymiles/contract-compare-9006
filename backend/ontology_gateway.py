@@ -263,7 +263,14 @@ def instances(task_limit: int = 50, email_limit: int = 50, quote_limit: int = 10
             "address": meta.get("address", ""),
             "suppliers": meta.get("suppliers", []),
             "approver_emails": meta.get("approver_emails", []),
+            "pm_emails": meta.get("pm_emails", []),
             "quotes": meta.get("quotes", []),
+            # 定标模式：True=自动轨（A 声明「无特殊要求，最低价中标」，AI 比价后直送审批）；
+            # False=人工轨（先交项目经理定标，PM 线下比选后自行送审批）。
+            # 缺省 False：旧任务无该字段，按人工轨展示（与 orbit.ctx_from_task 口径一致）。
+            "auto_award": bool(meta.get("auto_award")),
+            # 人工轨已向项目经理发出定标请求的时间戳（空=尚未发出）
+            "pm_notified_at": meta.get("pm_notified_at", ""),
         }
         t["target_supplier_list"] = _load_json(t.get("target_supplier_list"), [])
     return {
@@ -382,15 +389,19 @@ def tasks(status: str = "", keyword: str = "", limit: int = 200):
             "supplier_count": len(suppliers),
             "quote_count": len(quotes),
             "valid_quote_count": len(valid_quotes),
-            # 双流关键节点：是否已发询价 B / 审批 D / 订货 E / 结算 G
+            # 双流关键节点：是否已发询价 B / 定标请求 P / 审批 D / 订货 E / 结算 G
+            # P 仅人工轨有（A 未声明「无特殊要求，最低价中标」时发项目经理定标）。
             "milestones": {
                 "inquiry_sent": bool(meta.get("b_msg_ids")),
+                "pm_decision_sent": bool(meta.get("p_msg_id")),
                 "approval_sent": bool(meta.get("d_msg_id")),
                 "order_sent": bool(meta.get("e_msg_id")),
                 "settled": bool(meta.get("g_msg_id")),
                 "tracking_no": bool(meta.get("tracking_no")),
                 "engineer_close": bool(meta.get("engineer_close")),
             },
+            # 定标模式：True=自动轨（AI 比价直送审批）/ False=人工轨（先交项目经理定标）
+            "auto_award": bool(meta.get("auto_award")),
         })
     return out
 

@@ -95,7 +95,9 @@ async function api(path, method = 'GET', body = null, loadingMsg = null) {
    · 终态（流程闭环 / 已取消 / 已中止）一律灰灯且不闪烁。
    · 越需要人工关注，闪得越快：绿(呼吸) < 蓝(呼吸) < 黄(1.2s) < 红(0.7s)。 */
 const ACT_COLLECTING = ['R_INIT', 'R_SEND', 'INVITE_QUOTE', 'R_WAIT_QUOTES'];
-const ACT_WAIT_APPROVAL = ['R_DECIDING', 'R_APPROVAL', 'R_WAIT_APPROVAL'];
+// R_WAIT_PM 归入「等审批」档：人工轨卡在待定标同样需要人工关注，
+// 不归入则停滞告警覆盖不到，任务会静默挂起。
+const ACT_WAIT_APPROVAL = ['R_DECIDING', 'R_APPROVAL', 'R_WAIT_APPROVAL', 'R_WAIT_PM'];
 const ACT_WAIT_SHIP = ['R_ORDER', 'R_WAIT_ORDER', 'ORDER_CONFIRM', 'R_WAIT_SHIPPING'];
 const ACT_STALL_MS = 24 * 3600 * 1000;      // 审批/下单阶段停滞阈值
 const ACT_HOUR = 3600 * 1000;
@@ -184,7 +186,7 @@ function fmtStatus(s) {
 
 // ============ 页面切换（左侧菜单导航，单入口 + 唯一性校验） ============
 const _SIDE_MENU_KEYS = ['tasks', 'ledger', 'mailinquiry', 'sparepart', 'supplier', 'approver', 'contract',
-  'mailcc', 'mailtpl', 'requester'];
+  'mailcc', 'mailtpl', 'requester', 'pm'];
 // 注：「本体可观测」菜单已迁移至核心工作台（系统 › 主数据 › 本体可观测），
 // 由 frontend/ontology.app.js + core.html 承载，本运维页不再包含本体逻辑。
 
@@ -262,6 +264,8 @@ function switchSidebar(name) {
     try { loadMailTemplateList(); } catch (e) { console.error(e); }
   } else if (name === 'requester') {
     try { loadRequesterList(); } catch (e) { console.error(e); }
+  } else if (name === 'pm') {
+    try { loadPmList(); } catch (e) { console.error(e); }
   }
 }
 // 兼容旧函数名
@@ -1224,6 +1228,9 @@ const PROC_EXT_RANK = {
   R_INIT:1, R_SEND:1,
   INVITE_QUOTE:2, R_WAIT_QUOTES:2,
   R_DECIDING:3, R_APPROVAL:3, R_WAIT_APPROVAL:3,
+  // 人工轨「待项目经理定标」：报价已收集、尚未进入审批，位于 2(报价) 与 4(订货) 之间。
+  // 不登记则 indexOf=-1 → 进度回落到 1，流程图会倒退回第 1 步。
+  R_WAIT_PM:3,
   R_ORDER:4, R_WAIT_ORDER:4, ORDER_CONFIRM:4,
   R_WAIT_SHIPPING:5, R_WAIT_ENGINEER_CLOSE:5,
   R_PROC_DONE:6,                 // 当前版本终态：供应商回传单号即结束
@@ -1241,12 +1248,33 @@ function procTerminated(t) {
   return e === 'R_ABORT' || e === 'CLOSED_ABORT' || e === 'CLOSED_MANUAL'
       || String(t.task_status || '') === '任务已取消';
 }
+/**
+ * 定标模式：true = 自动轨，false = 人工轨。
+ * 依据工程师首封询价邮件（A）是否声明「无特殊要求，最低价中标」，
+ * 由 9007 ingest 解析后写入 spare_info.auto_award，再经 store_biz 镜像到本表。
+ * 旧任务无该字段 → 按人工轨处理（保守口径，与 9007 orbit.ctx_from_task 一致：
+ * 未见明确授权就不该显示成"已自动定标"）。
+ */
+function procMeta(t) {
+  // procurement_task 只把本体 spare_info 整列镜像过来，pm_emails / pm_notified_at
+  // 没有独立列，统一从这里解析。解析失败返回空对象，各消费方自行兜底。
+  try {
+    const si = t.spare_info;
+    const o = (typeof si === 'string' && si.trim()) ? JSON.parse(si) : (si || {});
+    return (o && typeof o === 'object') ? o : {};
+  } catch (_) { return {}; }
+}
+function procIsAutoAward(t) {
+  return procMeta(t).auto_award === true;
+}
 function _unifiedCurrentLabel(t) {
   const i = String(t.internal_status || '').toUpperCase();
   const e = String(t.external_status || '').toUpperCase();
   const map = {
     R_SEND:'发询价函', INVITE_QUOTE:'供应商报价', R_WAIT_QUOTES:'供应商报价',
     R_DECIDING:'比价定标', R_APPROVAL:'内部审批', R_WAIT_APPROVAL:'内部审批',
+    // 人工轨：报价已收集，等待项目经理线下比选定标
+    R_WAIT_PM:'待项目经理定标',
     R_ORDER:'下达订货', R_WAIT_ORDER:'下达订货', ORDER_CONFIRM:'等待供应商发货',
     R_WAIT_SHIPPING:'发货回执', R_PROC_DONE:'已关闭',
     R_WAIT_ACCEPTANCE:'收货验收', R_WAIT_SETTLE:'结算通知', R_CLOSED:'结算通知',
@@ -1281,13 +1309,34 @@ function renderUnifiedFlow(t) {
   // 逐节点状态：0=未开始 1=当前 2=已完成
   // 【当前版本】供应商回传快递单号即任务结束：流程共 7 个节点，
   // 「收货验收」「结算通知」属后续扩展，不参与当前流程，已从流程图移除。
-  const st = [2,0,0,0,0,0,0];
-  st[1] = extRank >= 2 ? 2 : 1;                                                  // 发询价函
-  st[2] = (extRank >= 3 || quotes.length) ? 2 : (extRank === 2 ? 1 : 0);         // 供应商报价
-  st[3] = (extRank >= 4 || lowestName) ? 2 : (extRank === 3 ? 1 : 0);            // 比价定标
-  st[4] = (approved || rejected) ? 2 : (extRank >= 4 || intI === 'R_APPROVAL' ? 1 : 0); // 内部审批
-  st[5] = (extRank >= 5 || t.e_mail_msg_id) ? 2 : (extRank === 4 ? 1 : 0);       // 下达订货
-  st[6] = (shipped || extRank >= 6) ? 2 : (extRank === 5 ? 1 : 0);               // 发货回执（= 当前版本终点）
+  // 逐节点状态：0=未开始 1=当前 2=已完成
+  // 【当前版本】供应商回传快递单号即任务结束：流程共 7 个节点，
+  // 「收货验收」「结算通知」属后续扩展，不参与当前流程，已从流程图移除。
+  // 【人工轨】多一个「项目经理定标」节点（共 8 个）：A 未声明自动定标时，
+  // 报价汇总先交 PM 线下比选，PM 自行送审批，智能体不代发审批邮件。
+  // 节点下标随轨道变化，故用变量索引而非硬编码，避免插入节点后错位。
+  const isManualTrack = !procIsAutoAward(t);
+  const _meta = procMeta(t);
+  const pmNames = (_meta.pm_emails || []).join('、') || '—';
+  const pmSentAt = _meta.pm_notified_at || (_meta.p_msg_id ? '已发送' : '');
+  const st = new Array(isManualTrack ? 8 : 7).fill(0);
+  st[0] = 2;                                                                     // 发起询价（入口，恒定已完成）
+  const iInq = 1, iQuote = 2, iDecide = 3;
+  const iPm = isManualTrack ? 4 : -1;                        // 仅人工轨
+  const iAppr = isManualTrack ? 5 : 4;
+  const iOrder = isManualTrack ? 6 : 5;
+  const iShip = isManualTrack ? 7 : 6;
+  st[iInq]   = extRank >= 2 ? 2 : 1;                                             // 发询价函
+  st[iQuote] = (extRank >= 3 || quotes.length) ? 2 : (extRank === 2 ? 1 : 0);    // 供应商报价
+  st[iDecide]= (extRank >= 3 || lowestName) ? 2 : (extRank === 2 ? 1 : 0);       // 比价定标
+  if (isManualTrack) {
+    // 项目经理定标：已发 P（p_msg_id）或已推进到审批/订货 => 完成；
+    // 处于 R_WAIT_PM（extRank 3 且已收齐报价）=> 进行中
+    st[iPm]  = (extRank >= 4 || !!_meta.p_msg_id) ? 2 : (extRank === 3 ? 1 : 0);
+  }
+  st[iAppr]  = (approved || rejected) ? 2 : (extRank >= 4 || intI === 'R_APPROVAL' ? 1 : 0); // 内部审批
+  st[iOrder] = (extRank >= 5 || t.e_mail_msg_id) ? 2 : (extRank === 4 ? 1 : 0);  // 下达订货
+  st[iShip]  = (shipped || extRank >= 6) ? 2 : (extRank === 5 ? 1 : 0);          // 发货回执（= 当前版本终点）
 
   const role = (who, color) => `<span style="font-size:11px;color:${color};font-weight:600;margin-left:6px">● ${esc(who)}</span>`;
   const detailOf = (rows) => `<div style="display:flex;flex-direction:column;gap:2px">${rows.map(([k,v]) => `
@@ -1314,8 +1363,13 @@ function renderUnifiedFlow(t) {
       desc:'各供应商在原询价线程回邮报价（C），智能体自动解析 单价/成色/数量/货期。',
       detail: detailOf([['已收到报价', quotes.length?`${quotes.length} 家<br>${quoteRows}`:'暂无'], ['报价截止', esc(t.inquiry_deadline||t.reply_deadline||'-')]]) },
     { title:'比价定标', who:'智能体', color:'var(--purple)',
-      desc:'智能体对比各供应商报价，确定最低价/候选供应商，并连同报价汇总进入内部审批。',
-      detail: detailOf([['最低价供应商', esc(lowestName||'—')], ['报价汇总', `${quotes.length} 家`]]) },
+      desc: isManualTrack
+        ? '智能体对比各供应商报价，产出最低价作为<b>参考</b>；因本次未声明「无特殊要求，最低价中标」，<b>不由智能体定标</b>，转交项目经理决策。'
+        : '本次已声明「无特殊要求，最低价中标」，智能体对比各供应商报价后<b>自动按最低价定标</b>，连同报价汇总直接进入内部审批。',
+      detail: detailOf([['定标模式', isManualTrack
+          ? '<b style="color:var(--amber)">人工轨</b> · 交项目经理定标'
+          : '<b style="color:var(--green)">自动轨</b> · AI 按最低价自动定标'],
+        ['最低价供应商', esc(lowestName||'—')], ['报价汇总', `${quotes.length} 家`]]) },
     { title:'内部审批', who:'审批人', color:'var(--cyan)',
       desc:'智能体在工程师询价线程回复报价汇总（D），发审批人 + 系统抄送（含工程师确认保留在收件人）。审批人确认或全部拒绝。',
       detail: detailOf([['审批状态', approved?'<b style="color:var(--green)">已通过</b>':rejected?'<b style="color:var(--red)">已拒绝</b>':'<b style="color:var(--amber)">待审批</b>'], ['审批人', esc(t.approver_email||'-')]]) },
@@ -1326,6 +1380,26 @@ function renderUnifiedFlow(t) {
       desc:'选中供应商在订货线程回执快递单号，智能体登记物流信息。**当前版本到此即任务结束**：单号回传后任务标记「已关闭」，智能体不再推进。',
       detail: detailOf([['物流单号', trackNo?'<b style="font-family:var(--mono);color:#5ed7ff">'+esc(trackNo)+'</b>':'—']]) },
   ];
+
+  // 人工轨插入「项目经理定标」节点：位于「比价定标」之后、「内部审批」之前。
+  // 自动轨不插入（该环节不存在，显示反而误导）。
+  if (isManualTrack) {
+    nodes.splice(4, 0, {
+      title:'项目经理定标', who:'项目经理', color:'var(--amber)',
+      desc:'智能体把报价汇总发给定标请求邮件（P）给项目经理（抄送审批人）。'
+          + '项目经理线下比选——含特殊要求的技术确认、资质审核、商务谈判等'
+          + '——确定供应商后<b>自行送审批</b>，智能体不代发审批邮件。'
+          + '<br><b style="color:var(--amber)">注意：审批人须在该邮件线程内回复「确认采购」</b>，'
+          + '否则智能体收不到审批结论，任务将一直停留在本步骤。',
+      detail: detailOf([
+        ['项目经理', esc(pmNames)],
+        ['定标请求 P', _meta.p_msg_id
+            ? '<b style="color:var(--green)">已发送</b>'
+            : '<span style="color:var(--text2)">未发送</span>'],
+        ['发出时间', esc(pmSentAt || '—')],
+      ]),
+    });
+  }
 
   let html = `<div class="dual-timeline">${nodes.map((n,i)=> dualStepCard({
       title: n.title + role(n.who, n.color), desc: n.desc, state: (n.reserved ? 0 : (aborted ? (i < _firstUnreachedIdx(st) ? 2 : 0) : st[i])), detail: n.detail, reserved: n.reserved }, i)).join('')}`;
@@ -2035,6 +2109,78 @@ async function confirmDeleteApprover(id, name) {
 }
 
 // ================================================================
+// 项目经理配置（emp-009 人工轨定标责任人）：列表 / 新增 / 启停 / 删除
+// 询价未声明「无特殊要求，最低价中标」时，报价汇总发此处的 PM 定标
+// ================================================================
+
+async function loadPmList() {
+  try {
+    const d = await api('/pms');
+    const rows = d.data || [];
+    const on = rows.filter(r => r.enabled).length;
+    setHTML('pmSummary', `共 ${rows.length} 位项目经理（启用 ${on}）`);
+    const body = document.getElementById('pmTbody');
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="6" class="empty-tip">暂无项目经理配置，人工轨任务会卡在「待定标」，建议先加入至少一位</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map((r, idx) => `
+      <tr>
+        <td>${idx + 1}</td>
+        <td><b>${escapeHtml(r.name)}</b></td>
+        <td style="color:#5ed7ff">${escapeHtml(r.email)}</td>
+        <td>
+          <label style="cursor:pointer">
+            <input type="checkbox" ${r.enabled ? 'checked' : ''} onchange="togglePm(${r.id}, this.checked)">
+            ${r.enabled ? '启用' : '停用'}
+          </label>
+        </td>
+        <td style="font-size:11px;color:var(--text2)">${escapeHtml(r.created_at || '')}</td>
+        <td>
+          <button class="btn btn-o btn-s" style="color:var(--red)"
+            onclick="confirmDeletePm(${r.id},${JSON.stringify(r.name).replace(/"/g, '&quot;')})">移除</button>
+        </td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    const body = document.getElementById('pmTbody');
+    if (body) {
+      body.innerHTML = `<tr><td colspan="6" class="empty-tip" style="color:var(--red)">加载失败: ${escapeHtml(e.message)}</td></tr>`;
+    }
+  }
+}
+
+async function submitNewPm() {
+  const name = document.getElementById('pmNewName').value.trim();
+  const email = document.getElementById('pmNewEmail').value.trim();
+  if (!name || !email) { toast('姓名和邮箱必填', 'err'); return; }
+  try {
+    await api('/pms', 'POST', { name, email, enabled: 1 });
+    toast('已新增项目经理');
+    document.getElementById('pmNewName').value = '';
+    document.getElementById('pmNewEmail').value = '';
+    loadPmList();
+  } catch (e) { toast('新增失败: ' + e.message, 'err'); }
+}
+
+async function togglePm(id, enabled) {
+  try {
+    await api(`/pms/${id}`, 'PUT', { enabled: enabled ? 1 : 0 });
+    toast(enabled ? '已启用' : '已停用');
+    loadPmList();
+  } catch (e) { toast('更新失败: ' + e.message, 'err'); loadPmList(); }
+}
+
+async function confirmDeletePm(id, name) {
+  if (!confirm(`确认移除项目经理『${name}』？移除后人工轨将不再向其发定标请求。`)) return;
+  try {
+    await api(`/pms/${id}`, 'DELETE');
+    toast('已移除项目经理');
+    loadPmList();
+  } catch (e) { toast('移除失败: ' + e.message, 'err'); }
+}
+
+// ================================================================
 // 智能体邮件模板配置（A-G）：列表 / 编辑主题与正文 / 恢复默认
 // subject、body 留空 => 智能体回退系统默认模板（避免发出空邮件）
 // ================================================================
@@ -2635,6 +2781,7 @@ function mailStepStates(t) {
     R_SEND:1, SENDING_B:1,
     R_WAIT_QUOTES:2, WAITING_QUOTES:2, COLLECTING_QUOTES:2,
     R_DECIDING:3, DECIDING_LOWEST:3, DECIDING:3,
+    R_WAIT_PM:3,                       // 人工轨：待项目经理定标
     R_ORDER:4, ORDERING:4,
     R_WAIT_SHIPPING:5, SHIPPING:5,
     R_CLOSED:6, DONE:6,

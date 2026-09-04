@@ -965,6 +965,8 @@ from procurement_models import (
     # ---- 审批人配置（智能体 emp-009 用，页面维护，替代 ONT_APPROVERS 环境变量）----
     list_approvers, get_approver, create_approver, update_approver, delete_approver,
     get_all_approver_emails,
+    # ---- 项目经理配置（emp-009 人工轨定标责任人，页面维护）----
+    list_pms, get_pm, create_pm, update_pm, delete_pm, get_all_pm_emails,
     # ---- 智能体邮件模板配置（A-G，页面可改措辞）----
     list_mail_templates, get_mail_template, update_mail_template, reset_mail_template,
     # ---- 发起人白名单（智能体只处理名单内发件人，空=不限制）----
@@ -1139,6 +1141,58 @@ def api_proc_approvers_update(approver_id: int, body: ApproverUpdateBody):
 def api_proc_approvers_delete(approver_id: int):
     try:
         r = delete_approver(approver_id)
+        return {"success": True, **r}
+    except ValueError as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+
+
+# ============================================================
+# 项目经理配置：emp-009 人工轨（询价未声明「无特殊要求，最低价中标」）
+# 的定标责任人；智能体直读本库 procurement_pm
+# ============================================================
+
+class PmBody(BaseModel):
+    name: str
+    email: str
+    enabled: Optional[int] = 1
+
+
+class PmUpdateBody(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    enabled: Optional[int] = None
+
+
+@app.get("/api/procurement/pms")
+def api_proc_pms_list(keyword: Optional[str] = None, only_enabled: int = 0):
+    rows = list_pms(keyword=keyword, only_enabled=bool(only_enabled))
+    return {"success": True, "data": rows, "total": len(rows)}
+
+
+@app.post("/api/procurement/pms")
+def api_proc_pms_create(body: PmBody):
+    try:
+        r = create_pm(name=body.name, email=body.email, enabled=body.enabled or 0)
+        return {"success": True, "data": r}
+    except ValueError as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+
+
+@app.put("/api/procurement/pms/{pm_id}")
+def api_proc_pms_update(pm_id: int, body: PmUpdateBody):
+    try:
+        r = update_pm(pm_id=pm_id, name=body.name, email=body.email, enabled=body.enabled)
+        if r is None:
+            return JSONResponse({"success": False, "error": "项目经理不存在"}, status_code=404)
+        return {"success": True, "data": r}
+    except ValueError as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+
+
+@app.delete("/api/procurement/pms/{pm_id}")
+def api_proc_pms_delete(pm_id: int):
+    try:
+        r = delete_pm(pm_id)
         return {"success": True, **r}
     except ValueError as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=400)

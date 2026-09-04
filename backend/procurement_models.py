@@ -199,6 +199,21 @@ def init_procurement_db():
     """)
     c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_proc_approver_email ON procurement_approver(email)")
 
+    # 4.2 项目经理配置（emp-009 人工轨定标责任人）
+    #     询价邮件未声明「无特殊要求，最低价中标」时，报价汇总先发项目经理定标，
+    #     由 PM 线下比选（可含特殊要求的线下处理）后自行送审批。
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS procurement_pm (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            enabled INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            updated_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_proc_pm_email ON procurement_pm(email)")
+
     # 4.3 智能体已处理邮件去重表（业务化执行链路用）
     #     取代本体轨 o_email：以 email_message_id 唯一键防重复认领，
     #     是「不靠时间水位、只靠唯一键」去重策略的落点。
@@ -1524,6 +1539,105 @@ def delete_approver(approver_id):
 def get_all_approver_emails():
     """给智能体用：返回启用中的审批人邮箱列表"""
     return [r["email"] for r in list_approvers(only_enabled=True) if r.get("email")]
+
+
+# ============================================================
+# 项目经理配置（emp-009 人工轨定标责任人）
+# ============================================================
+def list_pms(*, keyword=None, only_enabled=False, limit=500):
+    """项目经理列表：支持按 名称/邮箱 模糊搜索"""
+    conn = get_db()
+    c = conn.cursor()
+    sql = "SELECT * FROM procurement_pm"
+    params, conds = [], []
+    if keyword:
+        conds.append("(name LIKE ? OR email LIKE ?)")
+        like = f"%{keyword}%"
+        params += [like, like]
+    if only_enabled:
+        conds.append("enabled=1")
+    if conds:
+        sql += " WHERE " + " AND ".join(conds)
+    sql += " ORDER BY id ASC LIMIT ?"
+    params.append(limit)
+    c.execute(sql, params)
+    rows = c.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_pm(pm_id):
+    conn = get_db()
+    c = conn.cursor()
+    r = c.execute("SELECT * FROM procurement_pm WHERE id=?", (pm_id,)).fetchone()
+    conn.close()
+    return dict(r) if r else None
+
+
+def create_pm(*, name, email, enabled=1):
+    """新增项目经理：email 唯一"""
+    if not name or not email:
+        raise ValueError("项目经理姓名与邮箱必填")
+    conn = get_db()
+    c = conn.cursor()
+    dup = c.execute("SELECT id FROM procurement_pm WHERE email=?", (email,)).fetchone()
+    if dup:
+        conn.close()
+        raise ValueError(f"邮箱已被项目经理『{dup['id']}』占用，每人一个邮箱")
+    c.execute("""
+        INSERT INTO procurement_pm(name, email, enabled) VALUES (?,?,?)
+    """, (name.strip(), email.strip(), 1 if enabled else 0))
+    new_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return get_pm(new_id)
+
+
+def update_pm(*, pm_id, name=None, email=None, enabled=None):
+    conn = get_db()
+    c = conn.cursor()
+    existing = c.execute("SELECT id FROM procurement_pm WHERE id=?", (pm_id,)).fetchone()
+    if not existing:
+        conn.close()
+        return None
+    sets, params = [], []
+    if name is not None:
+        sets.append("name=?"); params.append(name.strip())
+    if email is not None:
+        email = email.strip()
+        dup = c.execute("SELECT id FROM procurement_pm WHERE email=? AND id<>?",
+                        (email, pm_id)).fetchone()
+        if dup:
+            conn.close()
+            raise ValueError(f"邮箱已被其它项目经理『{dup['id']}』占用")
+        sets.append("email=?"); params.append(email)
+    if enabled is not None:
+        sets.append("enabled=?"); params.append(1 if enabled else 0)
+    if not sets:
+        conn.close(); return get_pm(pm_id)
+    sets.append("updated_at=datetime('now','localtime')")
+    params.append(pm_id)
+    c.execute(f"UPDATE procurement_pm SET {', '.join(sets)} WHERE id=?", params)
+    conn.commit()
+    conn.close()
+    return get_pm(pm_id)
+
+
+def delete_pm(pm_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM procurement_pm WHERE id=?", (pm_id,))
+    n = c.rowcount
+    conn.commit()
+    conn.close()
+    if n == 0:
+        raise ValueError("项目经理不存在")
+    return {"deleted": n, "id": pm_id}
+
+
+def get_all_pm_emails():
+    """给智能体用：返回启用中的项目经理邮箱列表"""
+    return [r["email"] for r in list_pms(only_enabled=True) if r.get("email")]
 
 
 # ============================================================
