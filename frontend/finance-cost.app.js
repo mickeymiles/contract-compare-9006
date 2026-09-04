@@ -1,9 +1,11 @@
 'use strict';
 /* 财经 · 成本预警 独立页 —— 顶部 Tab：总览(默认) / 明细（统一 tab 组件，见 nav.config.js）。
  * 壳：renderTopMenu(activeKey=fin)、renderAccordion(财经域 sections)、面包屑。
- * 数据源：/api/core/metrics/cost-warning（GET 默认读快照；?refresh=1 强制全量重算）。
- * 每项目对比：概算/预算（PLM 四算基线）+ 当前成本（finance_detail 累计付款，
- *   资金口径）+ 剩余成本/预算完成比/预警状态。
+ * 数据源：/api/core/metrics/cost-warning。
+ * ★口径收敛到 ontos：预算=md_contract.累计实施成本预估、当前成本=md_contract.累计实施成本实际
+ *   （均 ≡ 本体 COST_FORMULA_POLICY 声明的分项汇总），判定统一走 F-project-cost-warning。
+ *   不再用平台自拼的 service_est 单分项 / finance_detail 付款口径。概算不参与成本预警。
+ * 与四算页(同源预算/核算)差异：本页是「预算 vs 核算成本」的告警场景；四算页是各阶段展示。
  */
 (function (root) {
   var NC = root.NAV_CONFIG;
@@ -134,7 +136,6 @@
       h += '<tr><td class="wrap">' + (r.project_no || '-') + '</td>'
         + '<td class="wrap">' + (r.contract_no || '-') + '</td>'
         + '<td class="wrap">' + (r.name || '-') + '</td>'
-        + '<td class="num">' + money(r.estimate) + '</td>'
         + '<td class="num">' + money(r.budget) + '</td>'
         + '<td class="num">' + money(r.current_cost) + '</td>'
         + '<td class="num">' + money(r.remaining) + '</td>'
@@ -142,7 +143,7 @@
         + '<td>' + statusBadge(r.status) + '</td>'
         + '<td class="wrap">' + (r.note || '-') + '</td></tr>';
     }
-    if (!h) h = '<tr><td colspan="10" style="text-align:center;color:var(--text2);padding:20px">暂无明细</td></tr>';
+    if (!h) h = '<tr><td colspan="9" style="text-align:center;color:var(--text2);padding:20px">暂无明细</td></tr>';
     tbody.innerHTML = h;
     var wrap = document.getElementById('costDetailPager');
     if (wrap) wrap.innerHTML = NC.anaPager(costPage, rows.length, COST_PAGE_SIZE, 'costDetailPager', 'CostWarning.setDetailPage');
@@ -153,8 +154,9 @@
     if (!pane) return;
     var h = '<div class="panel"><h3>📋 成本预警明细</h3>';
     h += '<div style="margin-bottom:8px;font-size:11px;color:var(--text2)">共 ' + rows.length
-      + ' 条 · 数据源：/api/core/metrics/cost-warning（PLM 四算基线 + finance_detail，'
-      + (refresh ? '实时计算' : '快照，秒级') + '）' + (updatedAt ? ' · 更新于 ' + updatedAt : '') + '</div>';
+      + ' 个业务单元 · 数据源：/api/core/metrics/cost-warning（md_contract 权威列 + 本体 F-project-cost-warning）'
+      + (updatedAt ? ' · 更新于 ' + updatedAt : '') + '</div>';
+    h += '<div style="margin-bottom:8px;font-size:11px;color:var(--text3)">口径(ontos COST_FORMULA_POLICY)：预算=累计实施成本预估；当前成本=累计实施成本实际（均≡分项汇总）。概算不参与成本预警判定。</div>';
     h += '<div style="margin-bottom:8px;display:flex;gap:8px;align-items:center">'
       + '<input id="costFilterInput" type="text" placeholder="按 项目号/合同号/名称 筛选…" value="' + (costFilter || '').replace(/"/g, '&quot;')
       + '" oninput="CostWarning.setFilter(this.value)" '
@@ -164,11 +166,10 @@
       + '<th style="text-align:left;padding-left:8px">项目编号</th>'
       + '<th style="text-align:left;padding-left:8px">合同编号</th>'
       + '<th style="text-align:left;padding-left:8px">项目名称</th>'
-      + '<th style="text-align:right;padding-right:8px">概算</th>'
-      + '<th style="text-align:right;padding-right:8px">预算</th>'
-      + '<th style="text-align:right;padding-right:8px">当前成本</th>'
-      + '<th style="text-align:right;padding-right:8px">剩余成本</th>'
-      + '<th style="text-align:right;padding-right:8px">预算完成比</th>'
+      + '<th class="num" title="累计实施成本预估(≡硬件集成费+服务预估成本+软件预估实施费)">预算</th>'
+      + '<th class="num" title="累计实施成本实际(≡六分项实际)">当前成本</th>'
+      + '<th class="num">剩余成本</th>'
+      + '<th class="num">预算完成比</th>'
       + '<th>预警状态</th><th style="text-align:left;padding-left:8px">说明</th></tr></thead>'
       + '<tbody id="costDetailTbody"></tbody></table></div><div id="costDetailPager"></div></div>';
     pane.innerHTML = h;
@@ -178,16 +179,16 @@
   async function loadMetrics(refresh) {
     var runBtn = document.getElementById('btnCostRun');
     if (runBtn) { runBtn.disabled = true; runBtn.textContent = '⏳ ' + (refresh ? '重算中...' : '加载中...'); }
-    status(refresh ? '正在全量重算成本预警（实时计算）...' : '读取成本预警快照...');
+    status(refresh ? '正在重算成本预警（刷新快照）...' : '读取成本预警（md_contract 权威列 + 本体 F-project-cost-warning）...');
     try {
       var r = await fetch(API + '/api/core/metrics/cost-warning' + (refresh ? '?refresh=1' : ''));
       var j = await r.json();
       if (j && j.success && j.data) {
         var data = j.data;
         root.COST_ROWS = data.rows || [];
-        status((refresh ? '重算完成（实时计算）' : '已读取快照（秒级）')
-          + ' · 数据来源：PLM 四算基线（概算/预算）+ finance_detail 累计付款'
-          + (j.updated_at ? ' · 更新于 ' + j.updated_at : ''));
+        var sc = data.status_count || {};
+        status('成本预警（ontos 口径）· ' + data.total + ' 个业务单元 · 正常 ' + (sc['正常'] || 0)
+          + ' / 预警 ' + (sc['预警'] || 0) + ' / 超支 ' + (sc['超支'] || 0));
         renderOverview(data, document.getElementById('costOverview'));
         renderDetailPane(root.COST_ROWS, j.updated_at, refresh);
       } else {

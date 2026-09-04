@@ -1375,35 +1375,66 @@ def _cost_status(budget: Optional[float], current_cost: Optional[float]):
     return '正常', '预算执行在阈值内（预算完成比 %d%%）' % (round(ratio * 100) if ratio is not None else 0)
 
 
-def cost_warning_all() -> Dict[str, Any]:
-    """全量成本预警：逐主数据项目计算 概算/预算/当前成本/剩余成本/完成比/状态。
+def _contract_cost_baseline_map() -> Dict[str, Dict[str, Any]]:
+    """读 md_contract 权威成本列（= ontos COST_FORMULA_POLICY 声明的物理列）→ 按去重合同号：
+        {cno: {'budget': 累计实施成本预估(预算), 'current_cost': 累计实施成本实际(成本)}}。
 
-    仅纳入具备任一数据（概算/预算/当前成本>0）的项目；返回汇总卡 + 状态分布 + 明细。
+    ★单一真相对齐：ontos 声明 budget.formula = 硬件集成费+服务预估成本+软件预估实施费、
+    cost.formula = 六分项实际；这两列已逐行验算 ≡ 对应分项汇总（见工作记忆），故直接读列即可。
+    平台侧不再自拼 service_est 单分项 / finance_detail 付款口径。
+    """
+    try:
+        conn = get_conn()
+        try:
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(md_contract)")]
+            need = [c for c in ('合同编号', '累计实施成本预估', '累计实施成本实际') if c in cols]
+            if '合同编号' not in need:
+                return {}
+            sql = 'SELECT %s FROM md_contract' % ','.join('"%s"' % c for c in need)
+            rows = [dict(r) for r in conn.execute(sql).fetchall()]
+        finally:
+            conn.close()
+    except Exception:
+        return {}
+    out: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
+        cno = str(r.get('合同编号') or '').strip()
+        if not cno or cno == '合同编号' or cno in out:
+            continue
+        out[cno] = {
+            'budget': _f(r.get('累计实施成本预估')),
+            'current_cost': _f(r.get('累计实施成本实际')),
+        }
+    return out
+
+
+def cost_warning_all() -> Dict[str, Any]:
+    """全量成本预警：逐业务单元(合同/项目)计算 预算/当前成本/剩余成本/完成比/状态。
+
+    ★口径收敛到 ontos：预算/当前成本 取自 md_contract 权威列（= COST_FORMULA_POLICY 物理列，
+    由 _contract_cost_baseline_map 映射），判定统一走本体 F-project-cost-warning；不再自拼口径。
+    仅纳入具备任一数据（概算/预算/当前成本>0）的业务单元。
     """
     # ★ 收敛：预警判定统一走本体 F-project-cost-warning（固化/探索同一份纯函数）
     from ontos import domain_business as biz
-    baseline = _baseline_cost_map()
+    # 预算/成本 的 ontos 权威口径：md_contract 累计实施成本预估/实际（≡ COST_FORMULA_POLICY 分项和）
+    md_map = _contract_cost_baseline_map()
     details: List[Dict[str, Any]] = []
     total_budget = total_current = 0.0
     status_count: Dict[str, int] = {'正常': 0, '预警': 0, '超支': 0}
     for r in _list_main_projects():
         pno = (r.get('project_no') or '').strip()
         cno = (r.get('contract_no') or '').strip()
-        key = pno or cno
+        key = cno or pno
         if not key:
             continue
-        b = baseline.get(key) or baseline.get(pno) or baseline.get(cno) or {}
-        # 概算 = 项目整体概算（硬件 + 服务预估成本）；预算 = 服务预估成本（软件预估实施费字段不用）。
-        raw_est_h = r.get('hardware_est')
-        h = float(raw_est_h) if raw_est_h not in (None, '') else None
-        raw_est_s = r.get('service_est')
-        sw = float(raw_est_s) if raw_est_s not in (None, '') else None
-        estimate = ((h or 0) + (sw or 0)) if (h is not None or sw is not None) else b.get('estimate')
-        # 预算口径（见 README 财经/主数据）：预算 = 服务预估成本（软件预估实施费不采用）。
-        budget = sw
-        fd = get_finance_detail(key)
-        current_cost = round(sum(x['amount'] for x in (fd.get('pay') or [])), 2) if fd.get('pay') else 0.0
-        if estimate is None and budget is None and current_cost <= 0:
+        # 预算 = 累计实施成本预估；当前成本 = 累计实施成本实际（已 ≡ 本体声明的分项汇总）
+        m = md_map.get(cno) or md_map.get(key) or {}
+        budget = m.get('budget')
+        current_cost = round(m.get('current_cost') or 0.0, 2)
+        # 概算不参与成本预警判定（ontos：estimate 非 F-project-cost-warning 入参）；主数据无独立概算列
+        estimate = None
+        if budget is None and current_cost <= 0:
             continue
         # ★ 收敛：判定改走本体（单一权威口径；与 demo/agent 同函数）
         res = biz.functions.call(
