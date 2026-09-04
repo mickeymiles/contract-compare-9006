@@ -1659,6 +1659,53 @@ def seed_baselines_from_contracts(operator='seed'):
                             % (n_budget, total, n_account, total, n_skip)}
 
 
+def list_master_contract_summary(keyword='', limit=2000):
+    """轻量合同清单（四算归集锚数据源，读 md_contract 而非空表 plm_contract）。
+
+    财经域四算基线的合同下拉用：每行只取 {contract_no, customer, amount, status}，
+    避免下拉全量 204 列。合同号与 plm_baseline.scope_key 对齐（来源同为 md_contract）。
+    过滤表头污染行（合同编号为空/等于表头）。
+    """
+    conn = get_db()
+    try:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(md_contract)")]
+        cno_col = '合同编号' if '合同编号' in cols else None
+        if not cno_col:
+            return {'success': False, 'error': 'md_contract 缺合同编号列'}
+        def _col(cands):
+            return next((c for c in cands if c in cols), None)
+        cust_col = _col(['甲方名称', '客户简称', '客户名称'])
+        amt_col = _col(['合同总金额', '原币合同额'])
+        st_col = _col(['合同状态', '状态'])
+        sel = ['"%s"' % c for c in [cno_col, cust_col, amt_col, st_col] if c]
+        sql = 'SELECT %s FROM md_contract' % ','.join(sel)
+        args = []
+        if keyword:
+            sql += ' WHERE "%s" LIKE ?' % cno_col
+            args.append('%' + keyword + '%')
+        sql += ' LIMIT ?'; args.append(int(limit))
+        rows = []
+        for r in _rows(conn.execute(sql, args)):
+            cno = r[cno_col]
+            if not cno or str(cno).strip() in ('', '合同编号'):
+                continue
+            rows.append({
+                'contract_no': str(cno).strip(),
+                'customer': (r[cust_col] if cust_col else None) or '',
+                'amount': _r(r[amt_col] if amt_col else 0),
+                'status': (r[st_col] if st_col else None) or '',
+            })
+        # 保持合同号唯一（md_contract 有 2 行重复合同号）
+        seen, uniq = set(), []
+        for x in rows:
+            if x['contract_no'] in seen:
+                continue
+            seen.add(x['contract_no']); uniq.append(x)
+        return {'success': True, 'total': len(uniq), 'data': uniq}
+    finally:
+        conn.close()
+
+
 # ---------- 中标商机一键联动立项（FR-2） ----------
 
 def convert_opportunity(payload, operator=''):

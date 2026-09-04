@@ -76,10 +76,10 @@ os.makedirs(DATASOURCE_DIR, exist_ok=True)
 # ─────────────────────────────────────────────────────────────
 NO_CACHE_PATHS = frozenset((
     '/', '/gross', '/plm', '/procurement', '/contrast', '/core', '/dev', '/finance',
-    '/finance-cycle', '/finance-fund', '/finance-cost',
+    '/finance-cycle', '/finance-fund', '/finance-cost', '/finance-baseline',
     '/common.css', '/plm.app.js', '/procurement.app.js', '/contrast.app.js', '/core.app.js', '/finance.app.js',
     '/gross.app.js',
-    '/finance-cycle.app.js', '/finance-fund.app.js', '/finance-cost.app.js', '/nav.config.js', '/china.json',
+    '/finance-cycle.app.js', '/finance-fund.app.js', '/finance-cost.app.js', '/finance-baseline.app.js', '/nav.config.js', '/china.json',
     '/ontology.app.js',
     '/ontos-topology', '/ontos-topology.app.js',
 ))
@@ -938,6 +938,17 @@ def finance_cost_page():
 @app.get("/finance-cost.app.js")
 def finance_cost_app_js():
     return FileResponse(os.path.join(FRONTEND_DIR, 'finance-cost.app.js'))
+
+
+@app.get("/finance-baseline")
+def finance_baseline_page():
+    """财经 · 资金运作 · 四算基线 独立页（读 ontos CostBaseline，归集锚=合同）。"""
+    return FileResponse(os.path.join(FRONTEND_DIR, 'finance-baseline.html'))
+
+
+@app.get("/finance-baseline.app.js")
+def finance_baseline_app_js():
+    return FileResponse(os.path.join(FRONTEND_DIR, 'finance-baseline.app.js'))
 
 
 @app.get("/china.json")

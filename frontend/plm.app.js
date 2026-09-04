@@ -1033,7 +1033,11 @@
     S.loaded.project = true;
     return Promise.all([crud('project'), crud('contract')]);
   }
-  function gotoBaseline(pid) { S.ctx.baseline = pid; go('baseline'); }
+  function gotoBaseline(pid) {
+    // 四算已迁财经域（归集锚=合同，见 /finance-baseline），此处仅跳转。
+    S.ctx.baseline = pid;
+    window.location.href = '/finance-baseline';
+  }
   function openProjPanorama(pid) { S.ctx.panorama = pid; go('panorama'); }
 
   // ---------- 4 四算基线 ----------
@@ -1044,18 +1048,9 @@
         { k: 'remark', l: '说明' }] };
   }
   function viewBaseline() {
-    var el = qs('#v-baseline');
-    el.innerHTML = '<div class="plm-page-hd"><h2>🧱 四算基线管控</h2>' +
-      '<span class="pp-sub">四算为纲 · 归集锚=合同 · 阶段来自 ontos CostBaseline（读本体）</span></div>' +
-      contractSelector('baseline') + '<div id="baselineBody"><div class="plm-loading">加载中…</div></div>';
-    S.loaded.baseline = true;
-    return loadContracts().then(function () {
-      if (!S.ctx.baseline) {
-        var f = S.contracts[0];
-        S.ctx.baseline = f ? String(f.contract_no || f.合同编号 || f.id) : '';
-      }
-      return renderBaseline();
-    });
+    // 四算已迁财经域（/finance-baseline，归集锚=合同，读 ontos CostBaseline）。
+    // 原 PLM 内四算实现引用未定义的 contractSelector/loadContracts 即崩，故整段下线改跳转。
+    window.location.href = '/finance-baseline';
   }
   function renderBaseline() {
     var cno = S.ctx.baseline;
@@ -1117,47 +1112,11 @@
     });
   }
   function editBaseline(contract_no, calc_type) {
-    var cnMap = { '概算': '概算', '基准预算': '基准预算', '生产预算': '生产预算', '核算': '核算', '决算': '决算' };
-    var cn = cnMap[calc_type] || calc_type;
-    var cfg = baselineItemsCfg('bl_items', 'ie_bl', cn + '分项明细',
-      (calc_type === '基准预算' || calc_type === '生产预算') ? dictOf('budget_category') : dictOf('cost_category'));
-    ITEM_CFGS.bl_items = cfg;
-    Promise.all([GET('/api/plm/contracts/' + encodeURIComponent(contract_no) + '/baselines'), loadContracts()]).then(function (rs) {
-      var list = (unwrap(rs[0]) || []).filter(function (b) { return b.calc_type === calc_type; });
-      var b = list[list.length - 1] || {};
-      showModal({
-        title: '录入' + cn + ' · ' + contract_no,
-        sub: (calc_type === '基准预算' ? '基准预算对标概算：超出时默认仅提示；开启管控开关后拒绝保存（FR-3）' :
-              (calc_type === '概算' ? '概算锁定后作为合同顶层管控基线（FR-2）' :
-               (calc_type === '核算' ? '核算=实际发生+未来预估，滚动版本（FR-3）' : '该阶段录入基线'))),
-        width: 800,
-        fields: [{ k: 'total_income', l: '收入口径', t: 'num', unit: '元', def: b.total_income || 0,
-                   hint: '留空则取合同签约金额' }],
-        values: { total_income: b.total_income },
-        itemsCfg: cfg,
-        okText: '保存' + cn,
-        onSubmit: function (p) {
-          var items = collectItems(cfg);
-          var body = { calc_type: calc_type, total_income: p.total_income, items: items, operator: OPERATOR };
-          if (b.id) body.id = b.id;
-          return POST('/api/plm/contracts/' + encodeURIComponent(contract_no) + '/baselines', body).then(function (r) {
-            if (r.success === false) { toast(r.error, false); return false; }
-            return r;
-          });
-        },
-        onDone: function () { renderBaseline(); ['pmo', 'finance', 'panorama'].forEach(function (v) { S.loaded[v] = false; }); }
-      });
-      if (b.items) setTimeout(function () {
-        var tb = qs('#ie_bl_body');
-        if (tb) tb.innerHTML = b.items.map(function (it) { return itemRowHtml(cfg, it); }).join('');
-      }, 0);
-    });
+    // 四算编辑已迁财经域 /finance-baseline（此路径仅作向后兜底跳转）。
+    window.location.href = '/finance-baseline';
   }
   function lockBase(bid) {
-    POST('/api/plm/baselines/' + bid + '/lock', { operator: OPERATOR }).then(function (r) {
-      if (r.success === false) return toast(r.error, false);
-      toast('概算基线已锁定'); renderBaseline();
-    });
+    window.location.href = '/finance-baseline';
   }
 
   // ---------- 5 PMO 进度 ----------

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>四算基线 · 财经 · 经营业务工作台</title>
+<link rel="stylesheet" href="/common.css">
+<!-- echarts 未必需，保留引入以兼容状态分布等可选图 -->
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+</head>
+<body>
+<div id="app" class="app-frame">
+  <!-- 两级导航 · 顶部：左面包屑 + 右主菜单(域) -->
+  <div class="app-topbar">
+    <nav class="breadcrumb" id="breadcrumb"></nav>
+    <nav class="topmenu" id="topMenu"></nav>
+  </div>
+
+  <!-- 主体：左=财经域手风琴；右=页面 -->
+  <div class="app-body">
+    <aside class="nav-rail" id="navRail"></aside>
+
+    <main class="app-main app-content">
+      <!-- 工具条 -->
+      <div class="bl-bar" id="blBar">
+        <label>归集合同</label>
+        <select id="blContract" onchange="Baseline.pick(this.value)"></select>
+        <span class="bl-meta" id="blMeta"></span>
+        <span style="flex:1"></span>
+        <button class="btn btn-o btn-s" onclick="Baseline.seed()" title="从 md_contract 主数据灌入 基准预算/核算">▶ 重灌种子</button>
+      </div>
+
+      <!-- 结果区：四算对比 -->
+      <div id="blBody"><div class="ana-empty"><div class="icon">⏳</div><div>正在加载合同清单...</div></div></div>
+    </main>
+  </div>
+</div>
+
+<script src="/nav.config.js"></script>
+<script src="/finance-baseline.app.js"></script>
+</body>
+</html>

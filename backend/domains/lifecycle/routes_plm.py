@@ -122,6 +122,12 @@ def api_plm_convert(payload: Dict[str, Any]):
 def api_plm_ct_list(keyword: Optional[str] = None):
     return _plm_ret(plm.list_contracts(keyword))
 
+
+@router.get("/api/plm/master-contracts")
+def api_plm_master_contracts(keyword: Optional[str] = None):
+    """轻量合同清单（财经域四算下拉数据源，读 md_contract 主数据）。"""
+    return plm.list_master_contract_summary(keyword or '')
+
 @router.post("/api/plm/contracts")
 def api_plm_ct_create(payload: Dict[str, Any]):
     return _plm_ret(plm.create_contract(payload, _plm_op(payload)))

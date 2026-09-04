@@ -62,6 +62,7 @@
         { id: 'fin-cycle', label: '回款周期', href: '/finance-cycle', icon: 'cycle' },
         { id: 'fin-gross', label: '毛利率', href: '/gross', icon: 'gross' },
         { id: 'fin-fund',  label: '资金占用 · 周转率', href: '/finance-fund', icon: 'fund' },
+        { id: 'fin-baseline', label: '四算基线', href: '/finance-baseline', icon: 'gross' },
         { id: 'fin-cost',  label: '成本预警', href: '/finance-cost', icon: 'chart' }
       ] }
     ]},
