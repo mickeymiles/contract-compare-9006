@@ -209,21 +209,22 @@
       var r = await fetch(API + '/api/plm/four-calc/projection');
       var j = await r.json();
       if (j && j.success) {
-        var data = j.data || {};
-        root.FC_ROWS = data.data || [];
-        COST_BASIS_NOTE = data.cost_basis || '';
-        var summary = data.summary || {};
+        // 后端平铺返回 {success,total,data:[rows],summary,stages,cost_basis}
+        root.FC_ROWS = j.data || [];
+        COST_BASIS_NOTE = j.cost_basis || '';
+        var summary = j.summary || {};
+        var dataTotal = j.total || root.FC_ROWS.length;
         // 从行内计算预警分布（更可靠，含无预算不判）
         var warnCount = { '正常': 0, '预警': 0, '超支': 0 };
         (root.FC_ROWS).forEach(function (x) {
           if (warnCount[x.cost_warning_status] !== undefined) warnCount[x.cost_warning_status]++;
           else warnCount['正常']++;
         });
-        status('合同级只读投影 ' + (data.total || 0) + ' 个业务单元 · 预算有值 ' + (summary['有预算成本'] || '0')
+        status('合同级只读投影 ' + dataTotal + ' 个业务单元 · 预算有值 ' + (summary['有预算成本'] || '0')
           + ' · 核算有值 ' + (summary['有核算成本'] || '0') + ' · 无录入');
         renderOverview(summary, warnCount, document.getElementById('fcOverview'));
-        renderDetailPane(root.FC_ROWS, data.total, data.stages || STAGE_ORDER);
-        if (data.stages && data.stages.length) STAGE_ORDER.length = 0, STAGE_ORDER.push.apply(STAGE_ORDER, data.stages);
+        renderDetailPane(root.FC_ROWS, dataTotal, j.stages || STAGE_ORDER);
+        if (j.stages && j.stages.length) STAGE_ORDER.length = 0, STAGE_ORDER.push.apply(STAGE_ORDER, j.stages);
       } else {
         status((j && j.error) || '四算投影为空');
         var ov = document.getElementById('fcOverview');
