@@ -26,37 +26,39 @@
           <h2 data-page-node-id="ZODUNHZHDO8guj3iw3XOoW">合同主数据</h2>
           <span class="hdr-sub" id="hdrSubContract" data-page-node-id="dzxdgvyoe4o5dhx9WfxRiL"></span>
         </div>
-        <div id="contractTabs" class="tabbar" data-on-switch="Master.onContractTab" data-page-node-id="AyGB1cuIubxZEDCoIxi0Kf">
-          <button type="button" class="tab-btn active" data-tab="contract" data-host="contractTabs" onclick="NAV_CONFIG.anaSwitch(this)" data-page-node-id="oQZdpCyeQBToFPHGDiJNEA">合同表</button>
-          <button type="button" class="tab-btn" data-tab="recv" data-host="contractTabs" onclick="NAV_CONFIG.anaSwitch(this)" data-page-node-id="OFef7lKLYKfRN20z5vrP4J">收款表</button>
-          <button type="button" class="tab-btn" data-tab="pay" data-host="contractTabs" onclick="NAV_CONFIG.anaSwitch(this)" data-page-node-id="KYCZkczqMoYMxU5dUcJH52">付款表</button>
-        </div>
-        <div class="ana-pane on" data-pane="contract" data-page-node-id="kWaNW3SRLq1AA5NUo2kOK2">
-          <div class="fbar" data-page-node-id="hzNLTFfwne6TYALafAYtRy">
-            <button class="btn btn-o btn-s" onclick="document.getElementById('importContract').click()" data-page-node-id="xMfXZYhLAjkenNqyIZgi6s">📥 导入合同Excel</button>
-            <input type="file" id="importContract" accept=".xlsx,.xls" style="display:none" onchange="Master.importMaster('contract', this)" data-page-node-id="udnuw8Wp1ZkZUe3KkWys7a">
-            <input id="kwContract" placeholder="搜索 合同号 / 名称" style="min-width:240px" onkeydown="if(event.key==='Enter')Master.reload('contract')" data-page-node-id="9jpFGIf3tQYzAXdpuC5tDH">
-            <button class="btn btn-o btn-s" onclick="Master.reload('contract')" data-page-node-id="snvIkOOc1pX4klWgEkjpCn">搜索</button>
+        <div id="contractTabs" data-on-switch="Master.onContractTab" data-page-node-id="AyGB1cuIubxZEDCoIxi0Kf">
+          <div class="tabbar" data-page-node-id="tabbarInnerContract">
+            <button type="button" class="tab-btn active" data-tab="contract" data-host="contractTabs" onclick="NAV_CONFIG.anaSwitch(this)" data-page-node-id="oQZdpCyeQBToFPHGDiJNEA">合同表</button>
+            <button type="button" class="tab-btn" data-tab="recv" data-host="contractTabs" onclick="NAV_CONFIG.anaSwitch(this)" data-page-node-id="OFef7lKLYKfRN20z5vrP4J">收款表</button>
+            <button type="button" class="tab-btn" data-tab="pay" data-host="contractTabs" onclick="NAV_CONFIG.anaSwitch(this)" data-page-node-id="KYCZkczqMoYMxU5dUcJH52">付款表</button>
           </div>
-          <div class="twrap" data-page-node-id="kaB5TN63KurUdlGezGZ8ca"><table class="obj-table" id="tblContract" data-page-node-id="tMDEgXkZfadSGncWRDVSgd"></table></div>
-        </div>
-        <div class="ana-pane" data-pane="recv" data-page-node-id="i9Wr9OoYmaWjjdo38qLidV">
-          <div class="fbar" data-page-node-id="uwkdj4SHBJGJaT9GT15qVM">
-            <button class="btn btn-o btn-s" onclick="document.getElementById('importRecv').click()" data-page-node-id="GcWFhVrWuevstziBJWTl74">📥 导入收款Excel</button>
-            <input type="file" id="importRecv" accept=".xlsx,.xls" style="display:none" onchange="Master.importMaster('recv', this)" data-page-node-id="lzNnly9bMa20CVclJVCYZo">
-            <input id="kwRecv" placeholder="搜索 合同号" style="min-width:240px" onkeydown="if(event.key==='Enter')Master.reload('recv')" data-page-node-id="cTTMP7HLZuTu3dME658IK8">
-            <button class="btn btn-o btn-s" onclick="Master.reload('recv')" data-page-node-id="D0bU6ZJSQFqp7AhHOXy6o1">搜索</button>
+          <div class="ana-pane on" data-pane="contract" data-page-node-id="kWaNW3SRLq1AA5NUo2kOK2">
+            <div class="fbar" data-page-node-id="hzNLTFfwne6TYALafAYtRy">
+              <button class="btn btn-o btn-s" onclick="document.getElementById('importContract').click()" data-page-node-id="xMfXZYhLAjkenNqyIZgi6s">📥 导入合同Excel</button>
+              <input type="file" id="importContract" accept=".xlsx,.xls" style="display:none" onchange="Master.importMaster('contract', this)" data-page-node-id="udnuw8Wp1ZkZUe3KkWys7a">
+              <input id="kwContract" placeholder="搜索 合同号 / 名称" style="min-width:240px" onkeydown="if(event.key==='Enter')Master.reload('contract')" data-page-node-id="9jpFGIf3tQYzAXdpuC5tDH">
+              <button class="btn btn-o btn-s" onclick="Master.reload('contract')" data-page-node-id="snvIkOOc1pX4klWgEkjpCn">搜索</button>
+            </div>
+            <div class="twrap" data-page-node-id="kaB5TN63KurUdlGezGZ8ca"><table class="obj-table" id="tblContract" data-page-node-id="tMDEgXkZfadSGncWRDVSgd"></table></div>
           </div>
-          <div class="twrap" data-page-node-id="FZl6982h6fEfCApwBEJxN3"><table class="obj-table" id="tblRecv" data-page-node-id="iAOnaARWh0ZL4grXTDO2ks"></table></div>
-        </div>
-        <div class="ana-pane" data-pane="pay" data-page-node-id="bDZrbrMpPop600s8d8phyO">
-          <div class="fbar" data-page-node-id="abNIzPFrnuUDtFzHRomGMN">
-            <button class="btn btn-o btn-s" onclick="document.getElementById('importPay').click()" data-page-node-id="W064t1obF27rGUcryoAOH0">📥 导入付款Excel</button>
-            <input type="file" id="importPay" accept=".xlsx,.xls" style="display:none" onchange="Master.importMaster('pay', this)" data-page-node-id="Sv3BNHEr4txYwFU4bXs6dF">
-            <input id="kwPay" placeholder="搜索 合同号" style="min-width:240px" onkeydown="if(event.key==='Enter')Master.reload('pay')" data-page-node-id="T0TCAAtGogXInNp0y0uCvf">
-            <button class="btn btn-o btn-s" onclick="Master.reload('pay')" data-page-node-id="O68QpnFGKGO5GiVE3BSXXt">搜索</button>
+          <div class="ana-pane" data-pane="recv" data-page-node-id="i9Wr9OoYmaWjjdo38qLidV">
+            <div class="fbar" data-page-node-id="uwkdj4SHBJGJaT9GT15qVM">
+              <button class="btn btn-o btn-s" onclick="document.getElementById('importRecv').click()" data-page-node-id="GcWFhVrWuevstziBJWTl74">📥 导入收款Excel</button>
+              <input type="file" id="importRecv" accept=".xlsx,.xls" style="display:none" onchange="Master.importMaster('recv', this)" data-page-node-id="lzNnly9bMa20CVclJVCYZo">
+              <input id="kwRecv" placeholder="搜索 合同号" style="min-width:240px" onkeydown="if(event.key==='Enter')Master.reload('recv')" data-page-node-id="cTTMP7HLZuTu3dME658IK8">
+              <button class="btn btn-o btn-s" onclick="Master.reload('recv')" data-page-node-id="D0bU6ZJSQFqp7AhHOXy6o1">搜索</button>
+            </div>
+            <div class="twrap" data-page-node-id="FZl6982h6fEfCApwBEJxN3"><table class="obj-table" id="tblRecv" data-page-node-id="iAOnaARWh0ZL4grXTDO2ks"></table></div>
           </div>
-          <div class="twrap" data-page-node-id="8gP4OWMIOu679dlOXUeAz3"><table class="obj-table" id="tblPay" data-page-node-id="dpSAlm0eLGFXh7ywsEJAWU"></table></div>
+          <div class="ana-pane" data-pane="pay" data-page-node-id="bDZrbrMpPop600s8d8phyO">
+            <div class="fbar" data-page-node-id="abNIzPFrnuUDtFzHRomGMN">
+              <button class="btn btn-o btn-s" onclick="document.getElementById('importPay').click()" data-page-node-id="W064t1obF27rGUcryoAOH0">📥 导入付款Excel</button>
+              <input type="file" id="importPay" accept=".xlsx,.xls" style="display:none" onchange="Master.importMaster('pay', this)" data-page-node-id="Sv3BNHEr4txYwFU4bXs6dF">
+              <input id="kwPay" placeholder="搜索 合同号" style="min-width:240px" onkeydown="if(event.key==='Enter')Master.reload('pay')" data-page-node-id="T0TCAAtGogXInNp0y0uCvf">
+              <button class="btn btn-o btn-s" onclick="Master.reload('pay')" data-page-node-id="O68QpnFGKGO5GiVE3BSXXt">搜索</button>
+            </div>
+            <div class="twrap" data-page-node-id="8gP4OWMIOu679dlOXUeAz3"><table class="obj-table" id="tblPay" data-page-node-id="dpSAlm0eLGFXh7ywsEJAWU"></table></div>
+          </div>
         </div>
       </div>
 
