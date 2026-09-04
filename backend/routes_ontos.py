@@ -4,14 +4,18 @@
 - TBox 定义：ontos submodule，``ontos.domain_business.to_spec()``。
 - 物理字段：``datasource/datasource_meta.json`` 中「总合同表」(208 列)、
   「项目里程碑表」(77 列) 的最新版本列清单。
+- 定义覆盖层：``ontos_overrides.json``（页面编辑保存，合并进 spec；不落库、不进版本库）。
 
 设计要点：
 - to_spec() 每次请求实时执行，改 ontos 代码后刷新页面即生效（TBox 不落库）。
+- 页面"可编辑保存"通过覆盖层实现：编辑只写 ontos_overrides.json，运行期合并进 spec，
+  不回写 ontos Python 源码（安全、可逆、可删）。
 - ontos 不可用时返回 503 + 明确原因，不静默降级为旧数据（避免"看到的是假的"）。
 """
 import os
 import sys
 import json
+import threading
 
 from fastapi import APIRouter
 from fastapi.responses import FileResponse, JSONResponse
@@ -23,6 +27,64 @@ DATASOURCE_META = os.path.join(REPO_ROOT, 'datasource', 'datasource_meta.json')
 ONTOS_ROOT = os.path.join(REPO_ROOT, 'ontos')                    # submodule 根（内含 ontos/ 包）
 
 router = APIRouter(tags=['ontos-topology'])
+
+# ── 定义覆盖层（页面编辑保存，合并进 spec） ──────────────────
+# 结构：{"entities":{id:{...字段}}, "functions":{id:{...}}, "actions":{id:{...}}}
+# 仅覆盖页面可编辑字段；运行期合并，不回写 ontos 源码。
+OVERRIDE_PATH = os.path.join(REPO_ROOT, 'ontos_overrides.json')
+_OVERRIDE_LOCK = threading.Lock()
+# 允许被覆盖的字段白名单（防止任意键注入）
+_OVERRIDE_FIELDS = {
+    'entity': {'cn', 'desc', 'attributes'},
+    'function': {'name', 'category', 'description', 'inputs', 'outputs', 'produces_for'},
+    'action': {'name', 'category', 'definition', 'conditions', 'effects',
+               'invariants', 'idempotent', 'targets'},
+}
+_KIND_KEY = {'entity': 'entities', 'function': 'functions', 'action': 'actions'}
+
+
+def _load_overrides():
+    if not os.path.exists(OVERRIDE_PATH):
+        return {'entities': {}, 'functions': {}, 'actions': {}}
+    try:
+        with open(OVERRIDE_PATH, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except (ValueError, OSError):
+        return {'entities': {}, 'functions': {}, 'actions': {}}
+    data.setdefault('entities', {})
+    data.setdefault('functions', {})
+    data.setdefault('actions', {})
+    return data
+
+
+def _save_overrides(data):
+    tmp = OVERRIDE_PATH + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, OVERRIDE_PATH)
+
+
+def _apply_overrides(spec, overrides):
+    """把覆盖层合并进 spec（仅覆盖白名单字段）。"""
+    for kind, key in _KIND_KEY.items():
+        ov = overrides.get(key, {}) or {}
+        if not ov:
+            continue
+        for item in spec.get(key, []):
+            # 统一用 id 作为覆盖键（实体补 id=name）
+            iid = item.get('id') or item.get('name')
+            o = ov.get(iid)
+            if not o:
+                continue
+            allowed = _OVERRIDE_FIELDS[kind]
+            for fld, val in o.items():
+                if fld in allowed:
+                    item[fld] = val
+    # 实体补 id（=name），便于前端稳定引用
+    for e in spec.get('entities', []):
+        if 'id' not in e and e.get('name'):
+            e['id'] = e['name']
+    return spec
 
 # 实体 → 权威物理数据集（用户确认：合同表最全，作属性参考基准）
 ENTITY_DATASET = {
@@ -199,6 +261,11 @@ def api_ontos_spec():
             'message': f'ontos 加载失败：{exc}',
         })
     spec['success'] = True
+    # 合并页面编辑覆盖层（不回写 ontos 源码，运行期生效）
+    try:
+        spec = _apply_overrides(spec, _load_overrides())
+    except Exception:
+        pass
     spec['meta'] = {
         'source': 'ontos.domain_business.to_spec()',
         'domain': 'business-v4',
@@ -288,6 +355,42 @@ def api_payment_cycle_all(basis: str = 'last', prefer: str = 'milestone_plan',
         return JSONResponse(status_code=500, content={
             'success': False, 'error': 'scenario_error',
             'message': f'回款周期汇总失败：{exc}'})
+
+
+# ─────────────────────────── 定义编辑（覆盖层保存） ───────────────────────────
+
+class OntosDefUpdate(BaseModel):
+    """可编辑字段集合（按 kind 限定白名单，后端再过滤）。"""
+    fields: dict = {}
+
+
+@router.post('/api/ontos/definition/{kind}/{item_id}')
+def api_save_definition(kind: str, item_id: str, body: OntosDefUpdate):
+    """保存某定义的编辑结果到覆盖层（ontos_overrides.json）。
+
+    kind: entity | function | action；item_id 为 spec 中实体的 name / 函数·动作的 id。
+    仅白名单字段被接受，其余忽略。返回成功后前端重新拉取 spec 即可看到合并结果。
+    """
+    if kind not in _KIND_KEY:
+        return JSONResponse(status_code=400, content={
+            'success': False, 'error': 'bad_kind',
+            'message': 'kind 必须是 entity / function / action'})
+    allowed = _OVERRIDE_FIELDS[kind]
+    clean = {k: v for k, v in (body.fields or {}).items() if k in allowed}
+    if not clean:
+        return JSONResponse(status_code=400, content={
+            'success': False, 'error': 'no_valid_field',
+            'message': '没有可保存的白名单字段'})
+    key = _KIND_KEY[kind]
+    with _OVERRIDE_LOCK:
+        ov = _load_overrides()
+        ov.setdefault(key, {})
+        prev = ov[key].get(item_id, {})
+        prev.update(clean)
+        ov[key][item_id] = prev
+        _save_overrides(ov)
+    return {'success': True, 'kind': kind, 'id': item_id,
+            'saved_fields': sorted(clean.keys())}
 
 
 # ─────────────────────────── 通用计算分发（权威计算面） ───────────────────────────

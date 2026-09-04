@@ -20,3 +20,6 @@ nohup.out
 *.db-wal
 # 根独立项目数据备份（本地留存，不进版本库）
 archive/2026-08-17-root-legacy-project/
+
+# 本体定义编辑覆盖层（运行时由服务写入，不进版本库，部署 rsync 不加 --delete 故线上保留）
+ontos_overrides.json
