@@ -234,6 +234,15 @@
     ensureGraph();
   }
 
+  // 选中某组下的某个分类：切换中间列表 + 清空右侧编辑区
+  function selectCategory(group, cat){
+    activeGroup=group; activeCat=cat; selected=null; mode='drill'; searching=false;
+    renderSide();          // 高亮当前分类
+    setCanvas('drill');
+    renderList();          // 中间面板列出该分类全部条目
+    clearRight();          // 右侧回到占位（待选中条目）
+  }
+
   /* ── 中间面板：列表 ──────────────────────────── */
   function renderList(){
     const d=document.getElementById('detail');
@@ -621,6 +630,7 @@
         document.getElementById('g6').style.display=v==='graph'?'block':'none';
         document.getElementById('g6-table').style.display=v==='graph'?'none':'block';
         document.getElementById('g-tools').style.display=v==='graph'?'flex':'none';
+        if(v==='table') renderTable();
         const mm=document.querySelector('.g6-minimap-container, .g-minimap');
         if(mm) mm.style.display=v==='graph'?'block':'none';
         if(v==='graph'&&graph) setTimeout(()=>graph.fitView(40),100);
