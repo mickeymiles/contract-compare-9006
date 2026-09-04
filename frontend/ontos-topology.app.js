@@ -85,9 +85,10 @@
     const top=NODES.filter(n=>n.kind==='top');
     const child=NODES.filter(n=>n.kind==='child');
     const ext=NODES.filter(n=>n.kind==='external');
+    const fn=(SPEC.functions||[]), ac=(SPEC.actions||[]);
 
     let html='';
-    html+='<div class="sgrp"><h4>By Type <span class="n">'+NODES.length+'</span></h4><ul>';
+    html+='<div class="sgrp"><h4>实体类型 <span class="n">'+NODES.length+'</span></h4><ul>';
     [['top','顶层',top],['child','子实体',child],['external','外部',ext]].forEach(([k,lab,arr])=>{
       html+='<li data-filter-kind="'+k+'"><span class="dot '+k+'"></span>'+lab+
         '<span class="ct">'+arr.length+'</span></li>';
@@ -103,7 +104,53 @@
     });
     html+='</ul></div>';
 
+    html+=renderFnGroup(fn);
+    html+=renderActGroup(ac);
+
     side.innerHTML=html;
+    bindSideEvents();
+  }
+
+  function groupByCat(arr){
+    const by={};
+    arr.forEach(x=>{const c=x.category||'未分类'; (by[c]=by[c]||[]).push(x);});
+    return by;
+  }
+  function renderFnGroup(fn){
+    if(!fn.length) return '';
+    const by=groupByCat(fn);
+    let h='<div class="sgrp" data-collapse="1"><h4>函数目录 <span class="n">'+fn.length+'</span><span class="tg">▾</span></h4><ul>';
+    Object.keys(by).sort().forEach(cat=>{
+      h+='<li class="sub-h"><span class="lbl" style="color:var(--green)">'+esc(cat)+'</span>'+
+         '<span class="ct">'+by[cat].length+'</span></li>';
+      by[cat].forEach(f=>{
+        h+='<li data-kind="function" data-id="'+esc(f.id)+'"><span class="dot fn"></span>'+
+           '<span class="lbl">'+esc(f.name||f.id)+'</span>'+
+           '<span class="en">'+esc(f.id)+'</span></li>';
+      });
+    });
+    return h+'</ul></div>';
+  }
+  function renderActGroup(ac){
+    if(!ac.length) return '';
+    const by=groupByCat(ac);
+    let h='<div class="sgrp" data-collapse="1"><h4>动作目录 <span class="n">'+ac.length+'</span><span class="tg">▾</span></h4><ul>';
+    Object.keys(by).sort().forEach(cat=>{
+      h+='<li class="sub-h"><span class="lbl" style="color:var(--orange)">'+esc(cat)+'</span>'+
+         '<span class="ct">'+by[cat].length+'</span></li>';
+      by[cat].forEach(a=>{
+        h+='<li data-kind="action" data-id="'+esc(a.id)+'"><span class="dot act"></span>'+
+           '<span class="lbl">'+esc(a.name||a.id)+'</span>'+
+           '<span class="en">'+esc(a.id)+'</span></li>';
+      });
+    });
+    return h+'</ul></div>';
+  }
+  function bindSideEvents(){
+    const side=document.getElementById('side');
+    side.querySelectorAll('.sgrp[data-collapse] h4').forEach(h=>{
+      h.addEventListener('click',()=>h.parentElement.classList.toggle('collapsed'));
+    });
     side.querySelectorAll('#ent-list li').forEach(li=>{
       li.addEventListener('click',()=>select(li.dataset.id));
     });
@@ -115,6 +162,12 @@
         });
       });
     });
+    side.querySelectorAll('li[data-kind="function"], li[data-kind="action"]').forEach(li=>{
+      li.addEventListener('click',()=>selectItem(li.dataset.kind, li.dataset.id));
+    });
+  }
+  function clearSideActive(){
+    document.querySelectorAll('#side li').forEach(li=>li.classList.remove('active'));
   }
 
   /* ── 中间面板 · 默认概览 ──────────────────────── */
@@ -134,7 +187,7 @@
     html+='<div class="ov-section"><h4>函数 <span class="n">'+nf+'</span></h4>';
     (SPEC.functions||[]).forEach(f=>{
       const io='('+(f.inputs||[]).join(', ')+' → '+(f.outputs||[]).join(', ')+')';
-      html+='<div class="it"><b style="color:var(--cyan2);">'+esc(f.name)+'</b>'+
+      html+='<div class="it" data-jump="'+esc(f.id)+'" style="cursor:pointer"><b style="color:var(--cyan2);">'+esc(f.name)+'</b>'+
         '<span class="id">'+esc(f.id)+'</span>'+
         '<div class="desc">'+esc(f.description||'')+'</div>'+
         '<div class="meta">'+esc(io)+'</div></div>';
@@ -143,7 +196,7 @@
 
     html+='<div class="ov-section"><h4>动作 <span class="n">'+na+'</span></h4>';
     (SPEC.actions||[]).forEach(a=>{
-      html+='<div class="it"><b style="color:var(--purple);">'+esc(a.name||a.id)+'</b>'+
+      html+='<div class="it" data-jump="'+esc(a.id)+'" style="cursor:pointer"><b style="color:var(--purple);">'+esc(a.name||a.id)+'</b>'+
         '<span class="id">'+esc(a.id)+'</span>'+
         '<div class="desc">'+esc(a.definition||'')+'</div></div>';
     });
@@ -169,9 +222,9 @@
       html+='</div>';
     }
 
-    html+='<div class="unote">点击左侧任意实体，查看其<b>语义属性 / 关系 / 启发式匹配的函数与动作</b>，以及物理字段映射。' +
-      '<br><span style="color:var(--text2);">⚡ 函数/动作的「按实体映射」当前为<b>启发式匹配</b>（基于 inputs/outputs/description 子串）；后续可由 ontos TBox 补结构化 owner 字段切换为权威归属。</span></div>';
-    d.innerHTML=html;
+    html+='<div class="unote">点击左侧<b>实体 / 函数目录 / 动作目录</b>，查看其<b>语义属性 / 关系 / 产出归属 / 指向关系</b>，以及物理字段映射。' +
+      '<br><span style="color:var(--text2);">函数→产出实体、动作→指向实体的关联均由 ontos TBox <b>结构化字段</b>（produces_for / targets）权威给出，非启发式匹配。</span></div>';
+    d.innerHTML=html; bindDetailJumps(d);
   }
 
   /* ── 中间面板 · 实体详情 ──────────────────────── */
@@ -217,31 +270,31 @@
     }
     html+='</div>';
 
-    // 相关函数（启发式）
-    const relFn=heuristicFns(n);
-    html+='<div class="pn-sec"><h4>相关函数 <span class="ln"></span><span class="ct">'+relFn.length+'</span><span class="hz">⚡ 启发式</span></h4>';
+    // 相关函数（结构化：produces_for 指向本实体）
+    const relFn=(SPEC.functions||[]).filter(f=>(f.produces_for||[]).indexOf(n.id)>=0);
+    html+='<div class="pn-sec"><h4>产出属性归属本实体的函数 <span class="ln"></span><span class="ct">'+relFn.length+'</span><span class="hz">结构化</span></h4>';
     if(relFn.length){
       relFn.forEach(f=>{
         const io='('+(f.inputs||[]).join(', ')+' → '+(f.outputs||[]).join(', ')+')';
-        html+='<div class="fn-item"><span class="nm">'+esc(f.name)+'</span><span class="id">'+esc(f.id)+'</span>' +
+        html+='<div class="fn-item" data-jump="'+esc(f.id)+'"><span class="nm">'+esc(f.name)+'</span><span class="id">'+esc(f.id)+'</span>' +
           '<div class="desc">'+esc(f.description||'')+'</div>' +
           '<div class="io">'+esc(io)+'</div></div>';
       });
     } else {
-      html+='<div class="u-empty">（无启发式匹配 — 后续补 ontos owner 字段可权威归属）</div>';
+      html+='<div class="u-empty">（暂无函数以本实体为产出归属）</div>';
     }
     html+='</div>';
 
-    // 相关动作（启发式）
-    const relAct=heuristicActs(n);
-    html+='<div class="pn-sec"><h4>相关动作 <span class="ln"></span><span class="ct">'+relAct.length+'</span><span class="hz">⚡ 启发式</span></h4>';
+    // 相关动作（结构化：targets 指向本实体）
+    const relAct=(SPEC.actions||[]).filter(a=>(a.targets||[]).indexOf(n.id)>=0);
+    html+='<div class="pn-sec"><h4>指向本实体的动作 <span class="ln"></span><span class="ct">'+relAct.length+'</span><span class="hz act">结构化</span></h4>';
     if(relAct.length){
       relAct.forEach(a=>{
-        html+='<div class="act-item"><span class="nm">'+esc(a.name||a.id)+'</span><span class="id">'+esc(a.id)+'</span>' +
+        html+='<div class="act-item" data-jump="'+esc(a.id)+'"><span class="nm">'+esc(a.name||a.id)+'</span><span class="id">'+esc(a.id)+'</span>' +
           '<div class="desc">'+esc(a.definition||'')+'</div></div>';
       });
     } else {
-      html+='<div class="u-empty">（无启发式匹配）</div>';
+      html+='<div class="u-empty">（暂无动作指向本实体）</div>';
     }
     html+='</div>';
 
@@ -249,20 +302,107 @@
     html+=renderPhysical(n);
 
     d.innerHTML=html; d.scrollTop=0;
+    bindDetailJumps(d);
   }
 
-  function heuristicFns(n){
-    return (SPEC.functions||[]).filter(f=>{
-      const s=((f.inputs||[]).concat(f.outputs||[]).join(' ')+' '+(f.description||'')+' '+(f.id||'')).toLowerCase();
-      const k1=n.id.toLowerCase(), k2=n.label.toLowerCase(), k3=n.en.toLowerCase();
-      return s.indexOf(k1)>=0 || s.indexOf(k2)>=0 || s.indexOf(k3)>=0;
+  /* ── 函数/动作详情（侧栏分组点击） ──────────────── */
+  function selectItem(kind,id){
+    selectedId=null;
+    clearSideActive();
+    const li=document.querySelector('#side li[data-kind="'+kind+'"][data-id="'+id+'"]');
+    if(li) li.classList.add('active');
+    if(kind==='function'){
+      const f=(SPEC.functions||[]).find(x=>x.id===id);
+      if(f){ renderItemDetail('function',f); highlightNodes(f.produces_for||[]); }
+    } else {
+      const a=(SPEC.actions||[]).find(x=>x.id===id);
+      if(a){ renderItemDetail('action',a); highlightNodes(a.targets||[]); }
+    }
+  }
+
+  function renderItemDetail(kind,item){
+    const d=document.getElementById('detail');
+    const isFn=kind==='function';
+    const tagBg=isFn?'rgba(52,211,153,.14)':'rgba(251,191,36,.14)';
+    const tagBd=isFn?'#34d399':'#fbbf24';
+    const tagTx=isFn?'#34d399':'#fbbf24';
+    const name=item.name||item.id;
+    const cat=item.category||'未分类';
+    let html='<div class="pn-head">'+
+      '<span class="pn-tag" style="background:'+tagBg+';color:'+tagTx+';border:1px solid '+tagBd+'">'+(isFn?'函数':'动作')+'</span>'+
+      '<span class="pn-tag" style="background:rgba(125,141,176,.12);color:var(--text2);border:1px solid var(--border)">'+esc(cat)+'</span>'+
+      '<h2>'+esc(name)+'</h2>'+
+      '<div class="en">'+esc(item.id)+'</div>'+
+      (item.description||item.definition?'<div class="desc">'+esc(item.description||item.definition||'')+'</div>':'')+
+      '</div>';
+
+    if(isFn){
+      const io='('+(item.inputs||[]).join(', ')+' → '+(item.outputs||[]).join(', ')+')';
+      html+='<div class="pn-sec"><h4>输入输出 <span class="ln"></span></h4><div class="meta-line">'+esc(io)+'</div></div>';
+      const pf=item.produces_for||[];
+      html+='<div class="pn-sec"><h4>产出属性归属实体 <span class="ln"></span><span class="ct">'+pf.length+'</span><span class="hz">结构化</span></h4>';
+      html+= pf.length
+        ? '<div class="rel-entities">'+pf.map(e=>'<span class="ent-chip" data-jump="'+esc(e)+'">'+esc(e)+'</span>').join('')+'</div>'
+        : '<div class="u-empty">（无归属实体）</div>';
+      html+='</div>';
+    } else {
+      const con=(item.conditions||[]).join('；');
+      const inv=Array.isArray(item.invariants)?item.invariants.join('；'):(item.invariants||'');
+      html+='<div class="pn-sec"><h4>条件 <span class="ln"></span></h4><div class="desc-block">'+esc(con||'(无)')+'</div></div>';
+      html+='<div class="pn-sec"><h4>效果 <span class="ln"></span></h4><div class="desc-block">'+esc(item.effects||'(无)')+'</div></div>';
+      if(inv) html+='<div class="pn-sec"><h4>不变量 <span class="ln"></span></h4><div class="desc-block">'+esc(inv)+'</div></div>';
+      html+='<div class="pn-sec"><h4>幂等 <span class="ln"></span></h4><div class="desc-block">'+esc(item.idempotent===false?'否':'是')+'</div></div>';
+      const tg=item.targets||[];
+      html+='<div class="pn-sec"><h4>指向实体 (targets) <span class="ln"></span><span class="ct">'+tg.length+'</span><span class="hz act">结构化</span></h4>';
+      html+= tg.length
+        ? '<div class="rel-entities">'+tg.map(e=>'<span class="ent-chip" data-jump="'+esc(e)+'">'+esc(e)+'</span>').join('')+'</div>'
+        : '<div class="u-empty">（无指向实体）</div>';
+      html+='</div>';
+    }
+
+    d.innerHTML=html; d.scrollTop=0;
+    bindDetailJumps(d);
+  }
+
+  function bindDetailJumps(d){
+    d.querySelectorAll('[data-jump]').forEach(el=>{
+      el.addEventListener('click',()=>{
+        const id=el.dataset.jump;
+        if(el.classList.contains('ent-chip')){ if(byId[id]) select(id); }
+        else { const k=el.classList.contains('fn-item')?'function':'action'; selectItem(k,id); }
+      });
     });
   }
-  function heuristicActs(n){
-    return (SPEC.actions||[]).filter(a=>{
-      const s=((a.definition||'')+' '+(a.effects||'')+' '+(a.conditions||[]).join(' ')+' '+(a.id||'')).toLowerCase();
-      const k1=n.id.toLowerCase(), k2=n.label.toLowerCase(), k3=n.en.toLowerCase();
-      return s.indexOf(k1)>=0 || s.indexOf(k2)>=0 || s.indexOf(k3)>=0;
+
+  /* ── 图谱：高亮一组实体（函数/动作相关实体） ── */
+  function highlightNodes(ids){
+    if(!graph) return;
+    const set=new Set((ids||[]).filter(x=>byId[x]));
+    if(!set.size){
+      graph.getNodes().forEach(n=>{
+        const m=n.getModel(), k=m.kind;
+        const stroke=k==='child'?HEX.purple:(k==='external'?HEX.text2:HEX.cyan);
+        n.update({style:{stroke,lineWidth:1.5,opacity:1,shadowColor:'rgba(79,140,255,.3)',shadowBlur:8}});
+      });
+      graph.getEdges().forEach(e=>e.update({style:{opacity:.55}}));
+      return;
+    }
+    graph.getNodes().forEach(n=>{
+      const m=n.getModel();
+      const hit=set.has(m.id);
+      const k=m.kind;
+      const stroke=k==='child'?HEX.purple:(k==='external'?HEX.text2:HEX.cyan);
+      n.update({style:{
+        stroke:hit?HEX.orange:stroke, lineWidth:hit?2.5:1.5,
+        opacity:hit?1:.25,
+        shadowColor:hit?'rgba(251,191,36,.6)':'rgba(79,140,255,.3)',
+        shadowBlur:hit?14:8,
+      }});
+    });
+    graph.getEdges().forEach(e=>{
+      const m=e.getModel();
+      const hit=set.has(m.source)&&set.has(m.target);
+      e.update({style:{opacity:hit?.85:.1}});
     });
   }
 
@@ -359,15 +499,15 @@
   function select(id){
     const n=byId[id]; if(!n) return;
     selectedId=id;
-    document.querySelectorAll('#ent-list li').forEach(li=>{
-      li.classList.toggle('active',li.dataset.id===id);
-    });
+    clearSideActive();
+    const li=document.querySelector('#ent-list li[data-id="'+id+'"]');
+    if(li) li.classList.add('active');
     renderDetail(n);
     highlightNode(id);
   }
   function clearSelection(){
     selectedId=null;
-    document.querySelectorAll('#ent-list li').forEach(li=>li.classList.remove('active'));
+    clearSideActive();
     renderPanel();
     if(graph){
       graph.getNodes().forEach(n=>{
@@ -447,8 +587,9 @@
     });
     document.getElementById('q').addEventListener('input',e=>{
       const q=e.target.value.trim().toLowerCase();
+      const allLi=document.querySelectorAll('#side li');
       if(!q){
-        document.querySelectorAll('#ent-list li').forEach(li=>li.style.display='');
+        allLi.forEach(li=>li.style.display='');
         if(graph){
           graph.getNodes().forEach(n=>n.update({style:{opacity:1}}));
           graph.getEdges().forEach(e=>e.update({style:{opacity:.55}}));
@@ -456,14 +597,25 @@
         return;
       }
       const hit=new Set();
-      document.querySelectorAll('#ent-list li').forEach(li=>{
-        const id=li.dataset.id, n=byId[id];
-        const m=n.label.toLowerCase().indexOf(q)>=0 ||
-          n.en.toLowerCase().indexOf(q)>=0 ||
-          (n.attrs||[]).some(a=>String(a.name).toLowerCase().indexOf(q)>=0 ||
-            String(a.desc||'').toLowerCase().indexOf(q)>=0);
+      allLi.forEach(li=>{
+        if(li.classList.contains('sub-h')){ li.style.display=''; return; }
+        const kind=li.dataset.kind, id=li.dataset.id;
+        let m=false;
+        if(kind==='function'){
+          const f=(SPEC.functions||[]).find(x=>x.id===id);
+          m = f ? ((f.name||f.id).toLowerCase().indexOf(q)>=0 || id.toLowerCase().indexOf(q)>=0 ||
+                   (f.category||'').toLowerCase().indexOf(q)>=0 || (f.description||'').toLowerCase().indexOf(q)>=0) : false;
+        } else if(kind==='action'){
+          const a=(SPEC.actions||[]).find(x=>x.id===id);
+          m = a ? ((a.name||a.id).toLowerCase().indexOf(q)>=0 || id.toLowerCase().indexOf(q)>=0 ||
+                   (a.category||'').toLowerCase().indexOf(q)>=0 || (a.definition||'').toLowerCase().indexOf(q)>=0) : false;
+        } else {
+          const n=byId[id];
+          m = n ? (n.label.toLowerCase().indexOf(q)>=0 || n.en.toLowerCase().indexOf(q)>=0 ||
+                   (n.attrs||[]).some(a=>String(a.name).toLowerCase().indexOf(q)>=0 || String(a.desc||'').toLowerCase().indexOf(q)>=0)) : false;
+        }
         li.style.display=m?'':'none';
-        if(m) hit.add(id);
+        if(m && kind!=='function' && kind!=='action') hit.add(id);
       });
       EDGES_.forEach(e=>{
         if(e.p.toLowerCase().indexOf(q)>=0){hit.add(e.s); hit.add(e.t);}

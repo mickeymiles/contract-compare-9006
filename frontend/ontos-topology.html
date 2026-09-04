@@ -80,6 +80,36 @@
   .sgrp li .ct{color:var(--text2);font-family:var(--mono);font-size:10px;
     margin-left:auto;background:var(--bg3);padding:1px 6px;border-radius:5px}
 
+  /* ===== 侧栏：函数/动作分组（可折叠） ===== */
+  .sgrp[data-collapse]{margin-bottom:14px}
+  .sgrp[data-collapse] h4{cursor:pointer;user-select:none}
+  .sgrp[data-collapse] h4 .tg{margin-left:auto;margin-right:2px;color:var(--text2);
+    font-size:10px;transition:transform .2s;transform:rotate(0)}
+  .sgrp[data-collapse].collapsed ul{display:none}
+  .sgrp[data-collapse].collapsed h4 .tg{transform:rotate(-90deg)}
+  .sgrp li.sub-h{background:rgba(125,141,176,.06);font-weight:600;cursor:default}
+  .sgrp li.sub-h:hover{background:rgba(125,141,176,.1);transform:none}
+  .sgrp li .dot.fn{background:linear-gradient(135deg,var(--green),#22d3ee);
+    box-shadow:0 0 6px rgba(52,211,153,.45)}
+  .sgrp li .dot.act{background:linear-gradient(135deg,var(--orange),#f87171);
+    box-shadow:0 0 6px rgba(251,191,36,.45)}
+  .sgrp li.flash{animation:liFlash .8s ease}
+  @keyframes liFlash{0%{background:rgba(251,191,36,.35)}100%{background:transparent}}
+
+  /* ===== 中面板：函数/动作详情 ===== */
+  .pn-sec .meta-line{font-family:var(--mono);font-size:11px;color:var(--cyan2);
+    background:var(--bg3);padding:6px 10px;border-radius:7px;border:1px solid var(--border)}
+  .desc-block{font-size:12px;color:var(--text2);line-height:1.7}
+  .rel-entities{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+  .ent-chip{cursor:pointer;font-family:var(--mono);font-size:11px;padding:3px 10px;border-radius:8px;
+    background:var(--bg3);border:1px solid var(--border);color:var(--cyan2);transition:all .15s}
+  .ent-chip:hover{background:linear-gradient(135deg,rgba(79,140,255,.2),transparent);
+    color:var(--cyan);border-color:var(--cyan)}
+  .pn-sec .hz{margin-left:auto;font-size:9px;padding:2px 8px;border-radius:8px;font-weight:500;
+    text-transform:none;letter-spacing:0;background:rgba(52,211,153,.12);color:var(--green);
+    border:1px solid rgba(52,211,153,.3)}
+  .pn-sec .hz.act{background:rgba(251,191,36,.12);color:var(--orange);border-color:rgba(251,191,36,.3)}
+
   /* ===== 中间面板 ===== */
   .pn-tag{display:inline-block;font-size:10px;font-weight:600;padding:2px 9px;border-radius:10px;
     margin-right:6px;letter-spacing:.3px;margin-bottom:8px}
