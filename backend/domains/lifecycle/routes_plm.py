@@ -220,6 +220,50 @@ def api_plm_baseline_lock(baseline_id: int, payload: Dict[str, Any] = None):
 def api_plm_baseline_delete(baseline_id: int, operator: str = Query('admin')):
     return _plm_ret(plm.delete_baseline(baseline_id, operator))
 
+
+# ───────── 四算重构：合同级路由（读 ontos CostBaseline，归集锚=合同） ─────────
+
+@router.get("/api/plm/contracts/{contract_no}/baselines")
+def api_plm_contract_baselines(contract_no: str):
+    return _plm_ret(plm.list_baselines(scope_type='contract', scope_key=contract_no))
+
+
+@router.get("/api/plm/contracts/{contract_no}/baseline-compare")
+def api_plm_contract_baseline_compare(contract_no: str):
+    return _plm_ret(plm.compare_contract_baselines(contract_no))
+
+
+@router.post("/api/plm/contracts/{contract_no}/baselines")
+def api_plm_contract_baseline_save(contract_no: str, payload: Dict[str, Any]):
+    p = dict(payload)
+    p['scope_type'] = 'contract'
+    p['scope_key'] = contract_no
+    if not p.get('scope_id'):
+        p['scope_id'] = 0
+    return _plm_ret(plm.save_baseline(p, _plm_op(payload)))
+
+
+@router.get("/api/ontos/cost-baseline")
+def api_ontos_cost_baseline_schema():
+    """四算本体元数据（读 ontos CostBaseline）：归集锚=合同，calc_type 枚举与中文、各阶段是否参与计算。"""
+    types = [{
+        'calc_type': ct,
+        'cn': plm.COST_BASELINE_CALC_TYPE_CN.get(ct, ct),
+        'stage': plm.CALC_TYPE_TO_STAGE.get(ct),
+        'calculated': ct in plm.ONTOS_CALC_BASELINE,
+    } for ct in plm.COST_BASELINE_CALC_TYPES]
+    return {'success': True, 'data': {
+        'entity': 'CostBaseline',
+        'parent': 'Contract',
+        'collect_anchor': 'contract_no',
+        'calc_types': types,
+    }}
+
+
+@router.post("/api/plm/seed-baselines")
+def api_plm_seed_baselines(payload: Dict[str, Any] = None):
+    return _plm_ret(plm.seed_baselines_from_contracts(_plm_op(payload)))
+
 @router.get("/api/plm/projects/{project_id}/milestones")
 def api_plm_ms_list(project_id: int):
     return _plm_ret(plm.list_milestones(project_id))

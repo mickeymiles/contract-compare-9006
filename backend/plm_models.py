@@ -35,6 +35,29 @@ import json
 import sqlite3
 from datetime import datetime, date
 
+# 四算「读本体」：优先从 ontos 取四算类型枚举（唯一真源），失败回退本地常量（保持一致）
+try:
+    import sys as _sys, os as _os
+    _ontos_dir = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'ontos')
+    if _ontos_dir not in _sys.path:
+        _sys.path.insert(0, _ontos_dir)
+    from ontos.domain_business import (  # noqa: F401
+        COST_BASELINE_CALC_TYPES, COST_BASELINE_CALC_TYPE_CN,
+        COST_BASELINE_CALCULATED as ONTOS_CALC_BASELINE)
+except Exception:  # pragma: no cover
+    COST_BASELINE_CALC_TYPES = ("概算", "基准预算", "生产预算", "核算", "决算")
+    COST_BASELINE_CALC_TYPE_CN = {k: k for k in COST_BASELINE_CALC_TYPES}
+
+# calc_type(本体) → stage(历史兼容) 映射：新写入以 calc_type 为准，stage 同步填充以兼容旧 compare/lock 逻辑
+CALC_TYPE_TO_STAGE = {
+    "概算": "estimate_locked",
+    "基准预算": "budget",
+    "生产预算": "budget",
+    "核算": "accounting",
+    "决算": "final",
+}
+STAGE_TO_CALC_TYPE = {v: k for k, v in CALC_TYPE_TO_STAGE.items()}
+
 DB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 DB_PATH = os.path.join(DB_DIR, 'contract_compare.db')
 
@@ -245,6 +268,14 @@ def init_plm_db():
             updated_at TEXT DEFAULT (datetime('now','localtime'))
         )
     """)
+
+    # 四算重构（读本体）：补齐 calc_type(对齐 ontos CostBaseline.calc_type) 与 scope_key(合同号字符串归集锚)
+    # 注：SQLite 不支持 ADD COLUMN IF NOT EXISTS，先判列存在
+    _bl_cols = {r[1] for r in c.execute("PRAGMA table_info(plm_baseline)")}
+    if 'calc_type' not in _bl_cols:
+        c.execute("ALTER TABLE plm_baseline ADD COLUMN calc_type TEXT DEFAULT ''")
+    if 'scope_key' not in _bl_cols:
+        c.execute("ALTER TABLE plm_baseline ADD COLUMN scope_key TEXT DEFAULT ''")
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS plm_baseline_item (
@@ -1256,15 +1287,21 @@ def delete_project(project_id, operator=''):
 
 # ===================== 模块二/三：四算基线 =====================
 
-def list_baselines(project_id=None, scope_type='project', scope_id=None):
+def list_baselines(project_id=None, scope_type='project', scope_id=None, scope_key=None):
     conn = get_db()
     if project_id is not None:
         scope_type, scope_id = 'project', project_id
-    rows = _rows(conn.execute(
-        "SELECT * FROM plm_baseline WHERE scope_type=? AND scope_id=? ORDER BY id",
-        (scope_type, scope_id)))
+    if scope_key is not None:
+        rows = _rows(conn.execute(
+            "SELECT * FROM plm_baseline WHERE scope_type=? AND scope_key=? ORDER BY calc_type, version",
+            (scope_type, scope_key)))
+    else:
+        rows = _rows(conn.execute(
+            "SELECT * FROM plm_baseline WHERE scope_type=? AND scope_id=? ORDER BY id",
+            (scope_type, scope_id)))
     for r in rows:
         r['stage_cn'] = BASELINE_STAGE_CN.get(r['stage'], r['stage'])
+        r['calc_type_cn'] = COST_BASELINE_CALC_TYPE_CN.get(r.get('calc_type') or '', r.get('calc_type'))
         r['items'] = _rows(conn.execute(
             "SELECT * FROM plm_baseline_item WHERE baseline_id=? ORDER BY id", (r['id'],)))
         r['calculated'] = r['stage'] in BASELINE_CALCULATED
@@ -1320,23 +1357,38 @@ def _write_items(conn, baseline_id, items):
 
 
 def save_baseline(payload, operator=''):
-    """新建或更新基线（分项明细 + 总额），核算/决算仅占位不计算（FR-3）。"""
+    """新建或更新基线（分项明细 + 总额）。四算重构：优先以 calc_type(本体) 为准，
+    scope_type='contract' 时以 scope_key(合同号) 归集，对齐 ontos CostBaseline。"""
     scope_type = payload.get('scope_type', 'project')
     scope_id = payload.get('scope_id') or payload.get('project_id')
+    scope_key = payload.get('scope_key') or (str(scope_id) if scope_type == 'contract' else None)
+    # calc_type(本体) 优先；未传则按 stage 反推（兼容旧项目级调用）
+    calc_type = payload.get('calc_type')
     stage = payload.get('stage')
-    if not scope_id or stage not in BASELINE_STAGE:
-        return {'success': False,
-                'error': 'scope_id 必填，stage 需属于 %s' % list(BASELINE_STAGE)}
+    if calc_type and calc_type not in COST_BASELINE_CALC_TYPES:
+        return {'success': False, 'error': 'calc_type 需属于 %s' % list(COST_BASELINE_CALC_TYPES)}
+    if calc_type:
+        stage = CALC_TYPE_TO_STAGE.get(calc_type, stage)
+    elif stage:
+        calc_type = STAGE_TO_CALC_TYPE.get(stage, '')
+    if not scope_id and not scope_key:
+        return {'success': False, 'error': 'scope_id/scope_key 必填'}
+    if stage not in BASELINE_STAGE:
+        return {'success': False, 'error': 'stage 需属于 %s' % list(BASELINE_STAGE)}
     items = payload.get('items') or []
     total_cost = _f(payload.get('total_cost'))
     if items:
         total_cost = _r(sum(_f(i.get('plan_amount')) for i in items))
     reserved = stage in BASELINE_RESERVED
     conn = get_db()
-    if scope_type == 'project' and not _first(
-            conn.execute("SELECT id FROM plm_project WHERE id=?", (scope_id,))):
-        conn.close()
-        return {'success': False, 'error': '项目不存在'}
+    if scope_type == 'project':
+        if not _first(conn.execute("SELECT id FROM plm_project WHERE id=?", (scope_id,))):
+            conn.close()
+            return {'success': False, 'error': '项目不存在'}
+    elif scope_type == 'contract':
+        if not _first(conn.execute('SELECT "合同编号" FROM md_contract WHERE "合同编号"=?', (scope_key,))):
+            conn.close()
+            return {'success': False, 'error': '合同 %s 不存在' % scope_key}
     ok, msg = _check_baseline_constraint(conn, stage, scope_type, scope_id, total_cost)
     if not ok:
         conn.close()
@@ -1365,7 +1417,7 @@ def save_baseline(payload, operator=''):
                '调整已锁定概算基线' if warned else '修改基线',
                {'total_cost': {'before': old['total_cost'], 'after': total_cost}},
                operator=operator)
-        return {'success': True, 'id': bid, 'total_cost': total_cost, 'gross': gross,
+        return {'success': True, 'id': bid, 'total_cost': total_cost, 'gross': gross, 'calc_type': calc_type,
                 'warning': '已锁定基线被调整，变更已留痕' if warned else ''}
     gross = None if reserved else _r(income - total_cost)
     rate = None if reserved else _rate(gross, income)
@@ -1495,6 +1547,115 @@ def _pack_reserved(b):
             'gross': None, 'gross_rate': None,
             'status': b['status'] if b else None,
             'reserved': True, 'note': RESERVED_NOTE}
+
+
+# ---------- 四算重构：合同级对比（读 ontos CostBaseline 驱动） ----------
+
+def compare_contract_baselines(contract_no):
+    """四算基线对比（合同级）：按 ontos calc_type 分组取最新 version；同时兼容旧键 estimate/budget/..。"""
+    rows = list_baselines(scope_type='contract', scope_key=contract_no)
+    by_calc = {}
+    for r in rows:
+        ct = r.get('calc_type') or STAGE_TO_CALC_TYPE.get(r['stage'], '概算')
+        if ct not in by_calc or (r.get('version') or 0) >= (by_calc[ct].get('version') or 0):
+            by_calc[ct] = r
+
+    def pack(b):
+        if not b:
+            return None
+        return {'baseline_id': b['id'], 'calc_type': b.get('calc_type'),
+                'calc_type_cn': COST_BASELINE_CALC_TYPE_CN.get(b.get('calc_type') or '', b.get('calc_type')),
+                'stage': b['stage'], 'stage_cn': b['stage_cn'], 'version': b.get('version'),
+                'total_income': _r(b['total_income']), 'total_cost': _r(b['total_cost']),
+                'gross': _r(b['gross']), 'gross_rate': b['gross_rate'], 'status': b['status'],
+                'item_count': len(b['items']), 'items': b['items'],
+                'source_baseline_id': b.get('source_baseline_id')}
+
+    out = {ct: pack(by_calc.get(ct)) for ct in COST_BASELINE_CALC_TYPES}
+    out['estimate'] = out.get('概算')          # 兼容旧键
+    out['budget'] = out.get('基准预算')
+    out['accounting'] = out.get('核算')
+    out['final'] = out.get('决算')
+    # 一号可度量目标：决算毛利率 − 签单毛利率（≥0 达标）
+    est_b, fin = by_calc.get('概算'), by_calc.get('决算')
+    out['margin_goal'] = None
+    if est_b and fin and est_b.get('gross_rate') is not None and fin.get('gross_rate') is not None:
+        out['margin_goal'] = _r(fin['gross_rate'] - est_b['gross_rate'])
+    out['margin_goal_note'] = '签单毛利率 %s / 决算毛利率 %s' % (
+        (round(est_b['gross_rate'], 2) if est_b and est_b['gross_rate'] is not None else '-'),
+        (round(fin['gross_rate'], 2) if fin and fin['gross_rate'] is not None else '-'))
+    # 概算 vs 基准预算 差异
+    eb, bud = by_calc.get('概算'), by_calc.get('基准预算')
+    out['estimate_vs_budget'] = None
+    out['budget_usage_note'] = ''
+    if eb and bud:
+        diff = _r(_f(bud['total_cost']) - _f(eb['total_cost']))
+        out['estimate_vs_budget'] = diff
+        if diff and diff > 0:
+            out['budget_usage_note'] = '基准预算超出概算 %s 元' % diff
+    out['constraint_on'] = str(get_config('baseline_constraint', 'off')).lower() == 'on'
+    out['calc_types'] = list(COST_BASELINE_CALC_TYPES)
+    return out
+
+
+def _upsert_contract_baseline(conn, contract_no, calc_type, income, cost, operator):
+    stage = CALC_TYPE_TO_STAGE.get(calc_type, 'budget')
+    gross = _r(income - cost)
+    rate = _rate(gross, income)
+    exist = _first(conn.execute(
+        "SELECT id FROM plm_baseline WHERE scope_type='contract' AND scope_key=? AND calc_type=?",
+        (contract_no, calc_type)))
+    if exist:
+        conn.execute("""UPDATE plm_baseline SET total_income=?,total_cost=?,gross=?,gross_rate=?,
+                        updated_at=? WHERE id=?""",
+                     (income, cost, gross, rate, _now(), exist['id']))
+    else:
+        conn.execute("""INSERT INTO plm_baseline
+            (scope_type,scope_id,scope_key,calc_type,stage,total_income,total_cost,gross,gross_rate,status,created_by,updated_at)
+            VALUES ('contract',0,?,?,?,?,?,?,?,'草稿',?,?)""",
+            (contract_no, calc_type, stage, income, cost, gross, rate, operator, _now()))
+
+
+def seed_baselines_from_contracts(operator='seed'):
+    """从 md_contract 灌入四算种子（读本体对齐）：累计实施成本预估→基准预算；累计实施成本实际→核算。"""
+    conn = get_db()
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(md_contract)")]
+    col_est = '累计实施成本预估' if '累计实施成本预估' in cols else None
+    col_act = '累计实施成本实际' if '累计实施成本实际' in cols else None
+    # 收入口径（签单收入）= 合同总金额（主合同额列）。md_contract 无纯 "合同额" 列，
+    # 含"合同额"的均为衍生列（原币合同额/软件合同额/合同额差异…），故按候选链回退探测。
+    _AMT_CANDIDATES = ['合同总金额', '原币合同额', '合同额', '"合同额"']
+    col_amt = next((c for c in _AMT_CANDIDATES if c in cols), None)
+    if not col_est or not col_act or not col_amt:
+        conn.close()
+        return {'success': False,
+                'error': 'md_contract 缺少成本/合同额列（已探测候选：%s）' % _AMT_CANDIDATES}
+    total = conn.execute('SELECT COUNT(*) FROM md_contract').fetchone()[0]
+    rows = _rows(conn.execute('SELECT "合同编号","%s","%s","%s" FROM md_contract' % (col_amt, col_est, col_act)))
+    n_budget = n_account = 0
+    n_skip = 0
+    for r in rows:
+        cno = r['合同编号']
+        # 表头污染行过滤：合同编号为空/等于表头/非编码格式的行跳过
+        if not cno or str(cno).strip() == '合同编号' or str(cno).strip() == '':
+            n_skip += 1
+            continue
+        amt = _f(r.get(col_amt))
+        est = _f(r.get(col_est))
+        act = _f(r.get(col_act))
+        if est and est > 0:
+            _upsert_contract_baseline(conn, cno, '基准预算', amt, est, operator)
+            n_budget += 1
+        if act and act > 0:
+            _upsert_contract_baseline(conn, cno, '核算', amt, act, operator)
+            n_account += 1
+    conn.commit()
+    conn.close()
+    return {'success': True, 'total': total, 'n_budget': n_budget, 'n_account': n_account,
+            'n_skip': n_skip,
+            'income_col': col_amt,
+            'coverage_note': '基准预算覆盖 %d/%d 合同；核算覆盖 %d/%d 合同（其余主数据无实际成本，非超支）；跳过 %d 行'
+                            % (n_budget, total, n_account, total, n_skip)}
 
 
 # ---------- 中标商机一键联动立项（FR-2） ----------
