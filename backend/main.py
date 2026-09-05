@@ -82,6 +82,7 @@ NO_CACHE_PATHS = frozenset((
     '/finance-cycle.app.js', '/finance-fund.app.js', '/finance-cost.app.js', '/finance-baseline.app.js', '/nav.config.js', '/china.json',
     '/ontology.app.js',
     '/ontos-topology', '/ontos-topology.app.js',
+    '/ontos-abox', '/ontos-abox.app.js',
 ))
 NO_CACHE_SUFFIXES = ('.css', '.js')
 
