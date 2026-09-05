@@ -1,7 +1,8 @@
 'use strict';
 /* 财经 · 成本预警 独立页 —— 顶部 Tab：总览(默认) / 明细（统一 tab 组件，见 nav.config.js）。
  * 壳：renderTopMenu(activeKey=fin)、renderAccordion(财经域 sections)、面包屑。
- * 数据源：/api/core/metrics/cost-warning。
+ * 数据源：/api/core/metrics/cost-warning（★同源薄壳：后端直接调共享本体 ontos.abox_cost，
+ *   与 9007 智能体 ontology_compute 同一份实现，平台侧不再自建取数 SQL）。
  * ★口径收敛到 ontos：预算=md_contract.累计实施成本预估、当前成本=md_contract.累计实施成本实际
  *   （均 ≡ 本体 COST_FORMULA_POLICY 声明的分项汇总），判定统一走 F-project-cost-warning。
  *   不再用平台自拼的 service_est 单分项 / finance_detail 付款口径。概算不参与成本预警。
