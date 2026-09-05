@@ -151,14 +151,19 @@
       <section class="plm-view" id="v-panorama"></section>
       <section class="plm-view" id="v-alert"></section>
       <section class="plm-view" id="v-config"></section>
+      <section class="plm-view" id="v-order"><span id="orderStatus" class="plm-note" style="display:block;margin:0 0 12px"></span><div id="orderMount"></div></section>
+      <section class="plm-view" id="v-workorder"><span id="woStatus" class="plm-note" style="display:block;margin:0 0 12px"></span><div id="woMount"></div></section>
     </main>
   </div>
 </div>
 
 <div id="plmModalHost"></div>
+<div id="modalRoot"></div>
 <div id="plmToast" class="toast"></div>
 
 <script src="/nav.config.js"></script>
+<script src="/pmo-order.app.js"></script>
+<script src="/pmo-workorder.app.js"></script>
 <script>
 (function () {
   var NC = window.NAV_CONFIG;
@@ -172,6 +177,10 @@
     ] },
     { sub: '人员管理', links: [
       { key: 'plm-labor', label: '人力与工时', icon: 'contact', action: "PLM.go('labor')" }
+    ] },
+    { sub: '订单与工单', links: [
+      { key: 'pmo-order', label: '订单', icon: 'receipt', action: "PLM.go('order');PmoOrder.mount('orderMount')" },
+      { key: 'pmo-workorder', label: '工单', icon: 'pay', action: "PLM.go('workorder');PmoWo.mount('woMount')" }
     ] }
   ];
   NC.renderBreadcrumb(document.getElementById('breadcrumb'), ['PMO', '项目管理', '项目概览']);

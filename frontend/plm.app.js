@@ -2013,7 +2013,9 @@
     project: ['PMO', '项目管理', '合同与立项'],
     baseline: ['PMO', '进度管理', '四算基线'],
     pmo: ['PMO', '进度管理', 'PMO 进度'],
-    labor: ['PMO', '人员管理', '人力与工时']
+    labor: ['PMO', '人员管理', '人力与工时'],
+    order: ['PMO', '订单与工单', '订单'],
+    workorder: ['PMO', '订单与工单', '工单']
   };
   var VIEW_LINK_KEY = {
     overview: 'plm-overview', milestone: 'plm-milestone', project: 'plm-project',
@@ -2080,7 +2082,8 @@
   var VIEWS = {
     overview: viewOverview, opportunity: viewOpportunity, project: viewProject,
     baseline: viewBaseline, pmo: viewPmo, labor: viewLabor, finance: viewFinance,
-    panorama: viewPanorama, alert: viewAlert, config: viewConfig
+    panorama: viewPanorama, alert: viewAlert, config: viewConfig,
+    order: function () {}, workorder: function () {}
   };
 
   // 明细编辑器配置注册（须在 showModal 之前可用）

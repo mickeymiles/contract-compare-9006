@@ -8,22 +8,8 @@
   var NC = root.NAV_CONFIG;
   var API = '';
 
-  var SECTIONS = [
-    { sub: '计划执行', links: [
-      { key: 'pmo-plm', label: '计划 / 任务 / 台账 / 预警', icon: 'lifecycle', href: '/plm' },
-      { key: 'pmo-order', label: '订单', icon: 'receipt', href: '/pmo-order' },
-      { key: 'pmo-workorder', label: '工单', icon: 'pay', href: '/pmo-workorder' }
-    ] }
-  ];
-
-  function renderShell() {
-    NC.renderBreadcrumb(document.getElementById('breadcrumb'), ['PMO', '计划执行', '订单']);
-    NC.renderTopMenu(document.getElementById('topMenu'), { activeKey: 'pmo' });
-    NC.renderAccordion(document.getElementById('navRail'), {
-      rootTitle: '经营业务工作台', domainLabel: 'PMO', activeKey: 'pmo',
-      activeLink: 'pmo-order', sections: SECTIONS
-    });
-  }
+  // 说明：本模块作为 /plm 页的内部挂载单元使用（不再自建独立页面/侧栏）。
+  // 由 /plm 的 PLM.go('order') 触发 PmoOrder.mount('orderMount') 渲染到 /plm 内容区。
 
   function status(msg) { var el = document.getElementById('orderStatus'); if (el) el.textContent = msg; }
   function esc(s) {
@@ -208,8 +194,10 @@
   function setFilter(v) { orderFilter = v || ''; renderDetail(document.getElementById('orderDetailPane')); }
   function goPage(p) { orderPage = p; renderDetail(document.getElementById('orderDetailPane')); }
 
-  function init() {
-    document.getElementById('orderContent').innerHTML = '<div id="orderHost">'
+  function mount(hostId) {
+    var host = document.getElementById(hostId);
+    if (!host) return;
+    host.innerHTML = '<div id="orderHost">'
       + NC.anaTabs([{ key: 'overview', label: '📊 总览' }, { key: 'detail', label: '📋 明细' }], 'overview', 'orderHost')
       + NC.anaPane('overview', '<div id="orderOverview"></div>', true)
       + NC.anaPane('detail', '<div id="orderDetailPane"></div>', false)
@@ -219,9 +207,7 @@
 
   root.PmoOrder = {
     openCreate: openCreate, openEdit: openEdit, closeModal: closeModal, submit: submit, remove: remove,
-    onProject: onProject, setFilter: setFilter, goPage: goPage, load: loadOrders
+    onProject: onProject, setFilter: setFilter, goPage: goPage, load: loadOrders, mount: mount
   };
 
-  renderShell();
-  init();
 })(window);
