@@ -238,14 +238,10 @@ def ontos_topology_app_js():
 
 
 @router.get('/ontos-abox')
-def ontos_abox_page():
-    """ABox 实例可视化页（与 TBox 拓扑页同本体上下文）。"""
-    return FileResponse(os.path.join(FRONTEND_DIR, 'ontos-abox.html'))
-
-
-@router.get('/ontos-abox.app.js')
-def ontos_abox_app_js():
-    return FileResponse(os.path.join(FRONTEND_DIR, 'ontos-abox.app.js'))
+def ontos_abox_legacy_redirect():
+    """历史兼容：ABox 已并入本体页（/ontos-topology 的「ABox 实例」标签）。"""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url='/ontos-topology', status_code=308)
 
 
 # ─────────────────────────── API ───────────────────────────
@@ -471,11 +467,14 @@ def _list_compute_ids():
 # ─────────────────────────── ABox 实例可视化 ───────────────────────────
 
 @router.get('/api/ontos/abox')
-def api_ontos_abox(sample_limit: int = 20):
+def api_ontos_abox(sample_limit: int = 20, function: str = ''):
     """ABox 实例概览：把 TBox 实体绑定到物理表实例，给出可观测指标。
 
     回答「看得到 TBox 但看不到 ABox」——渲染库/表状态、abox_adapter 绑定映射
-    （存在性+非空率）、实体样本实例(含本体成本预警判定)、未接入域、成本预警分布。
+    （存在性+非空率）、实体样本实例、未接入域；并返回全部计算函数的 ABox 可用性
+    （驱动前端函数选择器）。
+    function 参数非空时，额外返回该函数作用的实例子集 + 逐条本体判定
+    （函数驱动视图，不再固化成本预警）。
     数据源与 9006 成本预警页/9007 智能体同源（ontos.abox_cost.abox_report）。
     """
     try:
@@ -491,7 +490,8 @@ def api_ontos_abox(sample_limit: int = 20):
             'success': False, 'error': 'ontos_unavailable',
             'message': f'无法导入 ontos：{exc}'})
     try:
-        return abox_cost.abox_report(db=DB_PATH, sample_limit=sample_limit)
+        return abox_cost.abox_report(db=DB_PATH, function=function or None,
+                                     sample_limit=sample_limit)
     except Exception as exc:  # pragma: no cover - 兜底，避免 500
         return JSONResponse(status_code=500, content={
             'success': False, 'error': 'abox_error', 'message': str(exc)})

@@ -73,8 +73,8 @@
       renderCount();
       if(ld) ld.style.display='none';
       document.getElementById('rev').textContent='ontos @ '+((SPEC.meta&&SPEC.meta.ontos_revision)||'unknown');
-      // 默认进入实体下钻
-      openGroup('entity');
+      // 默认进入 TBox 定义标签（三标签：TBox / ABox / 拓扑）
+      switchTab('tbox');
     });
   }
 
@@ -741,6 +741,9 @@
       if(mode==='topology'){ ensureGraph(); } else { renderList(); }
     });
     document.getElementById('reload').addEventListener('click',()=>location.reload());
+    document.querySelectorAll('.utab').forEach(b=>{
+      b.addEventListener('click',()=>switchTab(b.dataset.tab));
+    });
     let rzTimer;
     window.addEventListener('resize',()=>{
       clearTimeout(rzTimer);
@@ -752,6 +755,154 @@
       },150);
     });
     load();
+  }
+
+  /* ── 一级标签切换：TBox / ABox / 拓扑 ───────────── */
+  let activeTab='tbox';
+  let ABOX_DATA=null;
+  function switchTab(tab){
+    activeTab=tab;
+    document.querySelectorAll('.utab').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+    const umain=document.querySelector('.umain');
+    const panel=document.getElementById('abox-panel');
+    const utb=document.querySelector('.utb');
+    if(tab==='abox'){
+      if(umain) umain.style.display='none';
+      if(utb) utb.style.display='none';
+      panel.classList.add('show');
+      if(!ABOX_DATA) renderAbox();
+    } else {
+      panel.classList.remove('show');
+      if(umain) umain.style.display='flex';
+      if(utb) utb.style.display='flex';
+      if(tab==='topo') openTopology();
+      else openGroup('entity');
+    }
+  }
+
+  /* ── ABox 实例视图 ────────────────────────────── */
+  function renderAbox(){
+    const panel=document.getElementById('abox-panel');
+    panel.innerHTML='<div class="abox-empty">正在从 ontos 加载 ABox 实例…</div>';
+    fetch('/api/ontos/abox').then(r=>r.json()).then(j=>{
+      if(!j||j.success===false){ panel.innerHTML='<div class="abox-na-reason">ABox 加载失败：'+esc((j&&j.message)||'未知错误')+'</div>'; return; }
+      ABOX_DATA=j; renderAboxDom(j, null);
+    }).catch(e=>{ panel.innerHTML='<div class="abox-na-reason">ABox 加载失败：'+esc(e)+'</div>'; });
+  }
+
+  function renderAboxDom(j, fv){
+    const db=j.db||{};
+    const dbBadge = db.table_exists
+      ? '<span class="abox-badge ok">表存在 · '+db.raw_row_count+' 行 / '+db.instance_count+' 实例</span>'
+      : '<span class="abox-badge bad">表不存在</span>';
+    let html='<div class="abox-head"><h2>ABox 实例 · 全局信息</h2>'+dbBadge+
+      '<span class="abox-badge">数据源 '+esc(db.table||'-')+'</span></div>';
+    html+='<div class="abox-grid">';
+    // 库/表状态
+    html+='<div class="abox-card"><h3>库 / 表状态</h3>';
+    html+=kv('文件存在', db.file_exists?'是':'否');
+    html+=kv('表', db.table||'-');
+    html+=kv('表存在', db.table_exists?'是':'否');
+    html+=kv('原始行数', db.raw_row_count);
+    html+=kv('去重实例数', db.instance_count);
+    html+='</div>';
+    // 绑定映射
+    html+='<div class="abox-card"><h3>绑定映射 · abox_adapter</h3><table class="abox-tbl">'+
+      '<thead><tr><th>属性</th><th>物理列</th><th>存在</th><th>非空率</th></tr></thead><tbody>';
+    (j.bindings||[]).forEach(b=>{
+      const rate=(b.non_null_rate!=null)?(b.non_null_rate*100).toFixed(1)+'%':'-';
+      html+='<tr><td class="mono">'+esc(b.property)+'</td><td class="mono">'+esc(b.col||'-')+'</td>'+
+        '<td class="'+(b.exists?'abox-ok':'abox-na')+'">'+(b.exists?'✓':'✗')+'</td>'+
+        '<td class="mono">'+rate+'</td></tr>';
+    });
+    html+='</tbody></table></div>';
+    // 未接入域
+    html+='<div class="abox-card"><h3>⌛ 未接入数据域</h3>';
+    const na=j.not_available||[];
+    if(!na.length) html+='<div class="abox-empty">（无）</div>';
+    else na.forEach(n=>{ html+='<div style="margin-bottom:8px"><span class="abox-status-pill 预警">'+esc(n.domain)+'</span> '+
+      '<span style="color:var(--text2);font-size:11px">'+esc(n.reason)+'</span></div>'; });
+    html+='</div>';
+    html+='</div>';
+    // 样本实例
+    html+='<div class="abox-card full"><h3>实体样本实例（前 '+((j.sample||[]).length)+' 条 · 含本体成本判定）</h3>';
+    const sm=j.sample||[];
+    if(!sm.length) html+='<div class="abox-empty">（无实例）</div>';
+    else {
+      html+='<table class="abox-tbl"><thead><tr><th>合同编号</th><th>名称</th><th>部门</th><th>预算</th><th>当前成本</th><th>成本状态</th><th>完成比</th></tr></thead><tbody>';
+      sm.forEach(s=>{
+        const st=s.cost_status||'';
+        html+='<tr><td class="mono">'+esc(s.contract_no||'-')+'</td><td>'+esc(s.name||'')+'</td><td>'+esc(s.dept||'')+'</td>'+
+          '<td class="mono">'+fmtMoney(s.budget)+'</td><td class="mono">'+fmtMoney(s.current_cost)+'</td>'+
+          '<td><span class="abox-status-pill '+esc(st)+'">'+esc(st)+'</span></td>'+
+          '<td class="mono">'+((s.budget_ratio!=null)?(s.budget_ratio*100).toFixed(0)+'%':'-')+'</td></tr>';
+      });
+      html+='</tbody></table>';
+    }
+    html+='</div>';
+    // 函数驱动视图
+    html+='<div class="abox-card full"><h3>函数驱动视图 · 选择函数查看其作用的实例</h3>';
+    html+='<div class="abox-fnbar"><select id="abox-fn-sel">';
+    html+='<option value="">— 选择一个函数 —</option>';
+    (j.functions||[]).forEach(f=>{
+      const dis = f.abox_available?'':' disabled style="color:var(--text2)"';
+      const tag = f.abox_available?'': ' ⌛未接入';
+      html+='<option value="'+esc(f.id)+'"'+dis+'>'+esc(f.name)+' ('+esc(f.id)+') · 实体:'+esc(f.entity||'-')+tag+'</option>';
+    });
+    html+='</select><span class="hint">不同函数作用于不同实体实例；未接入函数按红线标灰，不返回演示数据。</span></div>';
+    html+='<div id="abox-fn-view"><div class="abox-na-reason">请选择一个函数查看其作用的实例子集与逐条本体判定。</div></div>';
+    html+='</div>';
+    document.getElementById('abox-panel').innerHTML=html;
+    const sel=document.getElementById('abox-fn-sel');
+    sel.addEventListener('change',()=>loadFunctionView(sel.value));
+    if(fv) document.getElementById('abox-fn-view').innerHTML=renderFunctionView(fv);
+  }
+
+  function kv(k,v){ return '<div class="abox-kv"><span class="k">'+esc(k)+'</span><span class="v">'+esc(v==null?'':v)+'</span></div>'; }
+  function fmtMoney(v){ if(v==null) return '-'; try{ return '¥'+Number(v).toLocaleString('zh-CN'); }catch(e){ return String(v); } }
+
+  function loadFunctionView(fid){
+    const view=document.getElementById('abox-fn-view');
+    if(!fid){ view.innerHTML='<div class="abox-na-reason">请选择一个函数查看其作用的实例。</div>'; return; }
+    view.innerHTML='<div class="abox-empty">正在计算 '+esc(fid)+' 实例…</div>';
+    fetch('/api/ontos/abox?function='+encodeURIComponent(fid)).then(r=>r.json()).then(j=>{
+      if(!j||j.success===false){ view.innerHTML='<div class="abox-na-reason">加载失败：'+esc((j&&j.message)||'')+'</div>'; return; }
+      view.innerHTML=renderFunctionView(j.function_view);
+    }).catch(e=>{ view.innerHTML='<div class="abox-na-reason">'+esc(e)+'</div>'; });
+  }
+
+  function renderFunctionView(fv){
+    if(!fv) return '<div class="abox-na-reason">无数据</div>';
+    if(!fv.available){
+      return '<div class="abox-na-reason">⌛ <b style="color:var(--orange)">'+esc(fv.function)+'</b> 的 ABox 读取层尚未接入'+
+        (fv.entity?'（作用于实体 <b style="color:var(--cyan2)">'+esc(fv.entity)+'</b>）':'')+'。<br><br>'+
+        esc(fv.reason||'该函数的实例数据源未接入，不返回演示数据；数据源接入后自动可用。')+'</div>';
+    }
+    let html='<div class="abox-summary">';
+    const sc=fv.status_count||{};
+    html+='<div class="abox-dist">';
+    html+='<div class="d"><div class="n" style="color:var(--cyan2)">'+esc(fv.total)+'</div><div class="l">实例数</div></div>';
+    html+='<div class="d"><div class="n" style="color:var(--red)">'+esc(sc['超支']||0)+'</div><div class="l">超支</div></div>';
+    html+='<div class="d"><div class="n" style="color:var(--orange)">'+esc(sc['预警']||0)+'</div><div class="l">预警</div></div>';
+    html+='<div class="d"><div class="n" style="color:var(--green)">'+esc(sc['正常']||0)+'</div><div class="l">正常</div></div>';
+    html+='</div>';
+    const sum=fv.summary||{};
+    Object.keys(sum).forEach(k=>{ html+='<span class="s">'+esc(k)+'：<b>'+esc(sum[k])+'</b></span>'; });
+    html+='</div>';
+    const rows=fv.rows||[];
+    if(!rows.length){ html+='<div class="abox-empty">（该函数无可用实例）</div>'; return html; }
+    html+='<table class="abox-tbl"><thead><tr><th>实例键</th><th>名称</th><th>预算</th><th>当前成本</th><th>状态</th><th>完成比</th><th>说明</th></tr></thead><tbody>';
+    rows.forEach(r=>{
+      const st=(r.output&&r.output.status)||'';
+      const br=(r.output&&r.output.budget_ratio!=null)?(r.output.budget_ratio*100).toFixed(0)+'%':'-';
+      html+='<tr><td class="mono">'+esc(r.key||'-')+'</td><td>'+esc(r.label||'')+'</td>'+
+        '<td class="mono">'+fmtMoney(r.inputs&&r.inputs.budget)+'</td>'+
+        '<td class="mono">'+fmtMoney(r.inputs&&r.inputs.current_cost)+'</td>'+
+        '<td><span class="abox-status-pill '+esc(st)+'">'+esc(st)+'</span></td>'+
+        '<td class="mono">'+br+'</td><td style="color:var(--text2)">'+esc((r.output&&r.output.note)||'')+'</td></tr>';
+    });
+    html+='</tbody></table>';
+    return html;
   }
 
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',init);

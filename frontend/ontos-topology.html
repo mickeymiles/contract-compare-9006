@@ -207,6 +207,59 @@
     font-size:13px;color:var(--red);background:rgba(11,18,32,.92);z-index:6;text-align:center;
     line-height:1.7}
 
+  /* ===== 一级标签：TBox / ABox / 拓扑 ===== */
+  .utabs{display:flex;gap:2px;padding:0 22px;background:var(--bg2);border-bottom:1px solid var(--border)}
+  .utab{padding:11px 20px;background:none;border:none;border-bottom:2px solid transparent;
+    color:var(--text2);font-size:13px;cursor:pointer;transition:all .15s;font-family:inherit}
+  .utab:hover{color:var(--text)}
+  .utab.active{color:var(--cyan2);border-bottom-color:var(--cyan);font-weight:600;
+    text-shadow:0 0 10px rgba(79,140,255,.3)}
+
+  /* ===== ABox 面板 ===== */
+  .abox-panel{flex:1;min-height:0;overflow-y:auto;padding:18px 22px;display:none;background:
+    radial-gradient(circle at 20% 10%,rgba(79,140,255,.06),transparent 55%),var(--bg)}
+  .abox-panel.show{display:block}
+  .abox-head{display:flex;align-items:center;gap:14px;margin-bottom:14px;flex-wrap:wrap}
+  .abox-head h2{font-size:15px;color:var(--cyan2);margin:0;font-weight:600}
+  .abox-badge{font-size:11px;padding:3px 10px;border-radius:10px;font-family:var(--mono);
+    background:var(--bg3);border:1px solid var(--border);color:var(--text2)}
+  .abox-badge.ok{color:var(--green);border-color:rgba(52,211,153,.4)}
+  .abox-badge.bad{color:var(--red);border-color:rgba(248,113,113,.4)}
+  .abox-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:14px}
+  .abox-card{background:linear-gradient(160deg,var(--panel),var(--panel2));border:1px solid var(--border);
+    border-radius:12px;padding:14px 16px}
+  .abox-card.full{grid-column:1/-1}
+  .abox-card h3{font-size:12px;color:var(--cyan);margin:0 0 10px;text-transform:uppercase;
+    letter-spacing:.5px;font-weight:600}
+  .abox-kv{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed var(--border);font-size:12px}
+  .abox-kv:last-child{border-bottom:none}
+  .abox-kv .k{color:var(--text2)} .abox-kv .v{color:var(--text);font-family:var(--mono)}
+  .abox-tbl{width:100%;border-collapse:collapse;font-size:11px}
+  .abox-tbl th{text-align:left;color:var(--text2);padding:5px 8px;border-bottom:1px solid var(--border);
+    position:sticky;top:0;background:var(--panel2)}
+  .abox-tbl td{padding:5px 8px;border-bottom:1px solid var(--border);color:var(--text);vertical-align:top}
+  .abox-tbl td.mono{font-family:var(--mono);color:var(--cyan2)}
+  .abox-na{color:var(--red)} .abox-ok{color:var(--green)}
+  .abox-fnbar{display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+  .abox-fnbar select{padding:8px 12px;background:var(--bg3);border:1px solid var(--border);color:var(--text);
+    border-radius:8px;font-size:12px;font-family:inherit;min-width:300px;outline:none}
+  .abox-fnbar select:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(79,140,255,.15)}
+  .abox-fnbar .hint{font-size:11px;color:var(--text2)}
+  .abox-status-pill{display:inline-block;padding:2px 9px;border-radius:10px;font-size:10px;font-weight:600;font-family:var(--mono)}
+  .abox-status-pill.超支{background:rgba(248,113,113,.16);color:var(--red);border:1px solid rgba(248,113,113,.4)}
+  .abox-status-pill.预警{background:rgba(251,191,36,.16);color:var(--orange);border:1px solid rgba(251,191,36,.4)}
+  .abox-status-pill.正常{background:rgba(52,211,153,.16);color:var(--green);border:1px solid rgba(52,211,153,.4)}
+  .abox-na-reason{background:var(--bg3);border:1px dashed var(--border);border-radius:10px;padding:14px 16px;
+    color:var(--text2);font-size:12px;line-height:1.7}
+  .abox-dist{display:flex;gap:10px;margin:10px 0 14px;flex-wrap:wrap}
+  .abox-dist .d{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 14px;text-align:center}
+  .abox-dist .d .n{font-size:18px;font-weight:700;font-family:var(--mono)}
+  .abox-dist .d .l{font-size:10px;color:var(--text2)}
+  .abox-summary{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+  .abox-summary .s{font-size:11px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:4px 10px}
+  .abox-summary .s b{color:var(--cyan2);font-family:var(--mono)}
+  .abox-empty{color:var(--text2);font-size:12px;text-align:center;padding:24px}
+
   /* 提示气泡（保存成功等） */
   .toast{position:fixed;top:18px;left:50%;transform:translateX(-50%) translateY(-12px);
     background:var(--bg2);border:1px solid var(--cyan);color:var(--cyan2);padding:10px 20px;
@@ -236,10 +289,14 @@
     <span class="sub">实体 / 函数 / 动作 定义浏览与编辑 · 拓扑独立视图</span>
     <span class="spacer">
       <span class="rev" id="rev">加载中…</span>
-      <a href="/ontos-abox">ABox 实例 →</a>
       <a href="/core">← 返回主数据</a>
     </span>
   </header>
+  <nav class="utabs">
+    <button class="utab active" data-tab="tbox">TBox 定义</button>
+    <button class="utab" data-tab="abox">ABox 实例</button>
+    <button class="utab" data-tab="topo">拓扑关系</button>
+  </nav>
   <div class="utb">
     <div class="seg hide" id="view-seg">
       <button class="active" data-view="graph">Graph</button>
@@ -272,6 +329,7 @@
       </div>
     </div>
   </div>
+  <div class="abox-panel" id="abox-panel"></div>
 </div>
 <div class="toast" id="toast"></div>
 <script src="https://gw.alipayobjects.com/os/lib/antv/g6/4.8.24/dist/g6.min.js"></script>
