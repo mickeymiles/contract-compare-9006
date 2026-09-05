@@ -38,7 +38,12 @@ TOTAL_CONTRACT_COLUMN_MAP: Dict[str, str] = {
     '回款周期-删NA': 'payback_cycle', '回款周期': 'payback_cycle',
     '最后一笔回款日期': 'last_received_date',
     # 成本概算
-    '硬件预估成本': 'hardware_est',
+    # ★v6.3 修正（2026-09-05 服务器 631 行实测）：hardware_est 原映射「硬件预估成本」，
+    #   实测该列是**硬件销售额**（占签约额 89~95%，如 CSZB2211422A 签约 2.297 亿 /
+    #   该列 2.141 亿），并非成本。预算分量的正确列是「硬件集成费」。
+    #   注：成本预警现已直接读 md_contract「累计实施成本预估/实际」（≡ 分量汇总），
+    #   不依赖本映射；此处修正仅为消除语义错配，避免后续误用。
+    '硬件集成费': 'hardware_est',
     '软件预估实施费': 'software_est',
     '服务预估成本': 'service_est',
     '累计实施成本预估': 'accum_cost_est', '累计实施成本实际': 'accum_cost_actual',
