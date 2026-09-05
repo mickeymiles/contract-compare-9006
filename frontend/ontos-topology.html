@@ -268,6 +268,24 @@
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
   .toast.err{border-color:var(--red);color:var(--red)}
 
+  /* ===== 函数运行 / 动作执行 弹窗 ===== */
+  .modal-mask{position:fixed;inset:0;background:rgba(5,10,20,.72);z-index:80;display:none;
+    align-items:center;justify-content:center;backdrop-filter:blur(3px)}
+  .modal-mask.show{display:flex}
+  .modal{width:min(880px,92vw);max-height:86vh;display:flex;flex-direction:column;
+    background:linear-gradient(160deg,var(--bg2),var(--bg));border:1px solid var(--cyan);
+    border-radius:14px;box-shadow:0 18px 60px rgba(0,0,0,.6);overflow:hidden;
+    animation:modalIn .2s ease}
+  @keyframes modalIn{from{opacity:0;transform:translateY(12px) scale(.98)}to{opacity:1;transform:none}}
+  .modal-head{padding:14px 20px;font-size:14px;font-weight:600;color:var(--cyan2);
+    background:linear-gradient(180deg,rgba(79,140,255,.12),transparent);
+    border-bottom:1px solid var(--border);letter-spacing:.3px}
+  .modal-body{padding:16px 20px;overflow-y:auto;flex:1}
+  .modal-foot{padding:12px 20px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;
+    background:var(--bg2)}
+  .modal .abox-card{box-shadow:none}
+  .modal .abox-dist .d{background:var(--panel)}
+
   /* ===== 拓扑：节点上下游关系面板 ===== */
   .rel-row{display:flex;gap:8px;align-items:center;padding:7px 10px;border-radius:8px;margin-bottom:5px;
     background:var(--bg3);border:1px solid var(--border);cursor:pointer;transition:all .15s}
@@ -295,7 +313,6 @@
   <nav class="utabs">
     <button class="utab active" data-tab="tbox">TBox 定义</button>
     <button class="utab" data-tab="abox">ABox 实例</button>
-    <button class="utab" data-tab="topo">拓扑关系</button>
   </nav>
   <div class="utb">
     <div class="seg hide" id="view-seg">
@@ -304,6 +321,7 @@
     </div>
     <input id="q" placeholder="🔍 搜索 实体 / 函数 / 动作（按当前分组）…">
     <div class="spacer">
+      <button class="btn btn-o btn-s" id="topo-btn">🕸 关系拓扑</button>
       <span class="count"><b id="cnt-n">0</b> 节点 / <b id="cnt-l">0</b> 链接</span>
       <button class="btn btn-o btn-s" id="reset">↺ 重置布局</button>
       <button class="btn btn-o btn-s" id="reload">⟳ 重新加载</button>
@@ -330,6 +348,15 @@
     </div>
   </div>
   <div class="abox-panel" id="abox-panel"></div>
+</div>
+
+<!-- 函数运行 / 动作执行 弹窗（ABox 视图入口） -->
+<div class="modal-mask" id="modal-mask">
+  <div class="modal" id="modal">
+    <div class="modal-head" id="modal-head"></div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-foot"><button class="btn-reset" id="modal-close">关闭</button></div>
+  </div>
 </div>
 <div class="toast" id="toast"></div>
 <script src="https://gw.alipayobjects.com/os/lib/antv/g6/4.8.24/dist/g6.min.js"></script>

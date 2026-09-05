@@ -349,6 +349,8 @@
     html+='</div>';
     html+=readonlyContext(kind,item);
     html+='<div class="ed-actions"><button class="btn-save" id="ed-save">保存修改</button>'+
+      (kind==='function'?'<button class="btn-save" id="ed-run" style="background:linear-gradient(135deg,var(--green),#22d3ee);color:#04121f">⚡ 运行 / 预览</button>':'')+
+      (kind==='action'?'<button class="btn-save" id="ed-run" style="background:linear-gradient(135deg,var(--orange),#f87171);color:#04121f">▷ 执行</button>':'')+
       '<button class="btn-reset" id="ed-reset">重置</button>'+
       '<span class="ed-status" id="ed-status"></span></div>';
     ed.innerHTML=html;
@@ -429,6 +431,11 @@
     if(save) save.addEventListener('click',saveCurrent);
     const reset=document.getElementById('ed-reset');
     if(reset) reset.addEventListener('click',()=>renderEdit(kind,item));
+    const runBtn=document.getElementById('ed-run');
+    if(runBtn) runBtn.addEventListener('click',()=>{
+      if(currentItem.kind==='function') openFunctionModal(currentItem.id);
+      else if(currentItem.kind==='action') openActionModal(currentItem.id);
+    });
   }
 
   function gatherFields(fields){
@@ -744,6 +751,12 @@
     document.querySelectorAll('.utab').forEach(b=>{
       b.addEventListener('click',()=>switchTab(b.dataset.tab));
     });
+    const topoBtn=document.getElementById('topo-btn');
+    if(topoBtn) topoBtn.addEventListener('click',()=>{ switchTab('tbox'); openTopology(); });
+    const modalClose=document.getElementById('modal-close');
+    if(modalClose) modalClose.addEventListener('click',closeModal);
+    const modalMask=document.getElementById('modal-mask');
+    if(modalMask) modalMask.addEventListener('click',e=>{ if(e.target===modalMask) closeModal(); });
     let rzTimer;
     window.addEventListener('resize',()=>{
       clearTimeout(rzTimer);
@@ -786,76 +799,115 @@
     panel.innerHTML='<div class="abox-empty">正在从 ontos 加载 ABox 实例…</div>';
     fetch('/api/ontos/abox').then(r=>r.json()).then(j=>{
       if(!j||j.success===false){ panel.innerHTML='<div class="abox-na-reason">ABox 加载失败：'+esc((j&&j.message)||'未知错误')+'</div>'; return; }
-      ABOX_DATA=j; renderAboxDom(j, null);
+      ABOX_DATA=j; renderAboxDom(j);
     }).catch(e=>{ panel.innerHTML='<div class="abox-na-reason">ABox 加载失败：'+esc(e)+'</div>'; });
   }
 
-  function renderAboxDom(j, fv){
+  function renderAboxDom(j){
     const db=j.db||{};
     const dbBadge = db.table_exists
-      ? '<span class="abox-badge ok">表存在 · '+db.raw_row_count+' 行 / '+db.instance_count+' 实例</span>'
-      : '<span class="abox-badge bad">表不存在</span>';
-    let html='<div class="abox-head"><h2>ABox 实例 · 全局信息</h2>'+dbBadge+
-      '<span class="abox-badge">数据源 '+esc(db.table||'-')+'</span></div>';
+      ? '<span class="abox-badge ok">主表存在 · '+db.raw_row_count+' 行 / '+db.instance_count+' 实例</span>'
+      : '<span class="abox-badge bad">主表不存在</span>';
+    let html='<div class="abox-head"><h2>ABox 实例 · 实例基座</h2>'+dbBadge+
+      '<span class="abox-badge">主表 '+esc(db.table||'-')+'</span></div>';
     html+='<div class="abox-grid">';
-    // 库/表状态
-    html+='<div class="abox-card"><h3>库 / 表状态</h3>';
-    html+=kv('文件存在', db.file_exists?'是':'否');
-    html+=kv('表', db.table||'-');
-    html+=kv('表存在', db.table_exists?'是':'否');
-    html+=kv('原始行数', db.raw_row_count);
-    html+=kv('去重实例数', db.instance_count);
+
+    // ① 全部数据表枚举（不再只盯主表）
+    const tables=j.tables||[];
+    html+='<div class="abox-card full"><h3>全部数据表（'+tables.length+' 张）</h3>';
+    if(!tables.length) html+='<div class="abox-empty">（无表）</div>';
+    else {
+      html+='<table class="abox-tbl"><thead><tr><th>表名</th><th>行数</th><th>列数</th><th>列预览</th></tr></thead><tbody>';
+      tables.forEach(t=>{
+        const cols=(t.columns||[]).slice(0,8).map(c=>esc(c)).join(', ');
+        const more=(t.column_count>8)?' …':'';
+        html+='<tr><td class="mono">'+esc(t.name)+'</td><td class="mono">'+esc(t.row_count)+'</td>'+
+          '<td class="mono">'+esc(t.column_count)+'</td><td style="color:var(--text2)">'+cols+more+'</td></tr>';
+      });
+      html+='</tbody></table>';
+    }
     html+='</div>';
-    // 绑定映射
-    html+='<div class="abox-card"><h3>绑定映射 · abox_adapter</h3><table class="abox-tbl">'+
-      '<thead><tr><th>属性</th><th>物理列</th><th>存在</th><th>非空率</th></tr></thead><tbody>';
-    (j.bindings||[]).forEach(b=>{
-      const rate=(b.non_null_rate!=null)?(b.non_null_rate*100).toFixed(1)+'%':'-';
-      html+='<tr><td class="mono">'+esc(b.property)+'</td><td class="mono">'+esc(b.col||'-')+'</td>'+
-        '<td class="'+(b.exists?'abox-ok':'abox-na')+'">'+(b.exists?'✓':'✗')+'</td>'+
-        '<td class="mono">'+rate+'</td></tr>';
-    });
-    html+='</tbody></table></div>';
-    // 未接入域
-    html+='<div class="abox-card"><h3>⌛ 未接入数据域</h3>';
+
+    // ② 实体 → 物理字段映射浏览器
+    html+='<div class="abox-card full"><h3>实体 → 物理字段映射</h3>';
+    const ents=(SPEC.entities||[]);
+    html+='<div class="abox-fnbar"><select id="abox-entity-sel">'+
+      '<option value="">— 选择一个实体 —</option>';
+    ents.forEach(e=>{ html+='<option value="'+esc(e.name)+'">'+esc(e.cn||e.name)+' ('+esc(e.name)+')</option>'; });
+    html+='</select><span class="hint">选实体查看其每个属性映射到的物理表.列；未映射标灰；底部列出该表未绑定物理列（页面改映射即将支持）。</span></div>';
+    html+='<div id="abox-entity-map"><div class="abox-na-reason">请选择一个实体查看其字段映射。</div></div>';
+    html+='</div>';
+
+    // ③ 中性基底实例样本（仅原始映射字段，不含函数派生）
+    const sm=j.base_sample||[];
+    html+='<div class="abox-card full"><h3>基底实例样本（前 '+sm.length+' 条 · 仅原始映射字段，不含函数派生）</h3>';
+    if(!sm.length) html+='<div class="abox-empty">（无基底实例）</div>';
+    else {
+      html+='<table class="abox-tbl"><thead><tr><th>合同编号</th><th>名称</th><th>部门</th><th>责任人</th><th>区域</th><th>状态</th><th>合同金额</th><th>预算</th><th>当前成本</th></tr></thead><tbody>';
+      sm.forEach(s=>{
+        html+='<tr><td class="mono">'+esc(s.contract_no||'-')+'</td><td>'+esc(s.name||'')+'</td><td>'+esc(s.dept||'')+'</td>'+
+          '<td>'+esc(s.owner||'')+'</td><td>'+esc(s.region||'')+'</td><td>'+esc(s.status||'')+'</td>'+
+          '<td class="mono">'+fmtMoney(s.amount)+'</td><td class="mono">'+fmtMoney(s.budget)+'</td><td class="mono">'+fmtMoney(s.current_cost)+'</td></tr>';
+      });
+      html+='</tbody></table>';
+    }
+    html+='</div>';
+
+    // ④ 未接入数据域
+    html+='<div class="abox-card full"><h3>⌛ 未接入数据域</h3>';
     const na=j.not_available||[];
     if(!na.length) html+='<div class="abox-empty">（无）</div>';
     else na.forEach(n=>{ html+='<div style="margin-bottom:8px"><span class="abox-status-pill 预警">'+esc(n.domain)+'</span> '+
       '<span style="color:var(--text2);font-size:11px">'+esc(n.reason)+'</span></div>'; });
     html+='</div>';
-    html+='</div>';
-    // 样本实例
-    html+='<div class="abox-card full"><h3>实体样本实例（前 '+((j.sample||[]).length)+' 条 · 含本体成本判定）</h3>';
-    const sm=j.sample||[];
-    if(!sm.length) html+='<div class="abox-empty">（无实例）</div>';
-    else {
-      html+='<table class="abox-tbl"><thead><tr><th>合同编号</th><th>名称</th><th>部门</th><th>预算</th><th>当前成本</th><th>成本状态</th><th>完成比</th></tr></thead><tbody>';
-      sm.forEach(s=>{
-        const st=s.cost_status||'';
-        html+='<tr><td class="mono">'+esc(s.contract_no||'-')+'</td><td>'+esc(s.name||'')+'</td><td>'+esc(s.dept||'')+'</td>'+
-          '<td class="mono">'+fmtMoney(s.budget)+'</td><td class="mono">'+fmtMoney(s.current_cost)+'</td>'+
-          '<td><span class="abox-status-pill '+esc(st)+'">'+esc(st)+'</span></td>'+
-          '<td class="mono">'+((s.budget_ratio!=null)?(s.budget_ratio*100).toFixed(0)+'%':'-')+'</td></tr>';
-      });
-      html+='</tbody></table>';
-    }
-    html+='</div>';
-    // 函数驱动视图
-    html+='<div class="abox-card full"><h3>函数驱动视图 · 选择函数查看其作用的实例</h3>';
-    html+='<div class="abox-fnbar"><select id="abox-fn-sel">';
-    html+='<option value="">— 选择一个函数 —</option>';
-    (j.functions||[]).forEach(f=>{
-      const dis = f.abox_available?'':' disabled style="color:var(--text2)"';
-      const tag = f.abox_available?'': ' ⌛未接入';
-      html+='<option value="'+esc(f.id)+'"'+dis+'>'+esc(f.name)+' ('+esc(f.id)+') · 实体:'+esc(f.entity||'-')+tag+'</option>';
-    });
-    html+='</select><span class="hint">不同函数作用于不同实体实例；未接入函数按红线标灰，不返回演示数据。</span></div>';
-    html+='<div id="abox-fn-view"><div class="abox-na-reason">请选择一个函数查看其作用的实例子集与逐条本体判定。</div></div>';
+
     html+='</div>';
     document.getElementById('abox-panel').innerHTML=html;
-    const sel=document.getElementById('abox-fn-sel');
-    sel.addEventListener('change',()=>loadFunctionView(sel.value));
-    if(fv) document.getElementById('abox-fn-view').innerHTML=renderFunctionView(fv);
+    const sel=document.getElementById('abox-entity-sel');
+    sel.addEventListener('change',()=>renderEntityMapping(j, sel.value));
+  }
+
+  // 实体 → 字段映射明细：属性逐一映射状态 + 该表未绑定物理列（映射缺口）
+  function renderEntityMapping(j, entityName){
+    const box=document.getElementById('abox-entity-map');
+    if(!entityName){ box.innerHTML='<div class="abox-na-reason">请选择一个实体查看其字段映射。</div>'; return; }
+    const ent=(SPEC.entities||[]).find(e=>e.name===entityName);
+    if(!ent){ box.innerHTML='<div class="abox-na-reason">实体未找到</div>'; return; }
+    const binds=j.bindings||[];
+    const entBinds=binds.filter(b=>b.entity===entityName);          // 该实体已声明的物理绑定
+    const mainTable=j.db.table;
+    const tableCols=(j.tables||[]).find(t=>t.name===mainTable);
+    const boundCols=new Set(binds.map(b=>b.col).filter(Boolean));   // 全量已绑定物理列
+    const attrs=ent.attributes||[];
+    let html='<div style="font-size:12px;color:var(--cyan2);margin-bottom:8px">实体 <b>'+esc(ent.cn||ent.name)+
+      '</b> · 声明属性 '+attrs.length+' 个 · 已映射 '+entBinds.length+' 个</div>';
+    html+='<table class="abox-tbl"><thead><tr><th>属性</th><th>类型</th><th>映射物理列</th><th>存在</th><th>非空率</th><th>状态</th></tr></thead><tbody>';
+    attrs.forEach(a=>{
+      const b = entBinds.find(x=>x.property===a.name) ||
+                entBinds.find(x=>x.property && x.property.endsWith('.'+a.name));
+      if(b){
+        const rate=(b.non_null_rate!=null)?(b.non_null_rate*100).toFixed(1)+'%':'-';
+        html+='<tr><td class="mono">'+esc(a.name)+'</td><td style="color:var(--text2)">'+esc(a.type||'')+'</td>'+
+          '<td class="mono">'+esc(mainTable)+'.'+esc(b.col||'-')+'</td>'+
+          '<td class="'+(b.exists?'abox-ok':'abox-na')+'">'+(b.exists?'✓':'✗')+'</td>'+
+          '<td class="mono">'+rate+'</td><td><span class="abox-status-pill 正常">已映射</span></td></tr>';
+      } else {
+        html+='<tr><td class="mono">'+esc(a.name)+'</td><td style="color:var(--text2)">'+esc(a.type||'')+'</td>'+
+          '<td class="abox-na">未映射</td><td>-</td><td>-</td>'+
+          '<td><span class="abox-status-pill 预警">未映射</span></td></tr>';
+      }
+    });
+    html+='</tbody></table>';
+    // 映射缺口：主表存在但未绑定到任何属性的物理列
+    if(tableCols && tableCols.columns){
+      const gaps=tableCols.columns.filter(c=>!boundCols.has(c));
+      html+='<div style="margin-top:12px;font-size:11px;color:var(--text2)">物理表 <b style="color:var(--cyan2)">'+esc(mainTable)+
+        '</b> 共 '+tableCols.column_count+' 列，其中 <b style="color:var(--orange)">'+gaps.length+'</b> 列尚未绑定到任何属性（映射缺口，后续可页面编辑绑定）：</div>';
+      html+='<div class="abox-summary" style="margin-top:6px">'+gaps.slice(0,40).map(c=>'<span class="s">'+esc(c)+'</span>').join('')+
+        (gaps.length>40?'<span class="s">…</span>':'')+'</div>';
+    }
+    html+='<div style="margin-top:10px;font-size:10px;color:var(--text2)">※ 页面手动编辑映射（即将支持）：届时可直接在此增删「属性 ↔ 物理列」绑定，写回覆盖层而不改 ontos 源码。</div>';
+    box.innerHTML=html;
   }
 
   function kv(k,v){ return '<div class="abox-kv"><span class="k">'+esc(k)+'</span><span class="v">'+esc(v==null?'':v)+'</span></div>'; }
@@ -903,6 +955,40 @@
     });
     html+='</tbody></table>';
     return html;
+  }
+
+  /* ── 函数运行 / 动作执行 弹窗（ABox 视图入口） ─────── */
+  function showModal(title, bodyHTML){
+    const mask=document.getElementById('modal-mask');
+    document.getElementById('modal-head').innerHTML=title;
+    document.getElementById('modal-body').innerHTML=bodyHTML;
+    mask.classList.add('show');
+  }
+  function closeModal(){ const m=document.getElementById('modal-mask'); if(m) m.classList.remove('show'); }
+
+  // 函数：TBox 点「运行/预览」→ 调本体该函数的 ABox 读取层 → 弹窗展示其作用的实例 + 逐条判定
+  function openFunctionModal(fid){
+    showModal('函数运行 · '+esc(fid), '<div class="abox-empty">正在计算 '+esc(fid)+' 实例…</div>');
+    fetch('/api/ontos/abox?function='+encodeURIComponent(fid)).then(r=>r.json()).then(j=>{
+      if(!j||j.success===false){ showModal('函数运行 · '+esc(fid), '<div class="abox-na-reason">加载失败：'+esc((j&&j.message)||'')+'</div>'); return; }
+      showModal('函数运行 · '+esc(fid), renderFunctionView(j.function_view));
+    }).catch(e=>{ showModal('函数运行 · '+esc(fid), '<div class="abox-na-reason">'+esc(e)+'</div>'); });
+  }
+
+  // 动作：当前无执行器，按红线展示 dry-run 效果预览（不真写 ABox、不编数据）
+  function openActionModal(aid){
+    const a=findItem('action', aid);
+    if(!a){ showModal('动作执行 · '+esc(aid), '<div class="abox-na-reason">未找到动作定义</div>'); return; }
+    let html='<div class="abox-summary" style="margin-bottom:10px">'+
+      '<span class="s">类型 <b>Action（增改 ABox 实例）</b></span>'+
+      '<span class="s">指向 <b>'+esc((a.targets||[]).join(', ')||'-')+'</b></span>'+
+      '<span class="s">分类 <b>'+esc(a.category||'-')+'</b></span></div>';
+    html+='<div class="abox-card"><h3>条件（输入）</h3><div class="ed-readonly" style="border:none;padding:0;margin:0">'+
+      ((a.conditions||[]).map(c=>'<div class="fn-item" style="border-left:3px solid var(--orange)">'+esc(c)+'</div>').join('')||'<div class="abox-empty">（无）</div>')+'</div></div>';
+    html+='<div class="abox-card"><h3>效果（将写入 ABox）</h3><div class="ed-readonly" style="border:none;padding:0;margin:0">'+
+      ((a.effects||[]).map(c=>'<div class="fn-item" style="border-left:3px solid var(--orange)">'+esc(c)+'</div>').join('')||'<div class="abox-empty">（无）</div>')+'</div></div>';
+    html+='<div class="abox-na-reason">⌛ 实际写入需对接执行器（当前未接入），此处仅展示 dry-run 效果预览，不返回演示数据、不修改 ABox。</div>';
+    showModal('动作执行 · '+esc(aid), html);
   }
 
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',init);
