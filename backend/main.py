@@ -80,6 +80,7 @@ NO_CACHE_PATHS = frozenset((
     '/common.css', '/plm.app.js', '/procurement.app.js', '/contrast.app.js', '/core.app.js', '/finance.app.js',
     '/gross.app.js',
     '/finance-cycle.app.js', '/finance-fund.app.js', '/finance-cost.app.js', '/finance-baseline.app.js', '/nav.config.js', '/china.json',
+    '/pmo-order', '/pmo-order.app.js', '/pmo-workorder', '/pmo-workorder.app.js',
     '/ontology.app.js',
     '/ontos-topology', '/ontos-topology.app.js',
     '/ontos-abox', '/ontos-abox.app.js',
@@ -950,6 +951,28 @@ def finance_baseline_page():
 @app.get("/finance-baseline.app.js")
 def finance_baseline_app_js():
     return FileResponse(os.path.join(FRONTEND_DIR, 'finance-baseline.app.js'))
+
+
+@app.get("/pmo-order")
+def pmo_order_page():
+    """PMO 域 · 订单 录入页（手工录入，项目下拉取合同表，后续切项目表）。"""
+    return FileResponse(os.path.join(FRONTEND_DIR, 'pmo-order.html'))
+
+
+@app.get("/pmo-order.app.js")
+def pmo_order_app_js():
+    return FileResponse(os.path.join(FRONTEND_DIR, 'pmo-order.app.js'))
+
+
+@app.get("/pmo-workorder")
+def pmo_workorder_page():
+    """PMO 域 · 工单 录入页（选订单自动带出，自主/差旅/变动成本按月划分）。"""
+    return FileResponse(os.path.join(FRONTEND_DIR, 'pmo-workorder.html'))
+
+
+@app.get("/pmo-workorder.app.js")
+def pmo_workorder_app_js():
+    return FileResponse(os.path.join(FRONTEND_DIR, 'pmo-workorder.app.js'))
 
 
 @app.get("/china.json")

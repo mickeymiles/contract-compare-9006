@@ -480,6 +480,41 @@ def init_plm_db():
         )
     """)
 
+    # ── PMO 订单 / 工单（2026-09-06 落地：补滞后口径预估成本）──
+    # 订单：合同签订后按产值里程碑形成，手动录入；project_no 当前=合同编号（md_contract，1:1），
+    #       后续切换 plm_project 项目表时只改录入源的取数，表结构不变。
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS plm_order (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_no TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            project_no TEXT NOT NULL,
+            project_name TEXT DEFAULT '',
+            start_date TEXT DEFAULT '',
+            end_date TEXT DEFAULT '',
+            remark TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    # 工单：订单分解的执行单元，记录三分项预估成本（自主/差旅/变动）+ 完成月份。
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS plm_workorder (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            wo_no TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            order_no TEXT NOT NULL,
+            order_name TEXT DEFAULT '',
+            project_no TEXT NOT NULL,
+            project_name TEXT DEFAULT '',
+            self_cost REAL DEFAULT 0,
+            travel_cost REAL DEFAULT 0,
+            variable_cost REAL DEFAULT 0,
+            complete_month TEXT DEFAULT '',
+            remark TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+
     # 字典同分类下 key 唯一（create_dict 依赖 IntegrityError 做冲突提示）
     c.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_plm_dict_cat_key "
               "ON plm_dict (category, key)")
@@ -490,6 +525,12 @@ def init_plm_db():
               "ON plm_ledger (project_id, kind, plan_or_actual)")
     c.execute("CREATE INDEX IF NOT EXISTS ix_plm_alert_open "
               "ON plm_alert (project_id, rule_key, status)")
+    c.execute("CREATE INDEX IF NOT EXISTS ix_plm_order_project "
+              "ON plm_order (project_no)")
+    c.execute("CREATE INDEX IF NOT EXISTS ix_plm_workorder_project "
+              "ON plm_workorder (project_no)")
+    c.execute("CREATE INDEX IF NOT EXISTS ix_plm_workorder_order "
+              "ON plm_workorder (order_no)")
 
     # —— plm_milestone 增量补列（幂等：列已在则跳过）——
     # 承载导入的「项目里程碑表」回款信息，供 payment_cycle / milestone_payback_point 使用
@@ -1677,7 +1718,8 @@ def list_master_contract_summary(keyword='', limit=2000):
         cust_col = _col(['甲方名称', '客户简称', '客户名称'])
         amt_col = _col(['合同总金额', '原币合同额'])
         st_col = _col(['合同状态', '状态'])
-        sel = ['"%s"' % c for c in [cno_col, cust_col, amt_col, st_col] if c]
+        name_col = _col(['项目描述', '项目名称'])
+        sel = ['"%s"' % c for c in [cno_col, cust_col, amt_col, st_col, name_col] if c]
         sql = 'SELECT %s FROM md_contract' % ','.join(sel)
         args = []
         if keyword:
@@ -1691,6 +1733,7 @@ def list_master_contract_summary(keyword='', limit=2000):
                 continue
             rows.append({
                 'contract_no': str(cno).strip(),
+                'name': (r[name_col] if name_col else None) or '',
                 'customer': (r[cust_col] if cust_col else None) or '',
                 'amount': _r(r[amt_col] if amt_col else 0),
                 'status': (r[st_col] if st_col else None) or '',
@@ -3454,10 +3497,180 @@ def export_report(report, project_id=None):
              '累计实际成本', '预算消耗占比', '实际毛利', '实际毛利率', '成本方向']]
     for x in list_projects(limit=500):
         fa = project_finance(x['id'])
-        rows.append([x['project_no'], x['project_name'], fa['income']['signed'],
-                     fa['income']['total'], fa['baseline']['estimate_cost'],
-                     fa['baseline']['budget_total'], fa['cost']['actual_cum'],
-                     _pct(fa['variance']['budget_usage_rate']), fa['gross']['actual'],
-                     _pct(fa['gross']['actual_rate']), fa['variance']['direction']])
+    rows.append([x['project_no'], x['project_name'], fa['income']['signed'],
+                 fa['income']['total'], fa['baseline']['estimate_cost'],
+                 fa['baseline']['budget_total'], fa['cost']['actual_cum'],
+                 _pct(fa['variance']['budget_usage_rate']), fa['gross']['actual'],
+                 _pct(fa['gross']['actual_rate']), fa['variance']['direction']])
     return '项目成本毛利报表.xlsx', _xlsx([('成本毛利', rows)])
+
+
+# ===================== PMO 订单 / 工单（2026-09-06 落地：补滞后口径预估成本）=====================
+# 订单：合同签订后按产值里程碑形成，手动录入；project_no 当前=合同编号（md_contract，1:1）。
+# 工单：订单分解的执行单元，记录三分项预估成本（自主/差旅/变动）+ 完成月份（按月划分成本）。
+
+def list_orders(keyword=None, limit=500):
+    conn = get_db()
+    sql, args = "SELECT * FROM plm_order", []
+    if keyword:
+        sql += " WHERE (order_no LIKE ? OR name LIKE ? OR project_no LIKE ? OR project_name LIKE ?)"
+        args += ['%' + keyword + '%'] * 4
+    sql += " ORDER BY id DESC LIMIT ?"; args.append(int(limit))
+    rows = _rows(conn.execute(sql, args))
+    conn.close()
+    return rows
+
+
+def get_order(order_id):
+    conn = get_db()
+    r = _first(conn.execute("SELECT * FROM plm_order WHERE id=?", (order_id,)))
+    conn.close()
+    return r
+
+
+def create_order(payload, operator=''):
+    no = (payload.get('order_no') or '').strip()
+    name = (payload.get('name') or '').strip()
+    project_no = (payload.get('project_no') or '').strip()
+    if not no:
+        return {'success': False, 'error': '订单号必填'}
+    if not name:
+        return {'success': False, 'error': '订单名必填'}
+    if not project_no:
+        return {'success': False, 'error': '项目号必填（当前取自合同表）'}
+    conn = get_db()
+    try:
+        cur = conn.execute("""INSERT INTO plm_order
+            (order_no,name,project_no,project_name,start_date,end_date,remark) VALUES (?,?,?,?,?,?,?)""",
+            (no, name, project_no, (payload.get('project_name') or '').strip(),
+             (payload.get('start_date') or '').strip(), (payload.get('end_date') or '').strip(),
+             (payload.get('remark') or '')))
+        oid = cur.lastrowid
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return {'success': False, 'error': '订单号已存在：%s' % no}
+    conn.close()
+    log_op('order', oid, no, '新增订单',
+           {'project_no': project_no, 'project_name': payload.get('project_name', '')}, operator=operator)
+    return {'success': True, 'id': oid, 'order_no': no}
+
+
+def update_order(order_id, payload, operator=''):
+    fields = ('order_no', 'name', 'project_no', 'project_name', 'start_date', 'end_date', 'remark')
+    return _update_by_fields('plm_order', 'order', order_id, fields, payload,
+                             label_field='order_no', action='修改订单', operator=operator)
+
+
+def delete_order(order_id, operator=''):
+    conn = get_db()
+    r = _first(conn.execute("SELECT * FROM plm_order WHERE id=?", (order_id,)))
+    if not r:
+        conn.close()
+        return {'success': False, 'error': '订单不存在'}
+    refs = {'工单': conn.execute("SELECT COUNT(*) n FROM plm_workorder WHERE order_no=?",
+                                 (r['order_no'],)).fetchone()['n']}
+    if any(refs.values()):
+        conn.close()
+        return {'success': False, 'error': '订单下仍有工单，无法删除', 'refs': refs}
+    conn.execute("DELETE FROM plm_order WHERE id=?", (order_id,))
+    conn.commit()
+    conn.close()
+    log_op('order', order_id, r['order_no'], '删除订单', operator=operator)
+    return {'success': True}
+
+
+def list_workorders(keyword=None, order_no=None, limit=500):
+    conn = get_db()
+    sql, args = "SELECT * FROM plm_workorder", []
+    conds = []
+    if keyword:
+        conds.append("(wo_no LIKE ? OR name LIKE ? OR project_no LIKE ? OR project_name LIKE ?)")
+        args += ['%' + keyword + '%'] * 4
+    if order_no:
+        conds.append("order_no=?"); args.append(order_no)
+    if conds:
+        sql += " WHERE " + " AND ".join(conds)
+    sql += " ORDER BY id DESC LIMIT ?"; args.append(int(limit))
+    rows = _rows(conn.execute(sql, args))
+    for r in rows:
+        r['est_cost'] = round(_f(r.get('self_cost')) + _f(r.get('travel_cost')) + _f(r.get('variable_cost')), 2)
+    conn.close()
+    return rows
+
+
+def get_workorder(wo_id):
+    conn = get_db()
+    r = _first(conn.execute("SELECT * FROM plm_workorder WHERE id=?", (wo_id,)))
+    if r:
+        r['est_cost'] = round(_f(r.get('self_cost')) + _f(r.get('travel_cost')) + _f(r.get('variable_cost')), 2)
+    conn.close()
+    return r
+
+
+def create_workorder(payload, operator=''):
+    wo_no = (payload.get('wo_no') or '').strip()
+    name = (payload.get('name') or '').strip()
+    order_no = (payload.get('order_no') or '').strip()
+    if not wo_no:
+        return {'success': False, 'error': '工单号必填'}
+    if not name:
+        return {'success': False, 'error': '工单名必填'}
+    if not order_no:
+        return {'success': False, 'error': '订单号必填（选择订单自动带出项目）'}
+    conn = get_db()
+    o = _first(conn.execute("SELECT * FROM plm_order WHERE order_no=?", (order_no,)))
+    if not o:
+        conn.close()
+        return {'success': False, 'error': '订单不存在：%s' % order_no}
+    # 选订单自动带出订单名/项目号/项目名（录入只需选订单 + 填三分项成本）
+    try:
+        cur = conn.execute("""INSERT INTO plm_workorder
+            (wo_no,name,order_no,order_name,project_no,project_name,self_cost,travel_cost,
+             variable_cost,complete_month,remark) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (wo_no, name, order_no, o['name'], o['project_no'], o['project_name'],
+             _f(payload.get('self_cost')), _f(payload.get('travel_cost')),
+             _f(payload.get('variable_cost')), (payload.get('complete_month') or '').strip(),
+             (payload.get('remark') or '')))
+        wid = cur.lastrowid
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return {'success': False, 'error': '工单号已存在：%s' % wo_no}
+    conn.close()
+    est = round(_f(payload.get('self_cost')) + _f(payload.get('travel_cost')) + _f(payload.get('variable_cost')), 2)
+    log_op('workorder', wid, wo_no, '新增工单',
+           {'order_no': order_no, 'project_no': o['project_no'], 'est_cost': est}, operator=operator)
+    return {'success': True, 'id': wid, 'wo_no': wo_no}
+
+
+def update_workorder(wo_id, payload, operator=''):
+    payload = dict(payload)
+    order_no = (payload.get('order_no') or '').strip()
+    if order_no:
+        conn = get_db()
+        o = _first(conn.execute("SELECT * FROM plm_order WHERE order_no=?", (order_no,)))
+        conn.close()
+        if o:
+            payload['order_name'] = o['name']
+            payload['project_no'] = o['project_no']
+            payload['project_name'] = o['project_name']
+    fields = ('wo_no', 'name', 'order_no', 'order_name', 'project_no', 'project_name',
+              'self_cost', 'travel_cost', 'variable_cost', 'complete_month', 'remark')
+    return _update_by_fields('plm_workorder', 'workorder', wo_id, fields, payload,
+                             numeric=('self_cost', 'travel_cost', 'variable_cost'),
+                             label_field='wo_no', action='修改工单', operator=operator)
+
+
+def delete_workorder(wo_id, operator=''):
+    conn = get_db()
+    r = _first(conn.execute("SELECT * FROM plm_workorder WHERE id=?", (wo_id,)))
+    if not r:
+        conn.close()
+        return {'success': False, 'error': '工单不存在'}
+    conn.execute("DELETE FROM plm_workorder WHERE id=?", (wo_id,))
+    conn.commit()
+    conn.close()
+    log_op('workorder', wo_id, r['wo_no'], '删除工单', operator=operator)
+    return {'success': True}
 

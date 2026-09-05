@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PMO 工单 · 经营业务工作台</title>
+<link rel="stylesheet" href="/common.css">
+</head>
+<body>
+<div id="app" class="app-frame">
+  <div class="app-topbar">
+    <nav class="breadcrumb" id="breadcrumb"></nav>
+    <nav class="topmenu" id="topMenu"></nav>
+  </div>
+  <div class="app-body">
+    <aside class="nav-rail" id="navRail"></aside>
+    <main class="app-main app-content">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+        <span style="font-size:11px;color:var(--text2)" id="woStatus">PMO 工单 · 选订单自动带出项目；三分项成本按月划分（complete_month）</span>
+        <div style="display:flex;align-items:center;gap:10px">
+          <button class="btn btn-c" onclick="PmoWo.openCreate()">＋ 新增工单</button>
+        </div>
+      </div>
+      <div id="woContent">
+        <div class="ana-empty"><div class="icon">⏳</div><div>正在读取工单…</div></div>
+      </div>
+    </main>
+  </div>
+</div>
+<div id="modalRoot"></div>
+<script src="/nav.config.js"></script>
+<script src="/pmo-workorder.app.js"></script>
+</body>
+</html>

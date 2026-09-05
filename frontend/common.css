@@ -13,6 +13,7 @@
   --border2:#1b2740;
   --cyan:#4f8cff;        /* 主蓝 */
   --cyan2:#22d3ee;       /* 青 */
+  --red2:#f87171;        /* 红（危险操作） */
   --green:#34d399;
   --red:#f87171;
   --orange:#fbbf24;
@@ -575,3 +576,18 @@ table td.num,table th.num{text-align:right;font-variant-numeric:tabular-nums}
 .page-loading .pl-text{color:#fff;font-size:14px;letter-spacing:.5px;
   text-shadow:0 1px 4px rgba(0,0,0,.5);min-width:80px;text-align:center}
 .page-loading .pl-sub{color:rgba(255,255,255,.7);font-size:11px;margin-top:-6px}
+
+/* PMO 订单/工单 录入弹窗（2026-09-06；modal-mask 点击遮罩关闭，独立于既有 .modal 体系） */
+.modal-mask{position:fixed;inset:0;z-index:2000;background:rgba(4,10,22,.72);backdrop-filter:blur(4px);display:flex;justify-content:center;align-items:flex-start;padding-top:60px}
+.modal{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:24px;width:90%;max-width:520px;box-shadow:0 16px 60px rgba(0,0,0,.55);animation:modalIn .2s ease;max-height:84vh;overflow-y:auto}
+.modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;font-size:15px;color:var(--text);font-weight:500}
+.modal-head a{color:var(--text2);cursor:pointer;font-size:16px}
+.modal-foot{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+.form-grid{display:flex;flex-direction:column;gap:12px}
+.form-row{display:flex;align-items:center;gap:12px}
+.form-label{width:84px;flex-shrink:0;color:var(--text2);font-size:13px;text-align:right}
+.form-row input,.form-row select{flex:1;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;font-size:13px}
+.form-row input:focus,.form-row select:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 3px rgba(79,140,255,.15)}
+.btn-sm{padding:4px 10px;font-size:12px;border-radius:8px;background:var(--bg3);border:1px solid var(--border);color:var(--text);cursor:pointer}
+.btn-sm.btn-c{color:#04121f}
+@keyframes modalIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}

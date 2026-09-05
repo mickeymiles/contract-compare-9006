@@ -54,7 +54,9 @@
     ]},
     { key: 'pmo',  label: 'PMO', icon: 'pmo', href: '/plm', children: [
       { sub: '计划执行', links: [
-        { id: 'pmo-plm', label: '计划 / 任务 / 台账 / 预警', href: '/plm', icon: 'lifecycle' }
+        { id: 'pmo-plm', label: '计划 / 任务 / 台账 / 预警', href: '/plm', icon: 'lifecycle' },
+        { id: 'pmo-order', label: '订单', href: '/pmo-order', icon: 'receipt' },
+        { id: 'pmo-workorder', label: '工单', href: '/pmo-workorder', icon: 'pay' }
       ] }
     ]},
     { key: 'fin',  label: '财经', icon: 'fund', href: '/gross', children: [

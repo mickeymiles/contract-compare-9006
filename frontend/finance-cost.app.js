@@ -161,8 +161,8 @@
       + ' 个业务单元 · 数据源：/api/core/metrics/cost-warning（md_contract 权威列 + 本体 F-project-cost-warning）'
       + (updatedAt ? ' · 更新于 ' + updatedAt : '') + '</div>';
     h += '<div style="margin-bottom:8px;font-size:11px;color:var(--text3)">口径(ontos COST_FORMULA_POLICY)：预算=累计实施成本预估；当前成本=累计实施成本实际（均≡分项汇总）。'
-      + '⚠ 当前成本滞后约 2 个月（如 8 月看 6 月底、9 月看 7 月底）——「预估成本」= ontos F-project-cost-warning 的 wo_est_cost（工单预估，来源 F-workorder-cost-rollup），'
-      + '由 PMO 依据工单/人员投入/差旅等补估，补齐时差后「当前成本+预估成本」才是当前真实状态；剩余成本/完成比/状态均由 ontos 按当前预估口径计算。现阶段预估源未落地=0，故与滞后口径一致。</div>';
+      + '⚠ 当前成本滞后约 2 个月（如 8 月看 6 月底、9 月看 7 月底）——「预估成本」= 本体 F-workorder-cost-rollup 汇总（Σ plm_workorder 自主/差旅/变动），'
+      + '2026-09-06 已落地：工单手工录入后有效成本=当前成本+预估成本，补齐时差、预警更及时；工单未录入项目退化为滞后口径（预估=0）。</div>';
     h += '<div style="margin-bottom:8px;display:flex;gap:8px;align-items:center">'
       + '<input id="costFilterInput" type="text" placeholder="按 项目号/合同号/名称 筛选…" value="' + (costFilter || '').replace(/"/g, '&quot;')
       + '" oninput="CostWarning.setFilter(this.value)" '
@@ -174,7 +174,7 @@
       + '<th style="text-align:left;padding-left:8px">项目名称</th>'
       + '<th class="num" title="累计实施成本预估(≡硬件集成费+服务预估成本+软件预估实施费)">预算</th>'
       + '<th class="num" title="累计实施成本实际(≡六分项实际)，滞后约2个月">当前成本</th>'
-      + '<th class="num" title="PMO 按工单/人员投入/差旅等补估(= ontos wo_est_cost)，补齐当前成本滞后时差；现阶段未接入=0">预估成本</th>'
+      + '<th class="num" title="预估成本 = 本体 F-workorder-cost-rollup 汇总(Σ工单 自主/差旅/变动)，2026-09-06 已接入 plm_workorder；工单未录入=0">预估成本</th>'
       + '<th class="num" title="剩余 = 预算 - 当前成本 - 预估成本（当前预估口径，ontos 计算）">剩余成本</th>'
       + '<th class="num" title="完成比 = (当前成本+预估成本) / 预算（当前预估口径，ontos 计算）">预算完成比</th>'
       + '<th>预警状态</th><th style="text-align:left;padding-left:8px">说明</th></tr></thead>'

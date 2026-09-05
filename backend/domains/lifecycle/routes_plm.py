@@ -462,3 +462,60 @@ def api_plm_export(report: str, project_id: Optional[int] = None):
         media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         headers={'Content-Disposition': "attachment; filename*=UTF-8''%s"
                                         % urllib.parse.quote(filename)})
+
+
+# ── PMO 订单 / 工单（2026-09-06 落地：补滞后口径预估成本）──
+@router.get("/api/plm/orders")
+def api_plm_list_orders(keyword: str = '', limit: int = 500):
+    return _plm_ret(plm.list_orders(keyword or '', limit))
+
+
+@router.post("/api/plm/orders")
+def api_plm_create_order(payload: Dict[str, Any]):
+    return _plm_ret(plm.create_order(payload, _plm_op(payload)))
+
+
+@router.get("/api/plm/orders/{order_id}")
+def api_plm_get_order(order_id: int):
+    r = plm.get_order(order_id)
+    if not r:
+        return JSONResponse({'success': False, 'error': '订单不存在'}, status_code=404)
+    return _plm_ret(r)
+
+
+@router.put("/api/plm/orders/{order_id}")
+def api_plm_update_order(order_id: int, payload: Dict[str, Any]):
+    return _plm_ret(plm.update_order(order_id, payload, _plm_op(payload)))
+
+
+@router.delete("/api/plm/orders/{order_id}")
+def api_plm_delete_order(order_id: int, payload: Dict[str, Any] = None):
+    return _plm_ret(plm.delete_order(order_id, _plm_op(payload)))
+
+
+@router.get("/api/plm/workorders")
+def api_plm_list_workorders(keyword: str = '', order_no: str = '', limit: int = 500):
+    return _plm_ret(plm.list_workorders(keyword or '', order_no or '', limit))
+
+
+@router.post("/api/plm/workorders")
+def api_plm_create_workorder(payload: Dict[str, Any]):
+    return _plm_ret(plm.create_workorder(payload, _plm_op(payload)))
+
+
+@router.get("/api/plm/workorders/{wo_id}")
+def api_plm_get_workorder(wo_id: int):
+    r = plm.get_workorder(wo_id)
+    if not r:
+        return JSONResponse({'success': False, 'error': '工单不存在'}, status_code=404)
+    return _plm_ret(r)
+
+
+@router.put("/api/plm/workorders/{wo_id}")
+def api_plm_update_workorder(wo_id: int, payload: Dict[str, Any]):
+    return _plm_ret(plm.update_workorder(wo_id, payload, _plm_op(payload)))
+
+
+@router.delete("/api/plm/workorders/{wo_id}")
+def api_plm_delete_workorder(wo_id: int, payload: Dict[str, Any] = None):
+    return _plm_ret(plm.delete_workorder(wo_id, _plm_op(payload)))
